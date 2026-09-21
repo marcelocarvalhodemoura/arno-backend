@@ -1,80 +1,51 @@
-import { pool } from '../shared/db';
+import type { User } from '@prisma/client';
+import { prisma } from '../shared/db';
 import { hashPassword, isLegacyHash, verifyPassword } from '../shared/auth/password';
 import { id } from '../shared/id';
 import type { AppUser, RecordOrigin, UserRole } from '../shared/types';
 
-interface UserRow {
-  id: string;
-  username: string;
-  name: string;
-  email: string;
-  password_hash: string;
-  role: UserRole;
-  active: boolean;
-  created_at: string;
-  updated_at?: string;
-  origin?: string;
-  created_by?: string | null;
-  updated_by?: string | null;
-}
-
-function toIso(value: unknown): string | undefined {
-  if (value == null || value === '') return undefined;
-  if (value instanceof Date) return value.toISOString();
-  return String(value);
-}
-
-function toUser(row: UserRow): AppUser {
+function toUser(row: User): AppUser {
   return {
-    id: String(row.id),
+    id: row.id,
     username: row.username,
     name: row.name,
     email: row.email,
-    role: row.role,
+    role: row.role as UserRole,
     active: row.active,
-    createdAt: toIso(row.created_at) ?? new Date().toISOString(),
+    createdAt: row.createdAt.toISOString(),
     origin: row.origin === 'manual' ? 'manual' : 'integration',
-    createdBy: row.created_by ? String(row.created_by) : undefined,
-    updatedAt: toIso(row.updated_at),
-    updatedBy: row.updated_by ? String(row.updated_by) : undefined,
+    createdBy: row.createdById ?? undefined,
+    updatedAt: row.updatedAt.toISOString(),
+    updatedBy: row.updatedById ?? undefined,
   };
-}
-
-export async function findUserByUsername(username: string): Promise<(AppUser & { passwordHash: string }) | null> {
-  const result = await pool.query<UserRow>('SELECT * FROM users WHERE username = $1', [username]);
-  const row = result.rows[0];
-  if (!row) return null;
-  return { ...toUser(row), passwordHash: row.password_hash };
 }
 
 function foldedLogin(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
+export async function findUserByUsername(username: string): Promise<(AppUser & { passwordHash: string }) | null> {
+  const row = await prisma.user.findUnique({ where: { username } });
+  if (!row) return null;
+  return { ...toUser(row), passwordHash: row.passwordHash };
+}
+
 export async function findUserByLogin(login: string): Promise<(AppUser & { passwordHash: string }) | null> {
   const key = foldedLogin(login);
   if (!key) return null;
-  const result = await pool.query<UserRow>(
-    `SELECT * FROM users
-     WHERE lower(btrim(regexp_replace(username, '\\s+', ' ', 'g'))) = $1
-        OR lower(btrim(email)) = $1
-     ORDER BY CASE
-       WHEN lower(btrim(regexp_replace(username, '\\s+', ' ', 'g'))) = $1 THEN 0
-       ELSE 1
-     END
-     LIMIT 1`,
-    [key],
-  );
-  const row = result.rows[0];
+  const users = await prisma.user.findMany();
+  const match = users
+    .filter((user) => foldedLogin(user.username) === key || user.email.trim().toLowerCase() === key)
+    .sort((a, b) => Number(foldedLogin(a.username) !== key) - Number(foldedLogin(b.username) !== key));
+  const row = match[0];
   if (!row) return null;
-  return { ...toUser(row), passwordHash: row.password_hash };
+  return { ...toUser(row), passwordHash: row.passwordHash };
 }
 
 export async function findUserById(userId: string): Promise<(AppUser & { passwordHash: string }) | null> {
-  const result = await pool.query<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
-  const row = result.rows[0];
+  const row = await prisma.user.findUnique({ where: { id: userId } });
   if (!row) return null;
-  return { ...toUser(row), passwordHash: row.password_hash };
+  return { ...toUser(row), passwordHash: row.passwordHash };
 }
 
 export async function verifyUserPassword(userId: string, password: string): Promise<boolean> {
@@ -84,8 +55,8 @@ export async function verifyUserPassword(userId: string, password: string): Prom
 }
 
 export async function listUsers(): Promise<AppUser[]> {
-  const result = await pool.query<UserRow>('SELECT * FROM users ORDER BY name');
-  return result.rows.map(toUser);
+  const rows = await prisma.user.findMany({ orderBy: { name: 'asc' } });
+  return rows.map(toUser);
 }
 
 export async function createUser(input: {
@@ -97,24 +68,19 @@ export async function createUser(input: {
   createdBy?: string;
   origin?: RecordOrigin;
 }): Promise<AppUser> {
-  const userId = id();
-  const passwordHash = await hashPassword(input.password);
-  const result = await pool.query<UserRow>(
-    `INSERT INTO users (id, username, name, email, password_hash, role, origin, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     RETURNING *`,
-    [
-      userId,
-      input.username,
-      input.name,
-      input.email,
-      passwordHash,
-      input.role,
-      input.origin ?? 'manual',
-      input.createdBy ?? null,
-    ],
-  );
-  return toUser(result.rows[0]);
+  const row = await prisma.user.create({
+    data: {
+      id: id(),
+      username: input.username,
+      name: input.name,
+      email: input.email,
+      passwordHash: await hashPassword(input.password),
+      role: input.role,
+      origin: input.origin ?? 'manual',
+      createdById: input.createdBy ?? null,
+    },
+  });
+  return toUser(row);
 }
 
 export async function updateUser(
@@ -128,32 +94,21 @@ export async function updateUser(
     updatedBy?: string;
   },
 ): Promise<AppUser | null> {
-  const current = await pool.query<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
-  if (!current.rows[0]) return null;
-  const row = current.rows[0];
-  const passwordHash = input.password ? await hashPassword(input.password) : row.password_hash;
-  const result = await pool.query<UserRow>(
-    `UPDATE users
-     SET name = $2,
-         email = $3,
-         role = $4,
-         active = $5,
-         password_hash = $6,
-         updated_at = NOW(),
-         updated_by = $7
-     WHERE id = $1
-     RETURNING *`,
-    [
-      userId,
-      input.name ?? row.name,
-      input.email ?? row.email,
-      input.role ?? row.role,
-      input.active ?? row.active,
-      passwordHash,
-      input.updatedBy ?? row.updated_by ?? null,
-    ],
-  );
-  return toUser(result.rows[0]);
+  const current = await prisma.user.findUnique({ where: { id: userId } });
+  if (!current) return null;
+  const row = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      name: input.name ?? current.name,
+      email: input.email ?? current.email,
+      role: input.role ?? current.role,
+      active: input.active ?? current.active,
+      passwordHash: input.password ? await hashPassword(input.password) : current.passwordHash,
+      updatedAt: new Date(),
+      updatedById: input.updatedBy ?? current.updatedById,
+    },
+  });
+  return toUser(row);
 }
 
 /**
@@ -161,7 +116,10 @@ export async function updateUser(
  * formato da senha é o login, não uma edição do cadastro.
  */
 export async function replacePasswordHash(userId: string, passwordHash: string): Promise<void> {
-  await pool.query('UPDATE users SET password_hash = $2 WHERE id = $1', [userId, passwordHash]);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
 }
 
 /**
@@ -186,6 +144,5 @@ export async function rehashLegacySeedUsers(): Promise<number> {
 }
 
 export async function countUsers(): Promise<number> {
-  const result = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM users');
-  return Number(result.rows[0]?.count ?? 0);
+  return prisma.user.count();
 }

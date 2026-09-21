@@ -1,56 +1,46 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import { join } from 'node:path';
-import { getPool, waitForDb } from '../db';
+import { promisify } from 'node:util';
+import { disconnectDb, prisma, waitForDb } from '../db';
 import { seedIfEmpty } from '../persistence/finance-store';
 
-function resolveMigrationsDir(): string {
-  const candidates = [
-    join(process.cwd(), 'migrations'),
-    join(__dirname, '../../../migrations'),
-    join(__dirname, '../../migrations'),
-  ];
-  const found = candidates.find((dir) => existsSync(dir));
-  if (!found) {
-    throw new Error(`Pasta de migrations não encontrada. Tentativas: ${candidates.join(', ')}`);
-  }
-  return found;
+const execFileAsync = promisify(execFile);
+const INIT_MIGRATION = '20260921170000_init';
+
+async function runPrisma(args: string[]): Promise<void> {
+  const bin = join(process.cwd(), 'node_modules', '.bin', 'prisma');
+  await execFileAsync(bin, args, {
+    cwd: process.cwd(),
+    env: process.env,
+  });
 }
 
 export async function migrate(): Promise<void> {
-  const pool = getPool();
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-
-  const applied = new Set(
-    (await pool.query<{ id: string }>('SELECT id FROM schema_migrations')).rows.map((row) => row.id),
-  );
-
-  const migrationsDir = resolveMigrationsDir();
-  const files = readdirSync(migrationsDir)
-    .filter((name) => name.endsWith('.sql'))
-    .sort();
-
-  for (const file of files) {
-    if (applied.has(file)) continue;
-    const sql = readFileSync(join(migrationsDir, file), 'utf8');
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(sql);
-      await client.query('INSERT INTO schema_migrations (id) VALUES ($1)', [file]);
-      await client.query('COMMIT');
-      console.log(`Migration aplicada: ${file}`);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+  const rows = await prisma.$queryRaw<Array<{ has_users: boolean; has_prisma: boolean }>>`
+    SELECT
+      to_regclass('public.users') IS NOT NULL AS has_users,
+      to_regclass('public._prisma_migrations') IS NOT NULL AS has_prisma
+  `;
+  const state = rows[0];
+  if (state?.has_users && !state.has_prisma) {
+    const ready = await prisma.$queryRaw<Array<{ ready: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'movement_types'
+          AND column_name = 'branch'
+      ) AS ready
+    `;
+    if (!ready[0]?.ready) {
+      throw new Error(
+        'O banco já tem tabelas, mas falta o schema atual. Use um banco vazio para o Prisma criar as tabelas.',
+      );
     }
+    await runPrisma(['migrate', 'resolve', '--applied', INIT_MIGRATION]);
   }
+  await runPrisma(['migrate', 'deploy']);
+  await prisma.$executeRawUnsafe('DROP TABLE IF EXISTS schema_migrations');
 }
 
 async function runCli() {
@@ -58,7 +48,7 @@ async function runCli() {
   await migrate();
   await seedIfEmpty();
   console.log('Migrations em dia.');
-  await getPool().end();
+  await disconnectDb();
 }
 
 const isCli = process.argv[1]?.includes('migrate');
@@ -66,7 +56,7 @@ if (isCli) {
   runCli().catch(async (error) => {
     console.error(error);
     try {
-      await getPool().end();
+      await disconnectDb();
     } catch {
       /* ignore */
     }

@@ -1,4 +1,4 @@
-import { pool } from '../shared/db';
+import { prisma } from '../shared/db';
 import { sendMail } from './mail';
 import { sendWhatsAppText } from './whatsapp';
 
@@ -50,69 +50,54 @@ function sleep(ms: number) {
 }
 
 export async function countQueued() {
-  const result = await pool.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count
-     FROM message_outbox
-     WHERE status IN ('queued', 'sending')`,
-  );
-  return Number(result.rows[0]?.count ?? 0);
+  return prisma.messageOutbox.count({
+    where: { status: { in: ['queued', 'sending'] } },
+  });
 }
 
 export async function recoverStuckSending(olderThanSeconds = 120) {
-  const result = await pool.query(
-    `UPDATE message_outbox
-     SET status = 'queued', next_attempt_at = NOW()
-     WHERE status = 'sending'
-       AND claimed_at IS NOT NULL
-       AND claimed_at < NOW() - make_interval(secs => $1)`,
-    [olderThanSeconds],
-  );
-  return result.rowCount ?? 0;
+  return prisma.$executeRaw`
+    UPDATE message_outbox
+    SET status = 'queued', next_attempt_at = NOW()
+    WHERE status = 'sending'
+      AND claimed_at IS NOT NULL
+      AND claimed_at < NOW() - make_interval(secs => ${olderThanSeconds})
+  `;
 }
 
 export async function claimQueued(limit: number): Promise<OutboxRow[]> {
   const size = Math.max(1, Math.min(50, Math.floor(limit)));
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const result = await client.query<OutboxRow>(
-      `UPDATE message_outbox AS m
-       SET status = 'sending',
-           claimed_at = NOW(),
-           attempts = m.attempts + 1
-       WHERE m.id IN (
-         SELECT id
-         FROM message_outbox
-         WHERE status = 'queued'
-           AND next_attempt_at <= NOW()
-         ORDER BY created_at ASC
-         FOR UPDATE SKIP LOCKED
-         LIMIT $1
-       )
-       RETURNING m.id, m.kind, m.channel, m.status, m.to_address, m.subject, m.body, m.html_body, m.attempts, m.error`,
-      [size],
-    );
-    await client.query('COMMIT');
-    return result.rows;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  return prisma.$transaction(async (tx) => {
+    return tx.$queryRaw<OutboxRow[]>`
+      UPDATE message_outbox AS m
+      SET status = 'sending',
+          claimed_at = NOW(),
+          attempts = m.attempts + 1
+      WHERE m.id IN (
+        SELECT id
+        FROM message_outbox
+        WHERE status = 'queued'
+          AND next_attempt_at <= NOW()
+        ORDER BY created_at ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT ${size}
+      )
+      RETURNING m.id, m.kind, m.channel, m.status, m.to_address, m.subject, m.body, m.html_body, m.attempts, m.error
+    `;
+  });
 }
 
 async function finishRow(id: string, status: 'sent' | 'failed' | 'skipped' | 'queued', error?: string, retryAt?: Date) {
-  await pool.query(
-    `UPDATE message_outbox
-     SET status = $2,
-         error = $3,
-         sent_at = CASE WHEN $2 = 'sent' THEN NOW() ELSE sent_at END,
-         next_attempt_at = COALESCE($4, next_attempt_at),
-         claimed_at = CASE WHEN $2 = 'queued' THEN NULL ELSE claimed_at END
-     WHERE id = $1`,
-    [id, status, error ?? null, retryAt ?? null],
-  );
+  await prisma.messageOutbox.update({
+    where: { id },
+    data: {
+      status,
+      error: error ?? null,
+      sentAt: status === 'sent' ? new Date() : undefined,
+      nextAttemptAt: retryAt,
+      claimedAt: status === 'queued' ? null : undefined,
+    },
+  });
 }
 
 export async function deliverRow(row: OutboxRow) {

@@ -1,4 +1,4 @@
-import { pool } from '../shared/db';
+import { prisma } from '../shared/db';
 import { id } from '../shared/id';
 import { mailConfigured } from './mail';
 import { kickOutbox } from './outbox';
@@ -84,26 +84,24 @@ async function recordOutbox(row: {
   userId: string;
 }) {
   const rowId = id();
-  await pool.query(
-    `INSERT INTO message_outbox (
-       id, kind, channel, status, member_id, transaction_id, to_address, subject, body, html_body, error, sent_at, created_by, next_attempt_at
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW())`,
-    [
-      rowId,
-      row.kind,
-      row.channel,
-      row.status,
-      row.memberId ?? null,
-      row.transactionId ?? null,
-      row.to,
-      row.subject,
-      row.body,
-      row.html ?? null,
-      row.error ?? null,
-      row.status === 'sent' ? new Date().toISOString() : null,
-      row.userId,
-    ],
-  );
+  await prisma.messageOutbox.create({
+    data: {
+      id: rowId,
+      kind: row.kind,
+      channel: row.channel,
+      status: row.status,
+      memberId: row.memberId ?? null,
+      transactionId: row.transactionId ?? null,
+      toAddress: row.to,
+      subject: row.subject,
+      body: row.body,
+      htmlBody: row.html ?? null,
+      error: row.error ?? null,
+      sentAt: row.status === 'sent' ? new Date() : null,
+      createdById: row.userId,
+      nextAttemptAt: new Date(),
+    },
+  });
   return rowId;
 }
 
@@ -224,23 +222,31 @@ export function isMensalidadeTx(db: DatabaseShape, tx: Transaction) {
 }
 
 export async function listNotifications(limit = 40) {
-  const result = await pool.query(
-    `SELECT id, kind, channel, status, to_address, subject, error, created_at, sent_at
-     FROM message_outbox
-     ORDER BY created_at DESC
-     LIMIT $1`,
-    [Math.min(Math.max(limit, 1), 100)],
-  );
-  return result.rows.map((row) => ({
-    id: String(row.id),
+  const rows = await prisma.messageOutbox.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: Math.min(Math.max(limit, 1), 100),
+    select: {
+      id: true,
+      kind: true,
+      channel: true,
+      status: true,
+      toAddress: true,
+      subject: true,
+      error: true,
+      createdAt: true,
+      sentAt: true,
+    },
+  });
+  return rows.map((row) => ({
+    id: row.id,
     kind: row.kind as NotifyKind,
     channel: row.channel as NotifyChannel,
     status: row.status as NotifyDelivery['status'],
-    to: String(row.to_address ?? ''),
-    subject: String(row.subject ?? ''),
-    error: row.error ? String(row.error) : undefined,
-    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
-    sentAt: row.sent_at instanceof Date ? row.sent_at.toISOString() : row.sent_at ? String(row.sent_at) : undefined,
+    to: row.toAddress,
+    subject: row.subject,
+    error: row.error ?? undefined,
+    createdAt: row.createdAt.toISOString(),
+    sentAt: row.sentAt?.toISOString(),
   }));
 }
 

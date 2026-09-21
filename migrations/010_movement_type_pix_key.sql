@@ -1,2 +1,0 @@
-ALTER TABLE movement_types
-  ADD COLUMN IF NOT EXISTS pix_key TEXT NOT NULL DEFAULT '';

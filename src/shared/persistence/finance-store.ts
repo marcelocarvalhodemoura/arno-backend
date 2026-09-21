@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
-import { pool } from '../db';
+import { Prisma, PrismaClient } from '@prisma/client';
+import { prisma } from '../db';
 import { hashPassword } from '../auth/password';
 import { id } from '../id';
 import type {
@@ -20,10 +21,13 @@ import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types'
 let cache: DatabaseShape | null = null;
 
 const FINANCE_LOCK = 87123001;
+const WRITE_TIMEOUT_MS = 120_000;
+
+type Db = PrismaClient | Prisma.TransactionClient;
 
 export async function loadDb(): Promise<DatabaseShape> {
   if (cache) return cache;
-  cache = await readFinance(pool);
+  cache = await readFinance(prisma);
   return cache;
 }
 
@@ -32,226 +36,223 @@ export function invalidateCache(): void {
 }
 
 export async function persist(db: DatabaseShape): Promise<void> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock($1)', [FINANCE_LOCK]);
-    await writeFinance(client, db);
-    await client.query('COMMIT');
-    cache = db;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
+      await writeFinance(tx, db);
+    },
+    { timeout: WRITE_TIMEOUT_MS },
+  );
+  cache = db;
 }
 
-async function writeFinance(client: typeof pool | import('pg').PoolClient, db: DatabaseShape): Promise<void> {
-  await client.query(
+function storedOrigin(origin: string | undefined, allowSicredi = false): string {
+  if (origin === 'manual') return 'manual';
+  if (allowSicredi && origin === 'sicredi') return 'sicredi';
+  return 'integration';
+}
+
+function asDate(value: string): Date {
+  return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
+}
+
+function dateOnly(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function asTimestamp(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  return new Date(value);
+}
+
+async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
+  await client.$executeRawUnsafe(
     'TRUNCATE transactions, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE',
   );
 
-  for (const type of db.movementTypes) {
-    await client.query(
-      `INSERT INTO movement_types (id, name, direction, description, pix_key, branch, active, origin, created_at, created_by, updated_at, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        type.id,
-        type.name,
-        type.direction,
-        type.description,
-        type.pixKey ?? '',
-        type.branch ?? 'grupo',
-        type.active,
-        type.origin === 'manual' ? 'manual' : 'integration',
-        type.createdAt,
-        type.createdBy ?? null,
-        type.updatedAt ?? null,
-        type.updatedBy ?? null,
-      ],
-    );
+  if (db.movementTypes.length) {
+    await client.movementType.createMany({
+      data: db.movementTypes.map((type) => ({
+        id: type.id,
+        name: type.name,
+        direction: type.direction,
+        description: type.description,
+        pixKey: type.pixKey ?? '',
+        branch: type.branch ?? 'grupo',
+        active: type.active,
+        origin: storedOrigin(type.origin),
+        createdAt: new Date(type.createdAt),
+        createdById: type.createdBy ?? null,
+        updatedAt: asTimestamp(type.updatedAt),
+        updatedById: type.updatedBy ?? null,
+      })),
+    });
   }
 
-  for (const fee of db.fees ?? []) {
-    await client.query(
-      `INSERT INTO fees (id, name, amount, origin, created_at, created_by, updated_at, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        fee.id,
-        fee.name,
-        fee.amount,
-        fee.origin === 'manual' ? 'manual' : 'integration',
-        fee.createdAt,
-        fee.createdBy ?? null,
-        fee.updatedAt ?? null,
-        fee.updatedBy ?? null,
-      ],
-    );
+  if (db.fees?.length) {
+    await client.fee.createMany({
+      data: db.fees.map((fee) => ({
+        id: fee.id,
+        name: fee.name,
+        amount: fee.amount,
+        origin: storedOrigin(fee.origin),
+        createdAt: new Date(fee.createdAt),
+        createdById: fee.createdBy ?? null,
+        updatedAt: asTimestamp(fee.updatedAt),
+        updatedById: fee.updatedBy ?? null,
+      })),
+    });
   }
 
-  for (const member of db.members) {
-    await client.query(
-      `INSERT INTO members (id, name, email, phone, branch, role, monthly_fee, status, joined_at, clube_ltc, origin, created_at, created_by, updated_at, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-      [
-        member.id,
-        member.name,
-        member.email,
-        member.phone,
-        member.branch,
-        member.role,
-        member.monthlyFee,
-        member.status,
-        member.joinedAt,
-        member.clubeLtc,
-        member.origin === 'manual' ? 'manual' : 'integration',
-        member.createdAt,
-        member.createdBy ?? null,
-        member.updatedAt ?? null,
-        member.updatedBy ?? null,
-      ],
-    );
+  if (db.members.length) {
+    await client.member.createMany({
+      data: db.members.map((member) => ({
+        id: member.id,
+        name: member.name,
+        email: member.email,
+        phone: member.phone,
+        branch: member.branch,
+        role: member.role,
+        monthlyFee: member.monthlyFee,
+        status: member.status,
+        joinedAt: asDate(member.joinedAt),
+        clubeLtc: member.clubeLtc,
+        origin: storedOrigin(member.origin),
+        createdAt: new Date(member.createdAt),
+        createdById: member.createdBy ?? null,
+        updatedAt: asTimestamp(member.updatedAt),
+        updatedById: member.updatedBy ?? null,
+      })),
+    });
   }
 
-  for (const guardian of db.memberGuardians ?? []) {
-    await client.query(
-      `INSERT INTO member_guardians (
-           id, member_id, name, relationship, phone, email, origin, created_at, created_by, updated_at, updated_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        guardian.id,
-        guardian.memberId,
-        guardian.name,
-        guardian.relationship,
-        guardian.phone,
-        guardian.email,
-        guardian.origin === 'manual' ? 'manual' : 'integration',
-        guardian.createdAt,
-        guardian.createdBy ?? null,
-        guardian.updatedAt ?? null,
-        guardian.updatedBy ?? null,
-      ],
-    );
+  if (db.memberGuardians?.length) {
+    await client.memberGuardian.createMany({
+      data: db.memberGuardians.map((guardian) => ({
+        id: guardian.id,
+        memberId: guardian.memberId,
+        name: guardian.name,
+        relationship: guardian.relationship,
+        phone: guardian.phone,
+        email: guardian.email,
+        origin: storedOrigin(guardian.origin),
+        createdAt: new Date(guardian.createdAt),
+        createdById: guardian.createdBy ?? null,
+        updatedAt: asTimestamp(guardian.updatedAt),
+        updatedById: guardian.updatedBy ?? null,
+      })),
+    });
   }
 
-  for (const account of db.memberAccounts) {
-    await client.query(
-      `INSERT INTO member_accounts (
-           id, member_id, holder_name, holder_kind, relationship, pix_key, bank, agency,
-           account_number, document, notes, is_primary, active, origin, created_at, created_by, updated_at, updated_by
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)`,
-      [
-        account.id,
-        account.memberId,
-        account.holderName,
-        account.holderKind,
-        account.relationship,
-        account.pixKey,
-        account.bank,
-        account.agency,
-        account.accountNumber,
-        account.document,
-        account.notes ?? null,
-        account.isPrimary,
-        account.active,
-        account.origin === 'manual' ? 'manual' : 'integration',
-        account.createdAt,
-        account.createdBy ?? null,
-        account.updatedAt ?? null,
-        account.updatedBy ?? null,
-      ],
-    );
+  if (db.memberAccounts.length) {
+    await client.memberAccount.createMany({
+      data: db.memberAccounts.map((account) => ({
+        id: account.id,
+        memberId: account.memberId,
+        holderName: account.holderName,
+        holderKind: account.holderKind,
+        relationship: account.relationship,
+        pixKey: account.pixKey,
+        bank: account.bank,
+        agency: account.agency,
+        accountNumber: account.accountNumber,
+        document: account.document,
+        notes: account.notes ?? null,
+        isPrimary: account.isPrimary,
+        active: account.active,
+        origin: storedOrigin(account.origin),
+        createdAt: new Date(account.createdAt),
+        createdById: account.createdBy ?? null,
+        updatedAt: asTimestamp(account.updatedAt),
+        updatedById: account.updatedBy ?? null,
+      })),
+    });
   }
 
-  for (const project of db.projects) {
-    await client.query(
-      `INSERT INTO projects (id, branch, year, name, description, origin, created_at, created_by, updated_at, updated_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [
-        project.id,
-        project.branch,
-        project.year,
-        project.name,
-        project.description,
-        project.origin === 'manual' ? 'manual' : 'integration',
-        project.createdAt,
-        project.createdBy ?? null,
-        project.updatedAt ?? null,
-        project.updatedBy ?? null,
-      ],
+  if (db.projects.length) {
+    await client.project.createMany({
+      data: db.projects.map((project) => ({
+        id: project.id,
+        branch: project.branch,
+        year: project.year,
+        name: project.name,
+        description: project.description,
+        origin: storedOrigin(project.origin),
+        createdAt: new Date(project.createdAt),
+        createdById: project.createdBy ?? null,
+        updatedAt: asTimestamp(project.updatedAt),
+        updatedById: project.updatedBy ?? null,
+      })),
+    });
+    const items = db.projects.flatMap((project) =>
+      project.items.map((item) => ({
+        id: item.id,
+        projectId: project.id,
+        category: item.category,
+        description: item.description,
+        planned: item.planned,
+        movementTypeId: item.movementTypeId ?? null,
+      })),
     );
-    for (const item of project.items) {
-      await client.query(
-        `INSERT INTO project_items (id, project_id, category, description, planned, movement_type_id)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-        [item.id, project.id, item.category, item.description, item.planned, item.movementTypeId ?? null],
-      );
-    }
+    if (items.length) await client.projectItem.createMany({ data: items });
   }
 
-  for (const tx of db.transactions) {
-    await client.query(
-      `INSERT INTO transactions (
-           id, date, type, nature, movement_type_id, description, amount, branch, method, payment_status, paid_at,
-           member_id, member_account_id, member_guardian_id, project_id, notes, external_id, created_by, created_at, updated_at, updated_by, origin
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
-      [
-        tx.id,
-        tx.date,
-        tx.type,
-        tx.nature,
-        tx.movementTypeId,
-        tx.description,
-        tx.amount,
-        tx.branch,
-        tx.method,
-        tx.paymentStatus === 'pending' ? 'pending' : 'paid',
-        tx.paidAt ?? null,
-        tx.memberId ?? null,
-        tx.memberAccountId ?? null,
-        tx.memberGuardianId ?? null,
-        tx.projectId ?? null,
-        tx.notes ?? null,
-        tx.externalId ?? null,
-        tx.createdBy ?? null,
-        tx.createdAt ?? new Date().toISOString(),
-        tx.updatedAt ?? null,
-        tx.updatedBy ?? null,
-        tx.origin === 'manual' ? 'manual' : tx.origin === 'sicredi' ? 'sicredi' : 'integration',
-      ],
-    );
+  if (db.transactions.length) {
+    await client.transaction.createMany({
+      data: db.transactions.map((tx) => ({
+        id: tx.id,
+        date: asDate(tx.date),
+        type: tx.type,
+        nature: tx.nature,
+        movementTypeId: tx.movementTypeId,
+        description: tx.description,
+        amount: tx.amount,
+        branch: tx.branch,
+        method: tx.method,
+        paymentStatus: tx.paymentStatus === 'pending' ? 'pending' : 'paid',
+        paidAt: tx.paidAt ? asDate(tx.paidAt) : null,
+        memberId: tx.memberId ?? null,
+        memberAccountId: tx.memberAccountId ?? null,
+        memberGuardianId: tx.memberGuardianId ?? null,
+        projectId: tx.projectId ?? null,
+        notes: tx.notes ?? null,
+        externalId: tx.externalId ?? null,
+        createdById: tx.createdBy ?? null,
+        createdAt: tx.createdAt ? new Date(tx.createdAt) : new Date(),
+        updatedAt: asTimestamp(tx.updatedAt),
+        updatedById: tx.updatedBy ?? null,
+        origin: storedOrigin(tx.origin, true),
+      })),
+    });
   }
 
-  await client.query(
-    `INSERT INTO settings (opening_balance, group_name, mensalidade_due_day)
-       VALUES ($1, $2, $3)`,
-    [db.settings.openingBalance, db.settings.groupName, db.settings.mensalidadeDueDay],
-  );
+  await client.settings.create({
+    data: {
+      openingBalance: db.settings.openingBalance,
+      groupName: db.settings.groupName,
+      mensalidadeDueDay: db.settings.mensalidadeDueDay ?? DEFAULT_MENSALIDADE_DUE_DAY,
+    },
+  });
 }
 
 export async function mutate<T>(fn: (db: DatabaseShape) => T): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    await client.query('SELECT pg_advisory_xact_lock($1)', [FINANCE_LOCK]);
-    const db = await readFinance(client);
-    const result = fn(db);
-    await writeFinance(client, db);
-    await client.query('COMMIT');
-    cache = db;
-    return result;
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  const result = await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
+      const db = await readFinance(tx);
+      const value = fn(db);
+      await writeFinance(tx, db);
+      return { db, value };
+    },
+    { timeout: WRITE_TIMEOUT_MS },
+  );
+  cache = result.db;
+  return result.value;
 }
 
 export async function resetDb(): Promise<DatabaseShape> {
   await persist(emptyFinance());
-  await pool.query('TRUNCATE bank_movements, bank_sync_state, message_outbox');
+  await prisma.$executeRawUnsafe('TRUNCATE bank_movements, bank_sync_state, message_outbox');
   return emptyFinance();
 }
 
@@ -260,16 +261,28 @@ export async function seedIfEmpty(): Promise<void> {
   if ((await countUsers()) === 0) {
     const password = process.env.ADMIN_PASSWORD || randomBytes(12).toString('base64url');
     const hash = await hashPassword(password);
-    await pool.query(
-      `INSERT INTO users (id, username, name, email, password_hash, role, origin)
-       VALUES ($1, $2, $3, $4, $5, 'admin', 'manual')`,
-      [id(), 'admin', 'Administração do Grupo', 'admin@arnofriedrich.org.br', hash],
-    );
-    await pool.query(
-      `INSERT INTO users (id, username, name, email, password_hash, role, origin)
-       VALUES ($1, $2, $3, $4, $5, 'tesoureiro', 'manual')`,
-      [id(), process.env.ADMIN_USER ?? 'tesouraria', 'Tesouraria do Grupo', 'tesouraria@arnofriedrich.org.br', hash],
-    );
+    await prisma.user.create({
+      data: {
+        id: id(),
+        username: 'admin',
+        name: 'Administração do Grupo',
+        email: 'admin@arnofriedrich.org.br',
+        passwordHash: hash,
+        role: 'admin',
+        origin: 'manual',
+      },
+    });
+    await prisma.user.create({
+      data: {
+        id: id(),
+        username: process.env.ADMIN_USER ?? 'tesouraria',
+        name: 'Tesouraria do Grupo',
+        email: 'tesouraria@arnofriedrich.org.br',
+        passwordHash: hash,
+        role: 'tesoureiro',
+        origin: 'manual',
+      },
+    });
     if (process.env.ADMIN_PASSWORD) {
       console.log('Usuários iniciais criados: admin e tesouraria (senha de ADMIN_PASSWORD)');
     } else {
@@ -281,16 +294,18 @@ export async function seedIfEmpty(): Promise<void> {
     }
   }
 
-  const settings = await pool.query('SELECT id FROM settings LIMIT 1');
-  if ((settings.rowCount ?? 0) === 0) {
-    await pool.query(`INSERT INTO settings (opening_balance, group_name, mensalidade_due_day) VALUES ($1, $2, $3)`, [
-      0,
-      'Grupo Escoteiro Arno Friedrich',
-      DEFAULT_MENSALIDADE_DUE_DAY,
-    ]);
+  const settings = await prisma.settings.findFirst({ select: { id: true } });
+  if (!settings) {
+    await prisma.settings.create({
+      data: {
+        openingBalance: 0,
+        groupName: 'Grupo Escoteiro Arno Friedrich',
+        mensalidadeDueDay: DEFAULT_MENSALIDADE_DUE_DAY,
+      },
+    });
   }
 
-  cache = await readFinance(pool);
+  cache = await readFinance(prisma);
 }
 
 function emptyFinance(): DatabaseShape {
@@ -310,28 +325,30 @@ function emptyFinance(): DatabaseShape {
   };
 }
 
-async function readFinance(sql: { query: typeof pool.query }): Promise<DatabaseShape> {
-  const members = await sql.query('SELECT * FROM members ORDER BY name');
-  const guardians = await sql.query('SELECT * FROM member_guardians ORDER BY name');
-  const accounts = await sql.query('SELECT * FROM member_accounts ORDER BY holder_name');
-  const types = await sql.query('SELECT * FROM movement_types ORDER BY name');
-  const fees = await sql.query('SELECT * FROM fees ORDER BY name');
-  const projects = await sql.query('SELECT * FROM projects ORDER BY year, branch');
-  const items = await sql.query('SELECT * FROM project_items');
-  const transactions = await sql.query('SELECT * FROM transactions ORDER BY date DESC, created_at DESC');
-  const settings = await sql.query('SELECT * FROM settings LIMIT 1');
+async function readFinance(sql: Db): Promise<DatabaseShape> {
+  const [members, guardians, accounts, types, fees, projects, items, transactions, settings] = await Promise.all([
+    sql.member.findMany({ orderBy: { name: 'asc' } }),
+    sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
+    sql.memberAccount.findMany({ orderBy: { holderName: 'asc' } }),
+    sql.movementType.findMany({ orderBy: { name: 'asc' } }),
+    sql.fee.findMany({ orderBy: { name: 'asc' } }),
+    sql.project.findMany({ orderBy: [{ year: 'asc' }, { branch: 'asc' }] }),
+    sql.projectItem.findMany(),
+    sql.transaction.findMany({ orderBy: [{ date: 'desc' }, { createdAt: 'desc' }] }),
+    sql.settings.findFirst(),
+  ]);
 
   const itemsByProject = new Map<string, FinancialProject['items']>();
-  for (const row of items.rows) {
-    const list = itemsByProject.get(row.project_id) ?? [];
+  for (const row of items) {
+    const list = itemsByProject.get(row.projectId) ?? [];
     list.push({
       id: row.id,
       category: row.category,
       description: row.description,
       planned: Number(row.planned),
-      movementTypeId: row.movement_type_id ? String(row.movement_type_id) : undefined,
+      movementTypeId: row.movementTypeId ?? undefined,
     });
-    itemsByProject.set(row.project_id, list);
+    itemsByProject.set(row.projectId, list);
   }
 
   const defaultSettings: Settings = {
@@ -340,138 +357,228 @@ async function readFinance(sql: { query: typeof pool.query }): Promise<DatabaseS
     mensalidadeDueDay: DEFAULT_MENSALIDADE_DUE_DAY,
   };
 
-  const settingsRow = settings.rows[0];
-
   return {
-    members: members.rows.map(mapMember),
-    memberGuardians: guardians.rows.map(mapGuardian),
-    memberAccounts: accounts.rows.map(mapAccount),
-    movementTypes: types.rows.map(mapMovementType),
-    fees: fees.rows.map(mapFee),
-    projects: projects.rows.map((row) => ({
+    members: members.map(mapMember),
+    memberGuardians: guardians.map(mapGuardian),
+    memberAccounts: accounts.map(mapAccount),
+    movementTypes: types.map(mapMovementType),
+    fees: fees.map(mapFee),
+    projects: projects.map((row) => ({
       id: row.id,
-      branch: row.branch,
-      year: Number(row.year),
+      branch: row.branch as FinancialProject['branch'],
+      year: row.year,
       name: row.name,
       description: row.description,
       items: itemsByProject.get(row.id) ?? [],
       ...mapAudit(row),
     })),
-    transactions: transactions.rows.map(mapTransaction),
-    settings: settingsRow
+    transactions: transactions.map(mapTransaction),
+    settings: settings
       ? {
-          openingBalance: Number(settingsRow.opening_balance),
-          groupName: settingsRow.group_name,
-          mensalidadeDueDay: resolveMensalidadeDueDay(Number(settingsRow.mensalidade_due_day)),
+          openingBalance: Number(settings.openingBalance),
+          groupName: settings.groupName,
+          mensalidadeDueDay: resolveMensalidadeDueDay(settings.mensalidadeDueDay),
         }
       : defaultSettings,
   };
 }
 
-function toIso(value: unknown): string | undefined {
-  if (value == null || value === '') return undefined;
-  if (value instanceof Date) return value.toISOString();
-  return String(value);
-}
-
-function mapAudit(row: Record<string, unknown>) {
+function mapAudit(row: {
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}) {
   return {
     origin: (row.origin === 'manual' ? 'manual' : row.origin === 'sicredi' ? 'sicredi' : 'integration') as RecordOrigin,
-    createdAt: toIso(row.created_at) ?? new Date().toISOString(),
-    createdBy: row.created_by ? String(row.created_by) : undefined,
-    updatedAt: toIso(row.updated_at),
-    updatedBy: row.updated_by ? String(row.updated_by) : undefined,
+    createdAt: row.createdAt.toISOString(),
+    createdBy: row.createdById ?? undefined,
+    updatedAt: row.updatedAt?.toISOString(),
+    updatedBy: row.updatedById ?? undefined,
   };
 }
 
-function mapMember(row: Record<string, unknown>): Member {
+function mapMember(row: {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  branch: string;
+  role: string;
+  monthlyFee: Prisma.Decimal;
+  status: string;
+  joinedAt: Date;
+  clubeLtc: boolean;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): Member {
   return {
-    id: String(row.id),
-    name: String(row.name),
-    email: String(row.email),
-    phone: String(row.phone),
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
     branch: row.branch as Member['branch'],
     role: row.role as Member['role'],
-    monthlyFee: Number(row.monthly_fee),
+    monthlyFee: Number(row.monthlyFee),
     status: row.status as Member['status'],
-    joinedAt: String(row.joined_at).slice(0, 10),
-    clubeLtc: Boolean(row.clube_ltc),
+    joinedAt: dateOnly(row.joinedAt),
+    clubeLtc: row.clubeLtc,
     ...mapAudit(row),
   };
 }
 
-function mapGuardian(row: Record<string, unknown>): MemberGuardian {
+function mapGuardian(row: {
+  id: string;
+  memberId: string;
+  name: string;
+  relationship: string;
+  phone: string;
+  email: string;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): MemberGuardian {
   return {
-    id: String(row.id),
-    memberId: String(row.member_id),
-    name: String(row.name),
-    relationship: String(row.relationship ?? ''),
-    phone: String(row.phone ?? ''),
-    email: String(row.email ?? ''),
+    id: row.id,
+    memberId: row.memberId,
+    name: row.name,
+    relationship: row.relationship ?? '',
+    phone: row.phone ?? '',
+    email: row.email ?? '',
     ...mapAudit(row),
   };
 }
 
-function mapAccount(row: Record<string, unknown>): MemberAccount {
+function mapAccount(row: {
+  id: string;
+  memberId: string;
+  holderName: string;
+  holderKind: string;
+  relationship: string;
+  pixKey: string;
+  bank: string;
+  agency: string;
+  accountNumber: string;
+  document: string;
+  notes: string | null;
+  isPrimary: boolean;
+  active: boolean;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): MemberAccount {
   return {
-    id: String(row.id),
-    memberId: String(row.member_id),
-    holderName: String(row.holder_name),
-    holderKind: row.holder_kind as MemberAccount['holderKind'],
-    relationship: String(row.relationship ?? ''),
-    pixKey: String(row.pix_key ?? ''),
-    bank: String(row.bank ?? ''),
-    agency: String(row.agency ?? ''),
-    accountNumber: String(row.account_number ?? ''),
-    document: String(row.document ?? ''),
-    notes: row.notes ? String(row.notes) : undefined,
-    isPrimary: Boolean(row.is_primary),
-    active: Boolean(row.active),
+    id: row.id,
+    memberId: row.memberId,
+    holderName: row.holderName,
+    holderKind: row.holderKind as MemberAccount['holderKind'],
+    relationship: row.relationship ?? '',
+    pixKey: row.pixKey ?? '',
+    bank: row.bank ?? '',
+    agency: row.agency ?? '',
+    accountNumber: row.accountNumber ?? '',
+    document: row.document ?? '',
+    notes: row.notes ?? undefined,
+    isPrimary: row.isPrimary,
+    active: row.active,
     ...mapAudit(row),
   };
 }
 
-function mapMovementType(row: Record<string, unknown>): MovementType {
+function mapMovementType(row: {
+  id: string;
+  name: string;
+  direction: string;
+  description: string;
+  pixKey: string;
+  branch: string;
+  active: boolean;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): MovementType {
   return {
-    id: String(row.id),
-    name: String(row.name),
+    id: row.id,
+    name: row.name,
     direction: row.direction as MovementType['direction'],
-    description: String(row.description ?? ''),
-    pixKey: String(row.pix_key ?? ''),
+    description: row.description ?? '',
+    pixKey: row.pixKey ?? '',
     branch: (row.branch as MovementType['branch']) || 'grupo',
-    active: Boolean(row.active),
+    active: row.active,
     ...mapAudit(row),
   };
 }
 
-function mapFee(row: Record<string, unknown>): Fee {
+function mapFee(row: {
+  id: string;
+  name: string;
+  amount: Prisma.Decimal;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): Fee {
   return {
-    id: String(row.id),
-    name: String(row.name),
+    id: row.id,
+    name: row.name,
     amount: Number(row.amount),
     ...mapAudit(row),
   };
 }
 
-function mapTransaction(row: Record<string, unknown>): Transaction {
+function mapTransaction(row: {
+  id: string;
+  date: Date;
+  type: string;
+  nature: string;
+  movementTypeId: string;
+  description: string;
+  amount: Prisma.Decimal;
+  branch: string;
+  method: string;
+  paymentStatus: string;
+  paidAt: Date | null;
+  memberId: string | null;
+  memberAccountId: string | null;
+  memberGuardianId: string | null;
+  projectId: string | null;
+  notes: string | null;
+  externalId: string | null;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): Transaction {
   return {
-    id: String(row.id),
-    date: String(row.date).slice(0, 10),
+    id: row.id,
+    date: dateOnly(row.date),
     type: row.type as Transaction['type'],
     nature: row.nature as Transaction['nature'],
-    movementTypeId: String(row.movement_type_id),
-    description: String(row.description),
+    movementTypeId: row.movementTypeId,
+    description: row.description,
     amount: Number(row.amount),
     branch: row.branch as Transaction['branch'],
     method: row.method as Transaction['method'],
-    paymentStatus: row.payment_status === 'pending' ? 'pending' : 'paid',
-    paidAt: row.paid_at ? String(row.paid_at).slice(0, 10) : undefined,
-    memberId: row.member_id ? String(row.member_id) : undefined,
-    memberAccountId: row.member_account_id ? String(row.member_account_id) : undefined,
-    memberGuardianId: row.member_guardian_id ? String(row.member_guardian_id) : undefined,
-    projectId: row.project_id ? String(row.project_id) : undefined,
-    notes: row.notes ? String(row.notes) : undefined,
-    externalId: row.external_id ? String(row.external_id) : undefined,
+    paymentStatus: row.paymentStatus === 'pending' ? 'pending' : 'paid',
+    paidAt: row.paidAt ? dateOnly(row.paidAt) : undefined,
+    memberId: row.memberId ?? undefined,
+    memberAccountId: row.memberAccountId ?? undefined,
+    memberGuardianId: row.memberGuardianId ?? undefined,
+    projectId: row.projectId ?? undefined,
+    notes: row.notes ?? undefined,
+    externalId: row.externalId ?? undefined,
     ...mapAudit(row),
   };
 }

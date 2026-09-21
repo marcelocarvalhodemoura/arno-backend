@@ -3,7 +3,7 @@ import { promisify } from 'node:util';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp } from '../helpers/app';
-import { getPool } from '../../src/shared/db';
+import { prisma } from '../../src/shared/db';
 import { isUuidV7 } from '../../src/shared/id';
 import { verifyPassword } from '../../src/shared/auth/password';
 import { rehashLegacySeedUsers } from '../../src/identity/users';
@@ -17,13 +17,9 @@ const scryptAsync = promisify(scrypt);
 const BCRYPT = /^\$2[aby]\$/;
 
 async function passwordHashOf(username: string): Promise<string> {
-  const result = await getPool().query<{ password_hash: string }>(
-    'SELECT password_hash FROM users WHERE username = $1',
-    [username],
-  );
-  const hash = result.rows[0]?.password_hash;
-  expect(hash).toBeDefined();
-  return hash!;
+  const user = await prisma.user.findUnique({ where: { username } });
+  expect(user?.passwordHash).toBeDefined();
+  return user!.passwordHash;
 }
 
 async function login(user: string, password: string) {
@@ -750,7 +746,7 @@ describe('API integration', () => {
     const salt = randomBytes(16).toString('hex');
     const derived = (await scryptAsync(TEST_PASSWORD, salt, 64)) as Buffer;
     const legacy = `${salt}:${derived.toString('hex')}`;
-    await getPool().query('UPDATE users SET password_hash = $2 WHERE username = $1', [TEST_TREASURER_USER, legacy]);
+    await prisma.user.update({ where: { username: TEST_TREASURER_USER }, data: { passwordHash: legacy } });
     expect(await passwordHashOf(TEST_TREASURER_USER)).not.toMatch(BCRYPT);
 
     await login(TEST_TREASURER_USER, TEST_PASSWORD);
@@ -763,8 +759,10 @@ describe('API integration', () => {
   it('syncs mock Sicredi Pix into cash flow and is idempotent', async () => {
     process.env.SICREDI_MOCK = '1';
     process.env.SICREDI_WEBHOOK_TOKEN = 'teste-webhook';
-    await getPool().query("DELETE FROM transactions WHERE origin = 'sicredi' OR external_id IS NOT NULL");
-    await getPool().query('TRUNCATE bank_movements, bank_sync_state');
+    await prisma.transaction.deleteMany({
+      where: { OR: [{ origin: 'sicredi' }, { externalId: { not: null } }] },
+    });
+    await prisma.$executeRawUnsafe('TRUNCATE bank_movements, bank_sync_state');
     invalidateCache();
     const auth = await tesoureiroAuth();
     await ensureType(auth, 'Mensalidade', 'income');
@@ -914,10 +912,10 @@ describe('API integration', () => {
   it('rehashes seed users to bcrypt on startup when ADMIN_PASSWORD is set', async () => {
     const salt = randomBytes(16).toString('hex');
     const derived = (await scryptAsync(TEST_PASSWORD, salt, 64)) as Buffer;
-    await getPool().query('UPDATE users SET password_hash = $2 WHERE username = ANY($1)', [
-      [TEST_ADMIN_USER, TEST_TREASURER_USER],
-      `${salt}:${derived.toString('hex')}`,
-    ]);
+    await prisma.user.updateMany({
+      where: { username: { in: [TEST_ADMIN_USER, TEST_TREASURER_USER] } },
+      data: { passwordHash: `${salt}:${derived.toString('hex')}` },
+    });
     expect(await passwordHashOf(TEST_ADMIN_USER)).not.toMatch(BCRYPT);
 
     expect(await rehashLegacySeedUsers()).toBe(2);
