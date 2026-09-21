@@ -1,11 +1,11 @@
-import type { DatabaseShape, MensalidadeReport } from "../shared/types";
+import type { DatabaseShape, MensalidadeReport } from '../shared/types';
 import {
   notifyTransaction,
   summarizeDeliveries,
   type NotifyChannel,
   type NotifyDelivery,
   type NotifyKind,
-} from "../notifications/notify";
+} from '../notifications/notify';
 
 export function collectMensalidadeNotifyIds(
   report: MensalidadeReport,
@@ -25,8 +25,8 @@ export function collectMensalidadeNotifyIds(
       if (input.month && cell.month !== input.month) continue;
       if (!cell.transactionId) continue;
       if (wantedTx && !wantedTx.has(cell.transactionId)) continue;
-      if (input.kind === "charge" && cell.status !== "pending" && cell.status !== "overdue") continue;
-      if (input.kind === "receipt" && cell.status !== "paid") continue;
+      if (input.kind === 'charge' && cell.status !== 'pending' && cell.status !== 'overdue') continue;
+      if (input.kind === 'receipt' && cell.status !== 'paid') continue;
       txIds.add(cell.transactionId);
     }
   }

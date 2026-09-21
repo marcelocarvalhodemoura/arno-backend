@@ -1,6 +1,6 @@
-import { scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
-import bcrypt from "bcrypt";
+import { scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
+import bcrypt from 'bcrypt';
 
 const scryptAsync = promisify(scrypt);
 
@@ -21,14 +21,14 @@ export async function verifyPassword(password: string, stored: string): Promise<
  * distingue os dois formatos e o login consegue migrar os antigos.
  */
 export function isLegacyHash(stored: string): boolean {
-  return !stored.startsWith("$2");
+  return !stored.startsWith('$2');
 }
 
 async function verifyLegacyPassword(password: string, stored: string): Promise<boolean> {
-  const [salt, hash] = stored.split(":");
+  const [salt, hash] = stored.split(':');
   if (!salt || !hash) return false;
   const derived = (await scryptAsync(password, salt, 64)) as Buffer;
-  const expected = Buffer.from(hash, "hex");
+  const expected = Buffer.from(hash, 'hex');
   if (derived.length !== expected.length) return false;
   return timingSafeEqual(derived, expected);
 }

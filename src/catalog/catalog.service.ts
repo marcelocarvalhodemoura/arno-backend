@@ -1,6 +1,14 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { createFee, createMovementType, deleteFee, ensureFees, patchSettings, updateFee, updateMovementType } from './catalog';
+import {
+  createFee,
+  createMovementType,
+  deleteFee,
+  ensureFees,
+  patchSettings,
+  updateFee,
+  updateMovementType,
+} from './catalog';
 import { fail, parseDto } from '../shared/http/api';
 import { errorMessage } from '../shared/http/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';

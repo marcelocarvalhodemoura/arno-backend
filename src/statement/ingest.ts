@@ -1,21 +1,21 @@
-import { fold } from "../shared/csv";
-import { createdAudit, updatedAudit } from "../shared/audit";
-import { amountsNear, matchesMensalidadeAmount } from "../mensalidades/fee-table";
-import { id } from "../shared/id";
-import { isMensalidadeName, isUnidentifiedName } from "./statement";
-import type { DatabaseShape, RecordOrigin, Transaction } from "../shared/types";
-import { roundMoney } from "../shared/types";
+import { fold } from '../shared/csv';
+import { createdAudit, updatedAudit } from '../shared/audit';
+import { amountsNear, matchesMensalidadeAmount } from '../mensalidades/fee-table';
+import { id } from '../shared/id';
+import { isMensalidadeName, isUnidentifiedName } from './statement';
+import type { DatabaseShape, RecordOrigin, Transaction } from '../shared/types';
+import { roundMoney } from '../shared/types';
 
 export type IngestRow = {
   date: string;
-  type: Transaction["type"];
-  nature: Transaction["nature"];
+  type: Transaction['type'];
+  nature: Transaction['nature'];
   movementTypeId: string;
   description: string;
   amount: number;
-  branch: Transaction["branch"];
-  method: Transaction["method"];
-  paymentStatus?: Transaction["paymentStatus"];
+  branch: Transaction['branch'];
+  method: Transaction['method'];
+  paymentStatus?: Transaction['paymentStatus'];
   memberId?: string;
   memberGuardianId?: string;
   notes?: string;
@@ -36,23 +36,23 @@ function isMensalidadeMovement(db: DatabaseShape, movementTypeId: string) {
 
 function resolveGuardianId(db: DatabaseShape, memberId: string | undefined, guardianId: string | undefined) {
   if (!guardianId) return undefined;
-  if (!memberId) throw new Error("Informe o associado do responsável");
+  if (!memberId) throw new Error('Informe o associado do responsável');
   const guardian = (db.memberGuardians ?? []).find((item) => item.id === guardianId && item.memberId === memberId);
-  if (!guardian) throw new Error("Responsável não pertence a este associado");
+  if (!guardian) throw new Error('Responsável não pertence a este associado');
   return guardian.id;
 }
 
-export function ensureIdentifyType(db: DatabaseShape, userId: string, origin: RecordOrigin = "integration") {
+export function ensureIdentifyType(db: DatabaseShape, userId: string, origin: RecordOrigin = 'integration') {
   if (db.movementTypes.some((item) => item.active && isUnidentifiedName(item.name))) return;
   db.movementTypes.push({
     id: id(),
-    name: "A identificar",
-    direction: "both",
-    description: "Lançamento importado do extrato, ainda sem tipo definido",
-    pixKey: "",
-    branch: "grupo",
+    name: 'A identificar',
+    direction: 'both',
+    description: 'Lançamento importado do extrato, ainda sem tipo definido',
+    pixKey: '',
+    branch: 'grupo',
     active: true,
-    ...createdAudit(userId, origin === "sicredi" ? "integration" : origin),
+    ...createdAudit(userId, origin === 'sicredi' ? 'integration' : origin),
   });
 }
 
@@ -60,7 +60,7 @@ export function ingestTransactions(
   db: DatabaseShape,
   rows: IngestRow[],
   userId: string,
-  origin: RecordOrigin = "integration",
+  origin: RecordOrigin = 'integration',
 ): IngestResult {
   const created: string[] = [];
   const paid: string[] = [];
@@ -73,30 +73,40 @@ export function ingestTransactions(
 
   for (const row of rows) {
     const movement = db.movementTypes.find((item) => item.id === row.movementTypeId);
-    if (!movement || !movement.active) throw new Error("Tipo de movimentação inválido");
-    if (movement.direction !== "both" && movement.direction !== row.type) {
+    if (!movement || !movement.active) throw new Error('Tipo de movimentação inválido');
+    if (movement.direction !== 'both' && movement.direction !== row.type) {
       throw new Error(`O tipo ${movement.name} não aceita essa direção`);
     }
     const memberGuardianId = resolveGuardianId(db, row.memberId, row.memberGuardianId);
     const amount = roundMoney(row.amount);
-    const contentKey = ingestFingerprint({ ...row, amount, externalId: undefined });
-    const extKey = row.externalId ? `ext:${row.externalId}` : "";
+    const contentKey = ingestFingerprint({
+      ...row,
+      amount,
+      externalId: undefined,
+    });
+    const extKey = row.externalId ? `ext:${row.externalId}` : '';
     if (extKey && seen.has(extKey)) {
-      skipped.push({ description: row.description, reason: "Pix já conciliado" });
+      skipped.push({
+        description: row.description,
+        reason: 'Pix já conciliado',
+      });
       continue;
     }
     if (seen.has(contentKey)) {
-      skipped.push({ description: row.description, reason: "Lançamento já importado" });
+      skipped.push({
+        description: row.description,
+        reason: 'Lançamento já importado',
+      });
       continue;
     }
-    if (row.type === "income" && row.memberId && isMensalidadeName(movement.name)) {
+    if (row.type === 'income' && row.memberId && isMensalidadeName(movement.name)) {
       const month = row.date.slice(0, 7);
       const member = db.members.find((item) => item.id === row.memberId);
       const pending = db.transactions
         .filter(
           (tx) =>
-            tx.paymentStatus === "pending" &&
-            tx.type === "income" &&
+            tx.paymentStatus === 'pending' &&
+            tx.type === 'income' &&
             tx.memberId === row.memberId &&
             isMensalidadeMovement(db, tx.movementTypeId) &&
             (amountsNear(tx.amount, amount) || (member ? matchesMensalidadeAmount(member, amount) : false)),
@@ -108,7 +118,7 @@ export function ingestTransactions(
           return a.date.localeCompare(b.date);
         })[0];
       if (pending) {
-        pending.paymentStatus = "paid";
+        pending.paymentStatus = 'paid';
         pending.paidAt = row.date;
         pending.amount = amount;
         pending.method = row.method ?? pending.method;
@@ -121,8 +131,8 @@ export function ingestTransactions(
       if (
         db.transactions.some(
           (tx) =>
-            tx.paymentStatus === "paid" &&
-            tx.type === "income" &&
+            tx.paymentStatus === 'paid' &&
+            tx.type === 'income' &&
             tx.memberId === row.memberId &&
             isMensalidadeMovement(db, tx.movementTypeId) &&
             (tx.date === row.date || tx.date.startsWith(month)),
@@ -130,14 +140,17 @@ export function ingestTransactions(
       ) {
         const paidTx = db.transactions.find(
           (tx) =>
-            tx.paymentStatus === "paid" &&
-            tx.type === "income" &&
+            tx.paymentStatus === 'paid' &&
+            tx.type === 'income' &&
             tx.memberId === row.memberId &&
             isMensalidadeMovement(db, tx.movementTypeId) &&
             (tx.date === row.date || tx.date.startsWith(month)),
         );
         if (paidTx && row.externalId && !paidTx.externalId) paidTx.externalId = row.externalId;
-        skipped.push({ description: row.description, reason: "Mensalidade já está paga neste período" });
+        skipped.push({
+          description: row.description,
+          reason: 'Mensalidade já está paga neste período',
+        });
         continue;
       }
     }
@@ -151,14 +164,14 @@ export function ingestTransactions(
       amount,
       branch: row.branch,
       method: row.method,
-      paymentStatus: row.paymentStatus ?? "paid",
+      paymentStatus: row.paymentStatus ?? 'paid',
       memberId: row.memberId,
       memberGuardianId,
       notes: row.notes,
       externalId: row.externalId,
       ...createdAudit(userId, origin),
     };
-    if ((tx.paymentStatus ?? "paid") === "paid") tx.paidAt = row.date;
+    if ((tx.paymentStatus ?? 'paid') === 'paid') tx.paidAt = row.date;
     if (!memberGuardianId) delete tx.memberGuardianId;
     if (!tx.memberId) delete tx.memberId;
     if (!tx.notes) delete tx.notes;
@@ -198,5 +211,5 @@ function ingestFingerprint(row: {
   externalId?: string;
 }) {
   if (row.externalId) return `ext:${row.externalId}`;
-  return `${row.date}|${row.type}|${row.amount}|${fold(row.description)}|${row.memberId ?? ""}`;
+  return `${row.date}|${row.type}|${row.amount}|${fold(row.description)}|${row.memberId ?? ''}`;
 }

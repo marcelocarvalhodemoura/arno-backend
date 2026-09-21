@@ -60,7 +60,14 @@ describe('mensalidades', () => {
 
   it('creates pending cash-flow rows for months the member owes', () => {
     const db = emptyDb({
-      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-05-10', monthlyFee: 55 })],
+      members: [
+        member({
+          id: 'm1',
+          name: 'Ana Souza',
+          joinedAt: '2026-05-10',
+          monthlyFee: 55,
+        }),
+      ],
     });
     const created = syncMensalidades(db, 2026, 'u1', '2026-05-01');
     expect(created).toBe(8);
@@ -99,7 +106,14 @@ describe('mensalidades', () => {
       createdAt: '2026-05-10T00:00:00.000Z',
     };
     const db = emptyDb({
-      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-05-10', monthlyFee: 55 })],
+      members: [
+        member({
+          id: 'm1',
+          name: 'Ana Souza',
+          joinedAt: '2026-05-10',
+          monthlyFee: 55,
+        }),
+      ],
       movementTypes: [movement],
       transactions: [paid],
     });
@@ -116,7 +130,14 @@ describe('mensalidades', () => {
     expect(nextMonthStart('2026-12-20')).toBe('2027-01-01');
 
     const db = emptyDb({
-      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-10', monthlyFee: 55 })],
+      members: [
+        member({
+          id: 'm1',
+          name: 'Ana Souza',
+          joinedAt: '2026-03-10',
+          monthlyFee: 55,
+        }),
+      ],
     });
     syncMensalidades(db, 2026, 'u1');
     expect(db.transactions).toHaveLength(10);
@@ -136,7 +157,14 @@ describe('mensalidades', () => {
 
   it('updates member fees and pending mensalidades to the official table', () => {
     const db = emptyDb({
-      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-10', monthlyFee: 55 })],
+      members: [
+        member({
+          id: 'm1',
+          name: 'Ana Souza',
+          joinedAt: '2026-03-10',
+          monthlyFee: 55,
+        }),
+      ],
     });
     syncMensalidades(db, 2026, 'u1', '2026-03-01');
     const paid = db.transactions[0];
@@ -149,7 +177,15 @@ describe('mensalidades', () => {
 
   it('raises pending amounts after the 10th for non-members', () => {
     const db = emptyDb({
-      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 55, clubeLtc: false })],
+      members: [
+        member({
+          id: 'm1',
+          name: 'Ana Souza',
+          joinedAt: '2026-03-01',
+          monthlyFee: 55,
+          clubeLtc: false,
+        }),
+      ],
     });
     syncMensalidades(db, 2026, 'u1', '2026-03-10');
     expect(db.transactions.find((tx) => tx.date === '2026-03-10')?.amount).toBe(89.5);
@@ -160,7 +196,14 @@ describe('mensalidades', () => {
 
   it('uses the due day stored in settings for pending rows', () => {
     const db = emptyDb({
-      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 55 })],
+      members: [
+        member({
+          id: 'm1',
+          name: 'Ana Souza',
+          joinedAt: '2026-03-01',
+          monthlyFee: 55,
+        }),
+      ],
       settings: { openingBalance: 0, groupName: 'Arno', mensalidadeDueDay: 15 },
     });
     syncMensalidades(db, 2026, 'u1', '2026-03-01');

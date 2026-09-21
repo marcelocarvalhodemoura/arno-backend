@@ -1,8 +1,8 @@
-import { pool } from "../shared/db";
-import { sendMail } from "./mail";
-import { sendWhatsAppText } from "./whatsapp";
+import { pool } from '../shared/db';
+import { sendMail } from './mail';
+import { sendWhatsAppText } from './whatsapp';
 
-type NotifyChannel = "email" | "whatsapp";
+type NotifyChannel = 'email' | 'whatsapp';
 
 type OutboxRow = {
   id: string;
@@ -74,7 +74,7 @@ export async function claimQueued(limit: number): Promise<OutboxRow[]> {
   const size = Math.max(1, Math.min(50, Math.floor(limit)));
   const client = await pool.connect();
   try {
-    await client.query("BEGIN");
+    await client.query('BEGIN');
     const result = await client.query<OutboxRow>(
       `UPDATE message_outbox AS m
        SET status = 'sending',
@@ -92,17 +92,17 @@ export async function claimQueued(limit: number): Promise<OutboxRow[]> {
        RETURNING m.id, m.kind, m.channel, m.status, m.to_address, m.subject, m.body, m.html_body, m.attempts, m.error`,
       [size],
     );
-    await client.query("COMMIT");
+    await client.query('COMMIT');
     return result.rows;
   } catch (error) {
-    await client.query("ROLLBACK");
+    await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
   }
 }
 
-async function finishRow(id: string, status: "sent" | "failed" | "skipped" | "queued", error?: string, retryAt?: Date) {
+async function finishRow(id: string, status: 'sent' | 'failed' | 'skipped' | 'queued', error?: string, retryAt?: Date) {
   await pool.query(
     `UPDATE message_outbox
      SET status = $2,
@@ -118,24 +118,24 @@ async function finishRow(id: string, status: "sent" | "failed" | "skipped" | "qu
 export async function deliverRow(row: OutboxRow) {
   const channel = row.channel as NotifyChannel;
   const sent =
-    channel === "email"
+    channel === 'email'
       ? await sendMail(row.to_address, row.subject, row.body, row.html_body ?? undefined)
       : await sendWhatsAppText(row.to_address, `${row.subject}\n\n${row.body}`);
 
   if (sent.ok) {
-    await finishRow(row.id, "sent");
-    return "sent" as const;
+    await finishRow(row.id, 'sent');
+    return 'sent' as const;
   }
   if (sent.skipped) {
-    await finishRow(row.id, "skipped", sent.error);
-    return "skipped" as const;
+    await finishRow(row.id, 'skipped', sent.error);
+    return 'skipped' as const;
   }
   if (row.attempts >= queueMaxAttempts()) {
-    await finishRow(row.id, "failed", sent.error);
-    return "failed" as const;
+    await finishRow(row.id, 'failed', sent.error);
+    return 'failed' as const;
   }
-  await finishRow(row.id, "queued", sent.error, nextAttemptAt(row.attempts));
-  return "queued" as const;
+  await finishRow(row.id, 'queued', sent.error, nextAttemptAt(row.attempts));
+  return 'queued' as const;
 }
 
 async function drainOutbox(maxBatches: number) {
@@ -163,18 +163,18 @@ export async function processOutbox(maxBatches = 40) {
 export function kickOutbox() {
   if (process.env.VITEST) return;
   void processOutbox().catch((error) => {
-    console.error("Fila de mensagens:", error);
+    console.error('Fila de mensagens:', error);
   });
 }
 
 export function startOutboxWorker() {
   if (timer) return;
   void recoverStuckSending().catch((error) => {
-    console.error("Recuperação da fila de mensagens:", error);
+    console.error('Recuperação da fila de mensagens:', error);
   });
   timer = setInterval(() => {
     void processOutbox().catch((error) => {
-      console.error("Fila de mensagens:", error);
+      console.error('Fila de mensagens:', error);
     });
   }, queuePollMs());
   kickOutbox();

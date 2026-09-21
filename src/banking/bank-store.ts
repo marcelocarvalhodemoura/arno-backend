@@ -1,8 +1,8 @@
-import { pool } from "../shared/db";
-import { id } from "../shared/id";
-import type { BankMovement, BankMovementStatus } from "../shared/types";
+import { pool } from '../shared/db';
+import { id } from '../shared/id';
+import type { BankMovement, BankMovementStatus } from '../shared/types';
 
-type MovementInput = Omit<BankMovement, "id" | "createdAt" | "updatedAt" | "status" | "transactionId"> & {
+type MovementInput = Omit<BankMovement, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'transactionId'> & {
   status?: BankMovementStatus;
   transactionId?: string;
 };
@@ -10,18 +10,18 @@ type MovementInput = Omit<BankMovement, "id" | "createdAt" | "updatedAt" | "stat
 function mapMovement(row: Record<string, unknown>): BankMovement {
   return {
     id: String(row.id),
-    provider: "sicredi",
+    provider: 'sicredi',
     externalId: String(row.external_id),
     occurredAt: row.occurred_at instanceof Date ? row.occurred_at.toISOString() : String(row.occurred_at),
     date: String(row.date).slice(0, 10),
     amount: Number(row.amount),
-    type: row.type === "expense" ? "expense" : "income",
-    method: "pix",
+    type: row.type === 'expense' ? 'expense' : 'income',
+    method: 'pix',
     description: String(row.description),
-    payerName: String(row.payer_name ?? ""),
-    payerDocument: String(row.payer_document ?? ""),
-    txid: String(row.txid ?? ""),
-    status: (row.status as BankMovementStatus) ?? "new",
+    payerName: String(row.payer_name ?? ''),
+    payerDocument: String(row.payer_document ?? ''),
+    txid: String(row.txid ?? ''),
+    status: (row.status as BankMovementStatus) ?? 'new',
     transactionId: row.transaction_id ? String(row.transaction_id) : undefined,
     createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at),
     updatedAt: row.updated_at
@@ -64,7 +64,7 @@ export async function upsertBankMovements(items: MovementInput[]) {
         item.payerName,
         item.payerDocument,
         item.txid,
-        item.status ?? "new",
+        item.status ?? 'new',
         item.transactionId ?? null,
       ],
     );
@@ -94,10 +94,17 @@ export async function markBankMovement(externalId: string, status: BankMovementS
   return result.rows[0] ? mapMovement(result.rows[0]) : undefined;
 }
 
-export async function getBankSyncState(provider = "sicredi") {
+export async function getBankSyncState(provider = 'sicredi') {
   const result = await pool.query(`SELECT * FROM bank_sync_state WHERE provider = $1`, [provider]);
   const row = result.rows[0];
-  if (!row) return { provider, lastSyncAt: undefined, lastError: undefined, lastFrom: undefined, lastTo: undefined };
+  if (!row)
+    return {
+      provider,
+      lastSyncAt: undefined,
+      lastError: undefined,
+      lastFrom: undefined,
+      lastTo: undefined,
+    };
   return {
     provider,
     lastSyncAt: row.last_sync_at
@@ -128,12 +135,12 @@ export async function saveBankSyncState(input: {
        last_to = COALESCE(EXCLUDED.last_to, bank_sync_state.last_to),
        updated_at = NOW()`,
     [
-      input.provider ?? "sicredi",
+      input.provider ?? 'sicredi',
       input.lastSyncAt ?? null,
       input.lastError ?? null,
       input.lastFrom ?? null,
       input.lastTo ?? null,
     ],
   );
-  return getBankSyncState(input.provider ?? "sicredi");
+  return getBankSyncState(input.provider ?? 'sicredi');
 }

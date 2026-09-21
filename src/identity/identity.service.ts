@@ -8,16 +8,12 @@ import { usersById, withAuthors } from '../shared/http/presenters';
 import { userRole } from '../shared/http/schemas';
 import { loadDb, resetDb } from '../shared/persistence/finance-store';
 import type { UserRole } from '../shared/types';
-import {
-  createUser,
-  findUserByLogin,
-  listUsers,
-  replacePasswordHash,
-  updateUser,
-  verifyUserPassword,
-} from './users';
+import { createUser, findUserByLogin, listUsers, replacePasswordHash, updateUser, verifyUserPassword } from './users';
 
-const loginBody = z.object({ user: z.string().trim().min(1), password: z.string().min(1) });
+const loginBody = z.object({
+  user: z.string().trim().min(1),
+  password: z.string().min(1),
+});
 
 const createUserBody = z
   .object({

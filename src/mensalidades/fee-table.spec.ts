@@ -1,9 +1,4 @@
-import {
-  expectedMonthlyFee,
-  lateMonthlyFee,
-  matchesMensalidadeAmount,
-  onTimeMonthlyFee,
-} from './fee-table';
+import { expectedMonthlyFee, lateMonthlyFee, matchesMensalidadeAmount, onTimeMonthlyFee } from './fee-table';
 
 describe('fee table', () => {
   it('uses the poster amounts for non-members and club members', () => {

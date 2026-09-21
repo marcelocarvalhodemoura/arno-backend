@@ -22,12 +22,14 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:int": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-int.json",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-e2e.json",
-    "test:all": "yarn test:unit && yarn test:int && yarn test:e2e"
+    "test:all": "yarn test:unit && yarn test:int && yarn test:e2e",
+    "precommit": "lint-staged && yarn test:unit && yarn test:int && yarn test:e2e"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/swagger": "^11.2.0",
     "bcrypt": "^6.0.0",
     "nodemailer": "^7.0.6",
     "pg": "^8.16.3",
@@ -54,6 +56,7 @@
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.0.0",
     "jest": "^30.0.0",
+    "lint-staged": "^15.5.2",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",
     "supertest": "^7.0.0",
@@ -86,5 +89,8 @@
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
     "watchman": false
+  },
+  "lint-staged": {
+    "*.{ts,js,json,md,yml,yaml}": "prettier --write"
   }
 }

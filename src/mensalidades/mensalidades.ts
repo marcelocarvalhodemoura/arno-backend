@@ -1,13 +1,13 @@
-import { createdAudit, updatedAudit } from "../shared/audit";
+import { createdAudit, updatedAudit } from '../shared/audit';
 import {
   applyOfficialFee,
   ensureOfficialMensalidadeFees,
   expectedMonthlyFee,
   lateMonthlyFee,
   onTimeMonthlyFee,
-} from "./fee-table";
-import { id } from "../shared/id";
-import { isMensalidadeName } from "../statement/statement";
+} from './fee-table';
+import { id } from '../shared/id';
+import { isMensalidadeName } from '../statement/statement';
 import type {
   DatabaseShape,
   MensalidadeCell,
@@ -16,36 +16,36 @@ import type {
   MensalidadeRow,
   Member,
   Transaction,
-} from "../shared/types";
-import { resolveMensalidadeDueDay, roundMoney } from "../shared/types";
+} from '../shared/types';
+import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
 
 export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
 const MONTH_NAMES = [
-  "",
-  "janeiro",
-  "fevereiro",
-  "março",
-  "abril",
-  "maio",
-  "junho",
-  "julho",
-  "agosto",
-  "setembro",
-  "outubro",
-  "novembro",
-  "dezembro",
+  '',
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
 ];
 
 export function pad2(n: number): string {
-  return String(n).padStart(2, "0");
+  return String(n).padStart(2, '0');
 }
 
 export function todayISO(now = new Date()): string {
-  return now.toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  return now.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 }
 
-export function dueDayOf(db: Pick<DatabaseShape, "settings">): number {
+export function dueDayOf(db: Pick<DatabaseShape, 'settings'>): number {
   return resolveMensalidadeDueDay(db.settings.mensalidadeDueDay);
 }
 
@@ -78,9 +78,9 @@ export function cellStatus(
   paymentStatus: string | undefined,
   dueDate: string,
   today: string,
-): Exclude<MensalidadeCellStatus, "none"> {
-  if (paymentStatus === "paid") return "paid";
-  return dueDate < today ? "overdue" : "pending";
+): Exclude<MensalidadeCellStatus, 'none'> {
+  if (paymentStatus === 'paid') return 'paid';
+  return dueDate < today ? 'overdue' : 'pending';
 }
 
 function yearMonth(year: number, month: number) {
@@ -88,7 +88,7 @@ function yearMonth(year: number, month: number) {
 }
 
 function isMensalidadeTx(db: DatabaseShape, tx: Transaction) {
-  if (tx.type !== "income") return false;
+  if (tx.type !== 'income') return false;
   const movement = db.movementTypes.find((item) => item.id === tx.movementTypeId);
   return Boolean(movement && isMensalidadeName(movement.name));
 }
@@ -103,7 +103,7 @@ export function mensalidadeForMonth(
   const matches = db.transactions.filter(
     (tx) => tx.memberId === memberId && tx.date.startsWith(prefix) && isMensalidadeTx(db, tx),
   );
-  return matches.find((tx) => tx.paymentStatus === "paid") ?? matches[0];
+  return matches.find((tx) => tx.paymentStatus === 'paid') ?? matches[0];
 }
 
 export function cancelSubsequentMensalidades(db: DatabaseShape, memberId: string, today = todayISO()): number {
@@ -111,7 +111,7 @@ export function cancelSubsequentMensalidades(db: DatabaseShape, memberId: string
   const before = db.transactions.length;
   db.transactions = db.transactions.filter((tx) => {
     if (tx.memberId !== memberId) return true;
-    if (tx.paymentStatus === "paid") return true;
+    if (tx.paymentStatus === 'paid') return true;
     if (!isMensalidadeTx(db, tx)) return true;
     return tx.date < cutoff;
   });
@@ -123,11 +123,11 @@ export function ensureMensalidadeType(db: DatabaseShape, userId: string) {
   if (existing) return existing;
   const created = {
     id: id(),
-    name: "Mensalidade",
-    direction: "income" as const,
-    description: "Mensalidade do associado no ano escoteiro",
-    pixKey: "",
-    branch: "grupo" as const,
+    name: 'Mensalidade',
+    direction: 'income' as const,
+    description: 'Mensalidade do associado no ano escoteiro',
+    pixKey: '',
+    branch: 'grupo' as const,
     active: true,
     ...createdAudit(userId),
   };
@@ -139,7 +139,7 @@ export function refreshPendingMensalidadeSchedule(db: DatabaseShape, today = tod
   const dueDay = dueDayOf(db);
   let updated = 0;
   for (const tx of db.transactions) {
-    if (tx.paymentStatus === "paid") continue;
+    if (tx.paymentStatus === 'paid') continue;
     if (!isMensalidadeTx(db, tx)) continue;
     const year = Number(tx.date.slice(0, 4));
     const month = Number(tx.date.slice(5, 7));
@@ -167,7 +167,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
   let created = 0;
   for (const member of db.members) {
     applyOfficialFee(member);
-    if (member.status !== "active") {
+    if (member.status !== 'active') {
       cancelSubsequentMensalidades(db, member.id, today);
       continue;
     }
@@ -181,14 +181,14 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
       db.transactions.push({
         id: id(),
         date: dueDate,
-        type: "income",
-        nature: "fixed",
+        type: 'income',
+        nature: 'fixed',
         movementTypeId: movement.id,
         description: `Mensalidade ${MONTH_NAMES[month]} ${year} — ${member.name}`,
         amount: roundMoney(expectedMonthlyFee(member, dueDate, today)),
         branch: member.branch,
-        method: "pix",
-        paymentStatus: "pending",
+        method: 'pix',
+        paymentStatus: 'pending',
         memberId: member.id,
         ...createdAudit(userId),
       });
@@ -234,12 +234,12 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
       const first = firstOwedMonth(year, member.joinedAt);
       const cells: MensalidadeCell[] = MENSALIDADE_MONTHS.map((month) => {
         if (!first || month < first) {
-          return { month, dueDate: null, status: "none", amount: onTime };
+          return { month, dueDate: null, status: 'none', amount: onTime };
         }
         const dueDate = dueDateForMonth(year, month, dueDay);
         const tx = mensalidadeForMonth(db, member.id, year, month);
-        if (!tx && member.status !== "active") {
-          return { month, dueDate: null, status: "none", amount: onTime };
+        if (!tx && member.status !== 'active') {
+          return { month, dueDate: null, status: 'none', amount: onTime };
         }
         return {
           month,
@@ -263,18 +263,24 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         cells,
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
 
-  const summary = { paid: 0, pending: 0, overdue: 0, openAmount: 0, paidAmount: 0 };
+  const summary = {
+    paid: 0,
+    pending: 0,
+    overdue: 0,
+    openAmount: 0,
+    paidAmount: 0,
+  };
   for (const row of rows) {
     for (const cell of row.cells) {
-      if (cell.status === "paid") {
+      if (cell.status === 'paid') {
         summary.paid += 1;
         summary.paidAmount += cell.amount;
-      } else if (cell.status === "pending") {
+      } else if (cell.status === 'pending') {
         summary.pending += 1;
         summary.openAmount += cell.amount;
-      } else if (cell.status === "overdue") {
+      } else if (cell.status === 'overdue') {
         summary.overdue += 1;
         summary.openAmount += cell.amount;
       }

@@ -1,7 +1,7 @@
-import { createdAudit } from "../shared/audit";
-import { id } from "../shared/id";
-import type { DatabaseShape, Member } from "../shared/types";
-import { roundMoney } from "../shared/types";
+import { createdAudit } from '../shared/audit';
+import { id } from '../shared/id';
+import type { DatabaseShape, Member } from '../shared/types';
+import { roundMoney } from '../shared/types';
 
 /** Tabela oficial da mensalidade (cartaz do grupo). O dia de vencimento fica em Configurações. */
 
@@ -13,32 +13,42 @@ export const MENSALIDADE_TABLE = {
   late: 20,
 } as const;
 
-export type MensalidadeProfile = { branch: string; clubeLtc?: boolean; monthlyFee?: number };
+export type MensalidadeProfile = {
+  branch: string;
+  clubeLtc?: boolean;
+  monthlyFee?: number;
+};
 
 export const OFFICIAL_MENSALIDADE_FEES: { name: string; amount: number }[] = [
-  { name: "Mensalidade base — não pioneiro", amount: MENSALIDADE_TABLE.baseRegular },
-  { name: "Mensalidade base — pioneiro", amount: MENSALIDADE_TABLE.basePioneer },
-  { name: "Taxa extra — não sócios", amount: MENSALIDADE_TABLE.extra },
-  { name: "Taxa até o dia 10", amount: MENSALIDADE_TABLE.punctual },
-  { name: "Taxa após o dia 10", amount: MENSALIDADE_TABLE.late },
   {
-    name: "Não sócios até o dia 10",
+    name: 'Mensalidade base — não pioneiro',
+    amount: MENSALIDADE_TABLE.baseRegular,
+  },
+  {
+    name: 'Mensalidade base — pioneiro',
+    amount: MENSALIDADE_TABLE.basePioneer,
+  },
+  { name: 'Taxa extra — não sócios', amount: MENSALIDADE_TABLE.extra },
+  { name: 'Taxa até o dia 10', amount: MENSALIDADE_TABLE.punctual },
+  { name: 'Taxa após o dia 10', amount: MENSALIDADE_TABLE.late },
+  {
+    name: 'Não sócios até o dia 10',
     amount: roundMoney(MENSALIDADE_TABLE.baseRegular + MENSALIDADE_TABLE.punctual + MENSALIDADE_TABLE.extra),
   },
   {
-    name: "Não sócios após o dia 10",
+    name: 'Não sócios após o dia 10',
     amount: roundMoney(MENSALIDADE_TABLE.baseRegular + MENSALIDADE_TABLE.late + MENSALIDADE_TABLE.extra),
   },
   {
-    name: "Jovens pioneiros até o dia 10",
+    name: 'Jovens pioneiros até o dia 10',
     amount: roundMoney(MENSALIDADE_TABLE.basePioneer + MENSALIDADE_TABLE.punctual + MENSALIDADE_TABLE.extra),
   },
   {
-    name: "Jovens pioneiros após o dia 10",
+    name: 'Jovens pioneiros após o dia 10',
     amount: roundMoney(MENSALIDADE_TABLE.basePioneer + MENSALIDADE_TABLE.late + MENSALIDADE_TABLE.extra),
   },
-  { name: "Sócios do Lindóia", amount: MENSALIDADE_TABLE.baseRegular },
-  { name: "Jovens pioneiros sócios", amount: MENSALIDADE_TABLE.basePioneer },
+  { name: 'Sócios do Lindóia', amount: MENSALIDADE_TABLE.baseRegular },
+  { name: 'Jovens pioneiros sócios', amount: MENSALIDADE_TABLE.basePioneer },
 ];
 
 export function amountsNear(a: number, b: number): boolean {
@@ -46,7 +56,7 @@ export function amountsNear(a: number, b: number): boolean {
 }
 
 export function mensalidadeBase(branch: string): number {
-  return branch === "pioneiro" ? MENSALIDADE_TABLE.basePioneer : MENSALIDADE_TABLE.baseRegular;
+  return branch === 'pioneiro' ? MENSALIDADE_TABLE.basePioneer : MENSALIDADE_TABLE.baseRegular;
 }
 
 export function onTimeMonthlyFee(profile: MensalidadeProfile): number {

@@ -1,7 +1,7 @@
-import { fold } from "../shared/csv";
-import { createdAudit, updatedAudit } from "../shared/audit";
-import { id } from "../shared/id";
-import type { DatabaseShape, Member, MemberAccount, MemberGuardian, RecordOrigin } from "../shared/types";
+import { fold } from '../shared/csv';
+import { createdAudit, updatedAudit } from '../shared/audit';
+import { id } from '../shared/id';
+import type { DatabaseShape, Member, MemberAccount, MemberGuardian, RecordOrigin } from '../shared/types';
 import {
   optionalContactEmail,
   type AccountInput,
@@ -9,8 +9,8 @@ import {
   type GuardianInput,
   type MemberImportRow,
   type PatchMemberInput,
-} from "../shared/http/schemas";
-import { assignOfficialFee, cancelSubsequentMensalidades } from "../mensalidades/mensalidades";
+} from '../shared/http/schemas';
+import { assignOfficialFee, cancelSubsequentMensalidades } from '../mensalidades/mensalidades';
 
 export function cleanedGuardians(list: GuardianInput[]) {
   return list
@@ -18,15 +18,15 @@ export function cleanedGuardians(list: GuardianInput[]) {
       id: item.id,
       name: item.name.trim(),
       relationship: item.relationship.trim(),
-      phone: (item.phone ?? "").trim(),
+      phone: (item.phone ?? '').trim(),
       email: optionalContactEmail(item.email),
     }))
     .filter((item) => item.name.length >= 2);
 }
 
 export function assertYouthGuardians(role: string, count: number) {
-  if (role === "jovem" && count < 1) {
-    throw new Error("Informe pelo menos um responsável do jovem");
+  if (role === 'jovem' && count < 1) {
+    throw new Error('Informe pelo menos um responsável do jovem');
   }
 }
 
@@ -41,7 +41,7 @@ export function replaceGuardians(
     email: string;
   }>,
   userId: string,
-  origin: RecordOrigin = "manual",
+  origin: RecordOrigin = 'manual',
 ) {
   const existing = (db.memberGuardians ?? []).filter((item) => item.memberId === memberId);
   const others = (db.memberGuardians ?? []).filter((item) => item.memberId !== memberId);
@@ -82,9 +82,9 @@ export function replaceGuardians(
 
 export function resolveGuardianId(db: DatabaseShape, memberId: string | undefined, guardianId: string | undefined) {
   if (!guardianId) return undefined;
-  if (!memberId) throw new Error("Informe o associado do responsável");
+  if (!memberId) throw new Error('Informe o associado do responsável');
   const guardian = (db.memberGuardians ?? []).find((item) => item.id === guardianId && item.memberId === memberId);
-  if (!guardian) throw new Error("Responsável não pertence a este associado");
+  if (!guardian) throw new Error('Responsável não pertence a este associado');
   return guardian.id;
 }
 
@@ -95,14 +95,14 @@ export function refreshOfficialFees(db: DatabaseShape) {
 
 export function createMember(db: DatabaseShape, input: CreateMemberInput, userId: string): Member {
   if (db.members.some((item) => item.email.toLowerCase() === input.email.toLowerCase())) {
-    throw new Error("E-mail já cadastrado");
+    throw new Error('E-mail já cadastrado');
   }
   const { guardians, ...data } = input;
   const list = cleanedGuardians(guardians ?? []);
   assertYouthGuardians(data.role, list.length);
   const created: Member = {
     id: id(),
-    status: "active",
+    status: 'active',
     ...data,
     monthlyFee: 0,
     ...createdAudit(userId),
@@ -125,21 +125,21 @@ export function updateMember(
     input.email &&
     db.members.some((item) => item.id !== member.id && item.email.toLowerCase() === input.email!.toLowerCase())
   ) {
-    throw new Error("E-mail já cadastrado");
+    throw new Error('E-mail já cadastrado');
   }
   const { guardians, ...data } = input;
   const nextRole = data.role ?? member.role;
-  if (nextRole !== "jovem") {
+  if (nextRole !== 'jovem') {
     replaceGuardians(db, member.id, [], userId);
   } else if (guardians) {
     const list = cleanedGuardians(guardians);
     assertYouthGuardians(nextRole, list.length);
     replaceGuardians(db, member.id, list, userId);
-  } else if (data.role === "jovem" && member.role !== "jovem") {
+  } else if (data.role === 'jovem' && member.role !== 'jovem') {
     const count = (db.memberGuardians ?? []).filter((item) => item.memberId === member.id).length;
     assertYouthGuardians(nextRole, count);
   }
-  const becameInactive = input.status === "inactive" && member.status !== "inactive";
+  const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
   Object.assign(member, data);
   assignOfficialFee(member, userId);
   if (becameInactive) {
@@ -208,38 +208,44 @@ export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId
       const current = (db.memberGuardians ?? []).filter((item) => item.memberId === existing.id);
       const merged = mergeGuardianInputs(current, incoming);
       if (merged.length > current.length) {
-        replaceGuardians(db, existing.id, merged, userId, "integration");
+        replaceGuardians(db, existing.id, merged, userId, 'integration');
         updated.push(existing.id);
         continue;
       }
-      skipped.push({ email: row.email, reason: "E-mail já cadastrado" });
+      skipped.push({ email: row.email, reason: 'E-mail já cadastrado' });
       continue;
     }
     const { guardians: _guardians, ...data } = row;
     const member: Member = {
       id: id(),
-      status: "active",
+      status: 'active',
       ...data,
       monthlyFee: 0,
-      ...createdAudit(userId, "integration"),
+      ...createdAudit(userId, 'integration'),
     };
     assignOfficialFee(member);
     db.members.push(member);
-    if (incoming.length) replaceGuardians(db, member.id, incoming, userId, "integration");
+    if (incoming.length) replaceGuardians(db, member.id, incoming, userId, 'integration');
     created.push(member.id);
   }
   return { created: created.length, updated: updated.length, skipped };
 }
 
 function mergeGuardianInputs(
-  current: { id?: string; name: string; relationship: string; phone: string; email: string }[],
+  current: {
+    id?: string;
+    name: string;
+    relationship: string;
+    phone: string;
+    email: string;
+  }[],
   incoming: ReturnType<typeof cleanedGuardians>,
 ) {
   const next = current.map((item) => ({ ...item }));
   for (const item of incoming) {
     const hit = next.find((guardian) => fold(guardian.name) === fold(item.name));
     if (hit) {
-      if (!hit.relationship || hit.relationship === "Outro") hit.relationship = item.relationship;
+      if (!hit.relationship || hit.relationship === 'Outro') hit.relationship = item.relationship;
       if (!hit.phone) hit.phone = item.phone;
       if (!hit.email) hit.email = item.email;
       continue;

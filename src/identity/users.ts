@@ -1,7 +1,7 @@
-import { pool } from "../shared/db";
-import { hashPassword, isLegacyHash, verifyPassword } from "../shared/auth/password";
-import { id } from "../shared/id";
-import type { AppUser, RecordOrigin, UserRole } from "../shared/types";
+import { pool } from '../shared/db';
+import { hashPassword, isLegacyHash, verifyPassword } from '../shared/auth/password';
+import { id } from '../shared/id';
+import type { AppUser, RecordOrigin, UserRole } from '../shared/types';
 
 interface UserRow {
   id: string;
@@ -19,7 +19,7 @@ interface UserRow {
 }
 
 function toIso(value: unknown): string | undefined {
-  if (value == null || value === "") return undefined;
+  if (value == null || value === '') return undefined;
   if (value instanceof Date) return value.toISOString();
   return String(value);
 }
@@ -33,7 +33,7 @@ function toUser(row: UserRow): AppUser {
     role: row.role,
     active: row.active,
     createdAt: toIso(row.created_at) ?? new Date().toISOString(),
-    origin: row.origin === "manual" ? "manual" : "integration",
+    origin: row.origin === 'manual' ? 'manual' : 'integration',
     createdBy: row.created_by ? String(row.created_by) : undefined,
     updatedAt: toIso(row.updated_at),
     updatedBy: row.updated_by ? String(row.updated_by) : undefined,
@@ -41,14 +41,14 @@ function toUser(row: UserRow): AppUser {
 }
 
 export async function findUserByUsername(username: string): Promise<(AppUser & { passwordHash: string }) | null> {
-  const result = await pool.query<UserRow>("SELECT * FROM users WHERE username = $1", [username]);
+  const result = await pool.query<UserRow>('SELECT * FROM users WHERE username = $1', [username]);
   const row = result.rows[0];
   if (!row) return null;
   return { ...toUser(row), passwordHash: row.password_hash };
 }
 
 function foldedLogin(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 export async function findUserByLogin(login: string): Promise<(AppUser & { passwordHash: string }) | null> {
@@ -71,7 +71,7 @@ export async function findUserByLogin(login: string): Promise<(AppUser & { passw
 }
 
 export async function findUserById(userId: string): Promise<(AppUser & { passwordHash: string }) | null> {
-  const result = await pool.query<UserRow>("SELECT * FROM users WHERE id = $1", [userId]);
+  const result = await pool.query<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
   const row = result.rows[0];
   if (!row) return null;
   return { ...toUser(row), passwordHash: row.password_hash };
@@ -84,7 +84,7 @@ export async function verifyUserPassword(userId: string, password: string): Prom
 }
 
 export async function listUsers(): Promise<AppUser[]> {
-  const result = await pool.query<UserRow>("SELECT * FROM users ORDER BY name");
+  const result = await pool.query<UserRow>('SELECT * FROM users ORDER BY name');
   return result.rows.map(toUser);
 }
 
@@ -110,7 +110,7 @@ export async function createUser(input: {
       input.email,
       passwordHash,
       input.role,
-      input.origin ?? "manual",
+      input.origin ?? 'manual',
       input.createdBy ?? null,
     ],
   );
@@ -128,7 +128,7 @@ export async function updateUser(
     updatedBy?: string;
   },
 ): Promise<AppUser | null> {
-  const current = await pool.query<UserRow>("SELECT * FROM users WHERE id = $1", [userId]);
+  const current = await pool.query<UserRow>('SELECT * FROM users WHERE id = $1', [userId]);
   if (!current.rows[0]) return null;
   const row = current.rows[0];
   const passwordHash = input.password ? await hashPassword(input.password) : row.password_hash;
@@ -161,7 +161,7 @@ export async function updateUser(
  * formato da senha é o login, não uma edição do cadastro.
  */
 export async function replacePasswordHash(userId: string, passwordHash: string): Promise<void> {
-  await pool.query("UPDATE users SET password_hash = $2 WHERE id = $1", [userId, passwordHash]);
+  await pool.query('UPDATE users SET password_hash = $2 WHERE id = $1', [userId, passwordHash]);
 }
 
 /**
@@ -173,7 +173,7 @@ export async function replacePasswordHash(userId: string, passwordHash: string):
 export async function rehashLegacySeedUsers(): Promise<number> {
   const password = process.env.ADMIN_PASSWORD;
   if (!password) return 0;
-  const usernames = [...new Set(["admin", process.env.ADMIN_USER ?? "tesouraria"])];
+  const usernames = [...new Set(['admin', process.env.ADMIN_USER ?? 'tesouraria'])];
   let upgraded = 0;
   for (const username of usernames) {
     const found = await findUserByUsername(username);
@@ -186,6 +186,6 @@ export async function rehashLegacySeedUsers(): Promise<number> {
 }
 
 export async function countUsers(): Promise<number> {
-  const result = await pool.query<{ count: string }>("SELECT COUNT(*)::text AS count FROM users");
+  const result = await pool.query<{ count: string }>('SELECT COUNT(*)::text AS count FROM users');
   return Number(result.rows[0]?.count ?? 0);
 }

@@ -1,4 +1,4 @@
-import { fold } from "../shared/csv";
+import { fold } from '../shared/csv';
 import type {
   BranchId,
   CashFlowMonth,
@@ -10,8 +10,8 @@ import type {
   FiscalLedgerLine,
   ProjectItem,
   Transaction,
-} from "../shared/types";
-import { BRANCH_LABELS, DASHBOARD_BRANCHES, monthKey, pad2, periodBounds, roundMoney } from "../shared/types";
+} from '../shared/types';
+import { BRANCH_LABELS, DASHBOARD_BRANCHES, monthKey, pad2, periodBounds, roundMoney } from '../shared/types';
 
 export function inRange(date: string, from: string, to: string): boolean {
   return date >= from && date <= to;
@@ -22,12 +22,12 @@ export function sumBy<T>(items: T[], pick: (item: T) => number): number {
 }
 
 export function isSettled(tx: Transaction): boolean {
-  return tx.paymentStatus !== "pending";
+  return tx.paymentStatus !== 'pending';
 }
 
 export function cashBalance(db: DatabaseShape, until?: string): number {
   const txs = (until ? db.transactions.filter((t) => t.date <= until) : db.transactions).filter(isSettled);
-  const net = sumBy(txs, (t) => (t.type === "income" ? t.amount : -t.amount));
+  const net = sumBy(txs, (t) => (t.type === 'income' ? t.amount : -t.amount));
   return roundMoney(db.settings.openingBalance + net);
 }
 
@@ -62,15 +62,15 @@ export function cashFlow(
   const opening = cashBalance(db, dayBefore(from));
   let running = opening;
   const months = monthsBetween(from, to).map((month) => {
-    const [year, mo] = month.split("-");
+    const [year, mo] = month.split('-');
     const prefix = `${year}-${mo}`;
     const txs = db.transactions.filter((t) => isSettled(t) && t.date.startsWith(prefix) && inRange(t.date, from, to));
     const income = sumBy(
-      txs.filter((t) => t.type === "income"),
+      txs.filter((t) => t.type === 'income'),
       (t) => t.amount,
     );
     const expense = sumBy(
-      txs.filter((t) => t.type === "expense"),
+      txs.filter((t) => t.type === 'expense'),
       (t) => t.amount,
     );
     running = roundMoney(running + income - expense);
@@ -123,11 +123,11 @@ export function projectItemActuals(db: DatabaseShape, project: FinancialProject,
   return {
     itemId: item.id,
     income: sumBy(
-      txs.filter((tx) => tx.type === "income"),
+      txs.filter((tx) => tx.type === 'income'),
       (tx) => tx.amount,
     ),
     expense: sumBy(
-      txs.filter((tx) => tx.type === "expense"),
+      txs.filter((tx) => tx.type === 'expense'),
       (tx) => tx.amount,
     ),
   };
@@ -144,11 +144,11 @@ export function projectActuals(db: DatabaseShape, projectId: string) {
   }
   return {
     income: sumBy(
-      txs.filter((t) => t.type === "income"),
+      txs.filter((t) => t.type === 'income'),
       (t) => t.amount,
     ),
     expense: sumBy(
-      txs.filter((t) => t.type === "expense"),
+      txs.filter((t) => t.type === 'expense'),
       (t) => t.amount,
     ),
     byCategory: [...byType.entries()].map(([movementTypeId, v]) => ({
@@ -189,18 +189,18 @@ export function customReport(
 
   const keyOf = (t: Transaction): { key: string; label: string } => {
     switch (query.groupBy) {
-      case "month": {
+      case 'month': {
         const key = t.date.slice(0, 7);
         return { key, label: key };
       }
-      case "branch":
+      case 'branch':
         return { key: t.branch, label: BRANCH_LABELS[t.branch] };
-      case "movementType":
+      case 'movementType':
         return { key: t.movementTypeId, label: typeName(db, t.movementTypeId) };
-      case "nature":
+      case 'nature':
         return {
           key: t.nature,
-          label: t.nature === "fixed" ? "Fixa" : "Variável",
+          label: t.nature === 'fixed' ? 'Fixa' : 'Variável',
         };
       default:
         return { key: t.id, label: t.description };
@@ -217,17 +217,17 @@ export function customReport(
       net: 0,
       count: 0,
     };
-    if (t.type === "income") row.income = roundMoney(row.income + t.amount);
+    if (t.type === 'income') row.income = roundMoney(row.income + t.amount);
     else row.expense = roundMoney(row.expense + t.amount);
     row.net = roundMoney(row.income - row.expense);
     row.count += 1;
     buckets.set(key, row);
   }
 
-  const rows = [...buckets.values()].sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+  const rows = [...buckets.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
   const totals: CustomReportRow = {
-    key: "total",
-    label: "Total",
+    key: 'total',
+    label: 'Total',
     income: sumBy(rows, (r) => r.income),
     expense: sumBy(rows, (r) => r.expense),
     net: 0,
@@ -238,8 +238,8 @@ export function customReport(
   const opening = cashBalance(db, dayBefore(query.from));
   let running = opening;
   const ledger: FiscalLedgerLine[] = txs.map((t, index) => {
-    const income = t.type === "income" ? t.amount : 0;
-    const expense = t.type === "expense" ? t.amount : 0;
+    const income = t.type === 'income' ? t.amount : 0;
+    const expense = t.type === 'expense' ? t.amount : 0;
     running = roundMoney(running + income - expense);
     const member = t.memberId ? db.members.find((m) => m.id === t.memberId) : undefined;
     const account = t.memberAccountId ? db.memberAccounts.find((a) => a.id === t.memberAccountId) : undefined;
@@ -261,7 +261,7 @@ export function customReport(
       income,
       expense,
       balance: running,
-      createdByName: "",
+      createdByName: '',
       createdAt: t.createdAt,
       origin: t.origin,
       updatedAt: t.updatedAt,
@@ -276,11 +276,11 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
   const opening = cashBalance(db, dayBefore(from));
   const periodTx = db.transactions.filter((t) => isSettled(t) && inRange(t.date, from, to));
   const income = sumBy(
-    periodTx.filter((t) => t.type === "income"),
+    periodTx.filter((t) => t.type === 'income'),
     (t) => t.amount,
   );
   const expense = sumBy(
-    periodTx.filter((t) => t.type === "expense"),
+    periodTx.filter((t) => t.type === 'expense'),
     (t) => t.amount,
   );
   const membersInPeriod = db.members.filter((m) => m.joinedAt <= to);
@@ -290,11 +290,11 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
     return {
       branch,
       income: sumBy(
-        txs.filter((t) => t.type === "income"),
+        txs.filter((t) => t.type === 'income'),
         (t) => t.amount,
       ),
       expense: sumBy(
-        txs.filter((t) => t.type === "expense"),
+        txs.filter((t) => t.type === 'expense'),
         (t) => t.amount,
       ),
       members: membersInPeriod.filter((m) => m.branch === branch).length,
@@ -304,11 +304,11 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
   const chart = monthsBetween(from, to).map((key) => {
     const txs = periodTx.filter((t) => t.date.startsWith(key));
     const monthIncome = sumBy(
-      txs.filter((t) => t.type === "income"),
+      txs.filter((t) => t.type === 'income'),
       (t) => t.amount,
     );
     const monthExpense = sumBy(
-      txs.filter((t) => t.type === "expense"),
+      txs.filter((t) => t.type === 'expense'),
       (t) => t.amount,
     );
     return {
@@ -329,7 +329,7 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
     expense,
     current: roundMoney(opening + income - expense),
     members: membersInPeriod.length,
-    activeMembers: membersInPeriod.filter((m) => m.status === "active").length,
+    activeMembers: membersInPeriod.filter((m) => m.status === 'active').length,
     byBranch,
     chart,
   };

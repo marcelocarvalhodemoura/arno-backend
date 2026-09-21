@@ -1,33 +1,33 @@
-export type BranchId = "filhote" | "lobinho" | "escoteiro" | "senior" | "pioneiro" | "flor-de-lis" | "grupo";
+export type BranchId = 'filhote' | 'lobinho' | 'escoteiro' | 'senior' | 'pioneiro' | 'flor-de-lis' | 'grupo';
 
-export type YouthBranchId = Exclude<BranchId, "grupo">;
+export type YouthBranchId = Exclude<BranchId, 'grupo'>;
 
-export type MemberRole = "jovem" | "escotista" | "dirigente" | "clube";
-export type MemberStatus = "active" | "inactive";
-export type TxType = "income" | "expense";
-export type TxNature = "fixed" | "variable";
-export type PaymentMethod = "pix" | "cash" | "transfer" | "card" | "other";
-export type TxPaymentStatus = "paid" | "pending";
-export type MovementDirection = "income" | "expense" | "both";
-export type AccountHolderKind = "parent" | "youth" | "other";
+export type MemberRole = 'jovem' | 'escotista' | 'dirigente' | 'clube';
+export type MemberStatus = 'active' | 'inactive';
+export type TxType = 'income' | 'expense';
+export type TxNature = 'fixed' | 'variable';
+export type PaymentMethod = 'pix' | 'cash' | 'transfer' | 'card' | 'other';
+export type TxPaymentStatus = 'paid' | 'pending';
+export type MovementDirection = 'income' | 'expense' | 'both';
+export type AccountHolderKind = 'parent' | 'youth' | 'other';
 export type GuardianRelationship =
-  | "Mãe"
-  | "Pai"
-  | "Madrasta"
-  | "Padrasto"
-  | "Tia"
-  | "Tio"
-  | "Avó"
-  | "Avô"
-  | "Irmã"
-  | "Irmão"
-  | "Responsável legal"
-  | "Outro";
-export type ReportGroupBy = "none" | "month" | "branch" | "movementType" | "nature";
-export type UserRole = "admin" | "tesoureiro";
-export type RecordOrigin = "manual" | "integration" | "sicredi";
-export type BankProvider = "sicredi";
-export type BankMovementStatus = "new" | "matched" | "imported";
+  | 'Mãe'
+  | 'Pai'
+  | 'Madrasta'
+  | 'Padrasto'
+  | 'Tia'
+  | 'Tio'
+  | 'Avó'
+  | 'Avô'
+  | 'Irmã'
+  | 'Irmão'
+  | 'Responsável legal'
+  | 'Outro';
+export type ReportGroupBy = 'none' | 'month' | 'branch' | 'movementType' | 'nature';
+export type UserRole = 'admin' | 'tesoureiro';
+export type RecordOrigin = 'manual' | 'integration' | 'sicredi';
+export type BankProvider = 'sicredi';
+export type BankMovementStatus = 'new' | 'matched' | 'imported';
 
 /** Linhas por requisição de importação. O front fatia arquivos maiores. */
 export const IMPORT_CHUNK_SIZE = 200;
@@ -52,13 +52,13 @@ export interface AuditInfo {
 }
 
 export const DASHBOARD_BRANCHES: BranchId[] = [
-  "filhote",
-  "lobinho",
-  "escoteiro",
-  "senior",
-  "pioneiro",
-  "flor-de-lis",
-  "grupo",
+  'filhote',
+  'lobinho',
+  'escoteiro',
+  'senior',
+  'pioneiro',
+  'flor-de-lis',
+  'grupo',
 ];
 
 export interface AppUser {
@@ -85,82 +85,82 @@ export interface BranchMeta {
 
 export const YOUTH_BRANCHES: BranchMeta[] = [
   {
-    id: "filhote",
-    name: "Ramo Filhotes",
-    unit: "Filhotes",
-    color: "#ee9b00",
-    tone: "amber",
+    id: 'filhote',
+    name: 'Ramo Filhotes',
+    unit: 'Filhotes',
+    color: '#ee9b00',
+    tone: 'amber',
   },
   {
-    id: "lobinho",
-    name: "Ramo Lobinho",
-    unit: "Alcateia",
-    color: "#e8b423",
-    tone: "gold",
+    id: 'lobinho',
+    name: 'Ramo Lobinho',
+    unit: 'Alcateia',
+    color: '#e8b423',
+    tone: 'gold',
   },
   {
-    id: "escoteiro",
-    name: "Ramo Escoteiro",
-    unit: "Tropa Escoteira",
-    color: "#2d8a4e",
-    tone: "pine",
+    id: 'escoteiro',
+    name: 'Ramo Escoteiro',
+    unit: 'Tropa Escoteira',
+    color: '#2d8a4e',
+    tone: 'pine',
   },
   {
-    id: "senior",
-    name: "Ramo Sênior",
-    unit: "Tropa Sênior",
-    color: "#c8102e",
-    tone: "clay",
+    id: 'senior',
+    name: 'Ramo Sênior',
+    unit: 'Tropa Sênior',
+    color: '#c8102e',
+    tone: 'clay',
   },
   {
-    id: "pioneiro",
-    name: "Ramo Pioneiro",
-    unit: "Clã Pioneiro",
-    color: "#8b1a2b",
-    tone: "wine",
+    id: 'pioneiro',
+    name: 'Ramo Pioneiro',
+    unit: 'Clã Pioneiro',
+    color: '#8b1a2b',
+    tone: 'wine',
   },
   {
-    id: "flor-de-lis",
-    name: "Clube da Flor de Lis",
-    unit: "Flor de Lis",
-    color: "#c45d7a",
-    tone: "rose",
+    id: 'flor-de-lis',
+    name: 'Clube da Flor de Lis',
+    unit: 'Flor de Lis',
+    color: '#c45d7a',
+    tone: 'rose',
   },
 ];
 
 export const BRANCH_LABELS: Record<BranchId, string> = {
-  filhote: "Filhotes",
-  lobinho: "Lobinho",
-  escoteiro: "Escoteiro",
-  senior: "Sênior",
-  pioneiro: "Pioneiro",
-  "flor-de-lis": "Flor de Lis",
-  grupo: "Grupo",
+  filhote: 'Filhotes',
+  lobinho: 'Lobinho',
+  escoteiro: 'Escoteiro',
+  senior: 'Sênior',
+  pioneiro: 'Pioneiro',
+  'flor-de-lis': 'Flor de Lis',
+  grupo: 'Grupo',
 };
 
 export const ALL_BRANCHES: BranchId[] = [
-  "filhote",
-  "lobinho",
-  "escoteiro",
-  "senior",
-  "pioneiro",
-  "flor-de-lis",
-  "grupo",
+  'filhote',
+  'lobinho',
+  'escoteiro',
+  'senior',
+  'pioneiro',
+  'flor-de-lis',
+  'grupo',
 ];
 
 export const GUARDIAN_RELATIONSHIPS: GuardianRelationship[] = [
-  "Mãe",
-  "Pai",
-  "Madrasta",
-  "Padrasto",
-  "Tia",
-  "Tio",
-  "Avó",
-  "Avô",
-  "Irmã",
-  "Irmão",
-  "Responsável legal",
-  "Outro",
+  'Mãe',
+  'Pai',
+  'Madrasta',
+  'Padrasto',
+  'Tia',
+  'Tio',
+  'Avó',
+  'Avô',
+  'Irmã',
+  'Irmão',
+  'Responsável legal',
+  'Outro',
 ];
 
 export interface MovementType {
@@ -314,7 +314,7 @@ export interface Settings {
   mensalidadeDueDay?: number;
 }
 
-export type MensalidadeCellStatus = "paid" | "pending" | "overdue" | "none";
+export type MensalidadeCellStatus = 'paid' | 'pending' | 'overdue' | 'none';
 
 export interface MensalidadeCell {
   month: number;
@@ -369,7 +369,12 @@ export interface CashFlowMonth {
   expense: number;
   net: number;
   balance: number;
-  byMovementType: { movementTypeId: string; name: string; income: number; expense: number }[];
+  byMovementType: {
+    movementTypeId: string;
+    name: string;
+    income: number;
+    expense: number;
+  }[];
   byBranch: { branch: BranchId; income: number; expense: number }[];
 }
 
@@ -447,11 +452,11 @@ export function roundMoney(n: number): number {
 }
 
 export function monthKey(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, "0")}`;
+  return `${year}-${String(month).padStart(2, '0')}`;
 }
 
 export function pad2(n: number): string {
-  return String(n).padStart(2, "0");
+  return String(n).padStart(2, '0');
 }
 
 export function lastDayOfMonth(year: number, month: number): string {

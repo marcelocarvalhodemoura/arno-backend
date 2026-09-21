@@ -3,5 +3,5 @@ export function errorMessage(error: unknown, fallback: string) {
 }
 
 export function isUniqueUserConflict(message: string) {
-  return message.includes("users_username") || message.includes("users_email");
+  return message.includes('users_username') || message.includes('users_email');
 }

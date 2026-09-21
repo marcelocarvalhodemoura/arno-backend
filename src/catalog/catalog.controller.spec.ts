@@ -30,9 +30,16 @@ describe('CatalogController', () => {
     catalog.getSettings.mockResolvedValue({ groupName: 'Arno' });
     catalog.meta.mockReturnValue({ branches: [] });
     catalog.deleteFee.mockResolvedValue(undefined);
-    const auth = { user: 't', userId: '1', role: 'tesoureiro' as const, exp: 1 };
+    const auth = {
+      user: 't',
+      userId: '1',
+      role: 'tesoureiro' as const,
+      exp: 1,
+    };
 
-    await expect(controller.getSettings()).resolves.toEqual({ groupName: 'Arno' });
+    await expect(controller.getSettings()).resolves.toEqual({
+      groupName: 'Arno',
+    });
     expect(controller.meta()).toEqual({ branches: [] });
     await expect(controller.deleteFee('fee-1')).resolves.toBeUndefined();
     expect(catalog.deleteFee).toHaveBeenCalledWith('fee-1');

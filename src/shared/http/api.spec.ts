@@ -27,7 +27,9 @@ describe('fail', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(HttpException);
       expect((error as HttpException).getStatus()).toBe(401);
-      expect((error as HttpException).getResponse()).toEqual({ error: 'Não autorizado' });
+      expect((error as HttpException).getResponse()).toEqual({
+        error: 'Não autorizado',
+      });
     }
   });
 });

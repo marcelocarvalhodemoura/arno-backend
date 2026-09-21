@@ -1,13 +1,13 @@
-import { listUsers } from "../../identity/users";
-import type { AppUser } from "../types";
+import { listUsers } from '../../identity/users';
+import type { AppUser } from '../types';
 
 export function authorOf(users: Map<string, AppUser>, userId?: string) {
   if (!userId) return null;
   const user = users.get(userId);
   return {
     id: userId,
-    name: user?.name ?? "Usuário removido",
-    username: user?.username ?? "",
+    name: user?.name ?? 'Usuário removido',
+    username: user?.username ?? '',
   };
 }
 

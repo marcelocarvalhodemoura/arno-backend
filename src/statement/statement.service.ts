@@ -29,7 +29,9 @@ const mapImportBody = z.object({
   mapping: mappingSchema,
 });
 
-const ingestBody = z.object({ rows: z.array(txImportRow).min(1).max(IMPORT_CHUNK_SIZE) });
+const ingestBody = z.object({
+  rows: z.array(txImportRow).min(1).max(IMPORT_CHUNK_SIZE),
+});
 
 @Injectable()
 export class StatementService {

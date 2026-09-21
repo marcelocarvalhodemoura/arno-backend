@@ -5,9 +5,9 @@ export type CsvTable = {
 
 export function csvLines(text: string): string[] {
   const raw = text
-    .replace(/^\uFEFF/, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n");
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
   return splitCsvLines(raw);
 }
 
@@ -16,7 +16,7 @@ export function csvCells(line: string): string[] {
 }
 
 export function fold(value: string): string {
-  return value.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+  return value.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().trim();
 }
 
 function uniquifyHeaders(headers: string[]): string[] {
@@ -30,23 +30,23 @@ function uniquifyHeaders(headers: string[]): string[] {
 
 export function parseCsv(text: string, headerIndex = 0): CsvTable {
   const raw = text
-    .replace(/^\uFEFF/, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
+    .replace(/^\uFEFF/, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
     .trim();
   if (!raw) return { headers: [], rows: [] };
   const lines = splitCsvLines(raw);
   if (lines.length === 0) return { headers: [], rows: [] };
   const start = Math.min(Math.max(headerIndex, 0), lines.length - 1);
   const usable = lines.slice(start);
-  const delimiter = detectDelimiter(usable[0] ?? "");
-  const headers = uniquifyHeaders(splitCsvRow(usable[0] ?? "", delimiter).map(normalizeHeader));
+  const delimiter = detectDelimiter(usable[0] ?? '');
+  const headers = uniquifyHeaders(splitCsvRow(usable[0] ?? '', delimiter).map(normalizeHeader));
   const rows = usable.slice(1).flatMap((line) => {
     if (!line.trim()) return [];
     const cells = splitCsvRow(line, delimiter);
     const row: Record<string, string> = {};
     headers.forEach((header, index) => {
-      row[header] = (cells[index] ?? "").trim();
+      row[header] = (cells[index] ?? '').trim();
     });
     if (Object.values(row).every((value) => !value)) return [];
     return [row];
@@ -60,7 +60,7 @@ export function pick(row: Record<string, string>, ...aliases: string[]): string 
     const value = row[key];
     if (value) return value;
   }
-  return "";
+  return '';
 }
 
 export function parseIsoDate(value: string): string | null {
@@ -70,15 +70,15 @@ export function parseIsoDate(value: string): string | null {
   if (iso) return trimmed;
   const br = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
   if (br) {
-    const day = br[1]!.padStart(2, "0");
-    const month = br[2]!.padStart(2, "0");
+    const day = br[1]!.padStart(2, '0');
+    const month = br[2]!.padStart(2, '0');
     const year = br[3]!;
     const stamp = `${year}-${month}-${day}`;
     const date = new Date(`${stamp}T00:00:00`);
     if (Number.isNaN(date.getTime())) return null;
     return stamp;
   }
-  const serial = Number(trimmed.replace(",", "."));
+  const serial = Number(trimmed.replace(',', '.'));
   if (Number.isFinite(serial) && serial >= 20000 && serial < 80000) {
     const utc = Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000;
     return new Date(utc).toISOString().slice(0, 10);
@@ -89,17 +89,17 @@ export function parseIsoDate(value: string): string | null {
 export function parseSignedAmount(value: string): number {
   const trimmed = value
     .trim()
-    .replace(/^r\$\s*/i, "")
-    .replace(/\s/g, "");
+    .replace(/^r\$\s*/i, '')
+    .replace(/\s/g, '');
   if (!trimmed) return Number.NaN;
   const wrapped = /^\(.*\)$/.test(trimmed);
-  const negative = wrapped || trimmed.startsWith("-");
-  const raw = trimmed.replace(/[()]/g, "").replace(/^[-+]/, "");
+  const negative = wrapped || trimmed.startsWith('-');
+  const raw = trimmed.replace(/[()]/g, '').replace(/^[-+]/, '');
   let amount: number;
-  if (raw.includes(",") && raw.includes(".")) {
-    amount = Number(raw.replace(/\./g, "").replace(",", "."));
-  } else if (raw.includes(",")) {
-    amount = Number(raw.replace(",", "."));
+  if (raw.includes(',') && raw.includes('.')) {
+    amount = Number(raw.replace(/\./g, '').replace(',', '.'));
+  } else if (raw.includes(',')) {
+    amount = Number(raw.replace(',', '.'));
   } else {
     amount = Number(raw);
   }
@@ -109,17 +109,17 @@ export function parseSignedAmount(value: string): number {
 
 export function normalizeHeader(value: string): string {
   return fold(value)
-    .replace(/[^\p{L}\p{N}]+/gu, "_")
-    .replace(/^_|_$/g, "");
+    .replace(/[^\p{L}\p{N}]+/gu, '_')
+    .replace(/^_|_$/g, '');
 }
 
-function detectDelimiter(headerLine: string): "," | ";" {
-  return (headerLine.match(/;/g)?.length ?? 0) >= (headerLine.match(/,/g)?.length ?? 0) ? ";" : ",";
+function detectDelimiter(headerLine: string): ',' | ';' {
+  return (headerLine.match(/;/g)?.length ?? 0) >= (headerLine.match(/,/g)?.length ?? 0) ? ';' : ',';
 }
 
 function splitCsvLines(text: string): string[] {
   const lines: string[] = [];
-  let current = "";
+  let current = '';
   let quoted = false;
   for (let i = 0; i < text.length; i += 1) {
     const char = text[i];
@@ -128,9 +128,9 @@ function splitCsvLines(text: string): string[] {
       current += char;
       continue;
     }
-    if (char === "\n" && !quoted) {
+    if (char === '\n' && !quoted) {
       lines.push(current);
-      current = "";
+      current = '';
       continue;
     }
     current += char;
@@ -139,9 +139,9 @@ function splitCsvLines(text: string): string[] {
   return lines;
 }
 
-function splitCsvRow(line: string, delimiter: "," | ";"): string[] {
+function splitCsvRow(line: string, delimiter: ',' | ';'): string[] {
   const cells: string[] = [];
-  let current = "";
+  let current = '';
   let quoted = false;
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i];
@@ -156,7 +156,7 @@ function splitCsvRow(line: string, delimiter: "," | ";"): string[] {
     }
     if (char === delimiter && !quoted) {
       cells.push(current);
-      current = "";
+      current = '';
       continue;
     }
     current += char;

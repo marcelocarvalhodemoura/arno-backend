@@ -12,7 +12,10 @@ const notifyBody = z.object({
   kind: z.enum(['charge', 'receipt']),
   memberIds: z.array(z.string()).optional(),
   transactionIds: z.array(z.string()).optional(),
-  channels: z.array(z.enum(['email', 'whatsapp'])).min(1).optional(),
+  channels: z
+    .array(z.enum(['email', 'whatsapp']))
+    .min(1)
+    .optional(),
 });
 
 @Injectable()

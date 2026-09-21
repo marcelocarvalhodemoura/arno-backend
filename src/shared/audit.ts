@@ -1,6 +1,6 @@
-import type { RecordOrigin } from "./types";
+import type { RecordOrigin } from './types';
 
-export function createdAudit(userId: string, origin: RecordOrigin = "manual") {
+export function createdAudit(userId: string, origin: RecordOrigin = 'manual') {
   return {
     origin,
     createdBy: userId,

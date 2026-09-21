@@ -27,6 +27,21 @@ describe('Health (e2e)', () => {
   it('POST /api/auth/login rejects empty body', async () => {
     await request(server).post('/api/auth/login').send({}).expect(400);
   });
+
+  it('GET /api/docs serves Swagger UI', async () => {
+    const res = await request(server).get('/api/docs').redirects(1);
+    expect(res.status).toBe(200);
+    expect(res.text.toLowerCase()).toContain('swagger');
+  });
+
+  it('GET /api/docs-json describes the API', async () => {
+    const res = await request(server).get('/api/docs-json').expect(200);
+    expect(res.body.openapi).toMatch(/^3/);
+    expect(res.body.info.title).toBe('Tesouraria Arno');
+    expect(res.body.paths['/api/health']).toBeDefined();
+    expect(res.body.paths['/api/auth/login']).toBeDefined();
+    expect(res.body.paths['/api/members']).toBeDefined();
+  });
 });
 
 describe('Tesoureiro journey (e2e)', () => {
@@ -60,7 +75,11 @@ describe('Tesoureiro journey (e2e)', () => {
     const type = await request(server)
       .post('/api/movement-types')
       .set(auth)
-      .send({ name: `E2E Tipo ${stamp}`, direction: 'both', description: 'e2e' });
+      .send({
+        name: `E2E Tipo ${stamp}`,
+        direction: 'both',
+        description: 'e2e',
+      });
     expect(type.status).toBe(201);
 
     const member = await request(server)
@@ -88,29 +107,29 @@ describe('Tesoureiro journey (e2e)', () => {
     });
     expect(account.status).toBe(201);
 
-    const tx = await request(server).post('/api/transactions').set(auth).send({
-      date: '2026-06-10',
-      type: 'income',
-      nature: 'variable',
-      movementTypeId: type.body.id,
-      description: `Pix e2e ${stamp}`,
-      amount: 40,
-      branch: 'escoteiro',
-      method: 'pix',
-      memberId: member.body.id,
-    });
+    const tx = await request(server)
+      .post('/api/transactions')
+      .set(auth)
+      .send({
+        date: '2026-06-10',
+        type: 'income',
+        nature: 'variable',
+        movementTypeId: type.body.id,
+        description: `Pix e2e ${stamp}`,
+        amount: 40,
+        branch: 'escoteiro',
+        method: 'pix',
+        memberId: member.body.id,
+      });
     expect(tx.status).toBe(201);
 
     const listed = await request(server).get('/api/transactions?from=2026-06-01&to=2026-06-30').set(auth);
     expect(listed.body.some((item: { id: string }) => item.id === tx.body.id)).toBe(true);
 
-    const mapped = await request(server)
-      .post('/api/integrations/map-import')
-      .set(auth)
-      .send({
-        kind: 'statement',
-        csv: `Dt. Lançamento;Histórico do Lançamento;Valor R$\n10/06/2026;PIX RECEBIDO TESTE;40,00\n`,
-      });
+    const mapped = await request(server).post('/api/integrations/map-import').set(auth).send({
+      kind: 'statement',
+      csv: `Dt. Lançamento;Histórico do Lançamento;Valor R$\n10/06/2026;PIX RECEBIDO TESTE;40,00\n`,
+    });
     expect(mapped.status).toBe(200);
     expect(mapped.body.mapping.date).toBeTruthy();
 
@@ -137,7 +156,9 @@ describe('Admin journey (e2e)', () => {
   beforeAll(async () => {
     app = await createTestApp();
     server = app.getHttpServer();
-    const login = await request(server).post('/api/auth/login').send({ user: TEST_ADMIN_USER, password: TEST_PASSWORD });
+    const login = await request(server)
+      .post('/api/auth/login')
+      .send({ user: TEST_ADMIN_USER, password: TEST_PASSWORD });
     expect(login.status).toBe(200);
     auth = { Authorization: `Bearer ${login.body.token}` };
   });
@@ -187,10 +208,7 @@ describe('Admin journey (e2e)', () => {
     expect(report.body.ledger).toBeDefined();
 
     const settings = await request(server).get('/api/settings').set(auth);
-    const renamed = await request(server)
-      .patch('/api/settings')
-      .set(auth)
-      .send({ groupName: settings.body.groupName });
+    const renamed = await request(server).patch('/api/settings').set(auth).send({ groupName: settings.body.groupName });
     expect(renamed.status).toBe(200);
   });
 });

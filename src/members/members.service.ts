@@ -16,7 +16,9 @@ import { accountBody, createMemberBody, memberImportRow, patchMemberBody } from 
 import { mutate } from '../shared/persistence/finance-store';
 import { IMPORT_CHUNK_SIZE } from '../shared/types';
 
-const importMembersBody = z.object({ rows: z.array(memberImportRow).min(1).max(IMPORT_CHUNK_SIZE) });
+const importMembersBody = z.object({
+  rows: z.array(memberImportRow).min(1).max(IMPORT_CHUNK_SIZE),
+});
 const patchAccountBody = accountBody.partial().extend({ active: z.boolean().optional() });
 
 @Injectable()

@@ -32,10 +32,19 @@ describe('IdentityController', () => {
     const auth = { user: 'admin', userId: '1', role: 'admin' as const, exp: 1 };
 
     await expect(controller.login({ user: 'admin', password: 'x' })).resolves.toEqual({ token: 't' });
-    expect(controller.me(auth)).toEqual({ user: 'admin', role: 'admin', userId: '1' });
+    expect(controller.me(auth)).toEqual({
+      user: 'admin',
+      role: 'admin',
+      userId: '1',
+    });
     await expect(controller.list()).resolves.toEqual([]);
-    await expect(controller.create({ username: 'a' }, auth)).resolves.toEqual({ id: '1' });
-    await expect(controller.update('1', { name: 'X' }, auth)).resolves.toEqual({ id: '1', name: 'X' });
+    await expect(controller.create({ username: 'a' }, auth)).resolves.toEqual({
+      id: '1',
+    });
+    await expect(controller.update('1', { name: 'X' }, auth)).resolves.toEqual({
+      id: '1',
+      name: 'X',
+    });
     await expect(controller.reset()).resolves.toEqual({ members: [] });
   });
 });

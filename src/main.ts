@@ -8,6 +8,7 @@ import { seedIfEmpty } from './shared/persistence/finance-store';
 import { rehashLegacySeedUsers } from './identity/users';
 import { startOutboxWorker } from './notifications/outbox';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
+import { setupSwagger } from './shared/swagger/setup-swagger';
 
 async function bootstrap() {
   await waitForDb();
@@ -22,12 +23,14 @@ async function bootstrap() {
   app.enableCors({ origin: true, credentials: true });
   app.use(json({ limit: '8mb' }));
   app.useGlobalFilters(new AllExceptionsFilter());
+  setupSwagger(app);
 
   startOutboxWorker();
 
   const port = Number(process.env.PORT ?? 4000);
   await app.listen(port);
   console.log(`Tesouraria API em http://127.0.0.1:${port}`);
+  console.log(`Swagger em http://127.0.0.1:${port}/api/docs`);
 }
 
 bootstrap().catch((error) => {

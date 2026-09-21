@@ -1,12 +1,4 @@
-import {
-  cashBalance,
-  cashFlow,
-  customReport,
-  dashboard,
-  inRange,
-  projectActuals,
-  sumBy,
-} from './finance';
+import { cashBalance, cashFlow, customReport, dashboard, inRange, projectActuals, sumBy } from './finance';
 import type { DatabaseShape, MovementType, Transaction } from '../shared/types';
 
 function movement(partial: Partial<MovementType> & Pick<MovementType, 'id' | 'name' | 'direction'>): MovementType {
@@ -58,7 +50,13 @@ const db: DatabaseShape = {
     },
   ],
   transactions: [
-    tx({ id: 't1', date: '2026-08-10', type: 'income', amount: 200, description: 'Doação' }),
+    tx({
+      id: 't1',
+      date: '2026-08-10',
+      type: 'income',
+      amount: 200,
+      description: 'Doação',
+    }),
     tx({
       id: 't2',
       date: '2026-08-20',
@@ -69,7 +67,13 @@ const db: DatabaseShape = {
       projectId: 'p1',
       description: 'Aluguel',
     }),
-    tx({ id: 't3', date: '2026-09-02', type: 'income', amount: 80, branch: 'escoteiro' }),
+    tx({
+      id: 't3',
+      date: '2026-09-02',
+      type: 'income',
+      amount: 80,
+      branch: 'escoteiro',
+    }),
   ],
 };
 
@@ -93,7 +97,13 @@ describe('finance helpers', () => {
       ...db,
       transactions: [
         ...db.transactions,
-        tx({ id: 't4', date: '2026-08-15', type: 'income', amount: 999, paymentStatus: 'pending' }),
+        tx({
+          id: 't4',
+          date: '2026-08-15',
+          type: 'income',
+          amount: 999,
+          paymentStatus: 'pending',
+        }),
       ],
     };
     expect(cashBalance(pendingDb, '2026-08-20')).toBe(1150);

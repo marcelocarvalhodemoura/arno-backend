@@ -21,7 +21,13 @@ describe('memberImportRow', () => {
       role: 'jovem',
       joinedAt: '2023-03-11',
       clubeLtc: false,
-      guardians: [{ name: 'Helena Souza', relationship: 'Mãe', email: 'nao informado no cadastro' }],
+      guardians: [
+        {
+          name: 'Helena Souza',
+          relationship: 'Mãe',
+          email: 'nao informado no cadastro',
+        },
+      ],
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {

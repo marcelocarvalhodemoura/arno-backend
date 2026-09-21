@@ -7,7 +7,9 @@ import { ROLES_KEY } from './roles.decorator';
 import { issueToken } from './token';
 
 function httpContext(headers: Record<string, string>, handlerMeta?: Record<string, unknown>): ExecutionContext {
-  const request: { headers: Record<string, string>; auth?: unknown } = { headers };
+  const request: { headers: Record<string, string>; auth?: unknown } = {
+    headers,
+  };
   return {
     getHandler: () => handlerMeta ?? {},
     getClass: () => ({}),
@@ -43,7 +45,11 @@ describe('JwtAuthGuard', () => {
     const token = issueToken('admin', 'u1', 'admin');
     const ctx = httpContext({ authorization: `Bearer ${token}` });
     expect(guard.canActivate(ctx)).toBe(true);
-    expect(ctx.switchToHttp().getRequest().auth).toMatchObject({ user: 'admin', userId: 'u1', role: 'admin' });
+    expect(ctx.switchToHttp().getRequest().auth).toMatchObject({
+      user: 'admin',
+      userId: 'u1',
+      role: 'admin',
+    });
   });
 });
 
@@ -60,7 +66,12 @@ describe('RolesGuard', () => {
   it('allows when no role is required', () => {
     (reflector.getAllAndOverride as jest.Mock).mockReturnValue(undefined);
     const ctx = httpContext({});
-    ctx.switchToHttp().getRequest().auth = { user: 't', userId: '1', role: 'tesoureiro', exp: 1 };
+    ctx.switchToHttp().getRequest().auth = {
+      user: 't',
+      userId: '1',
+      role: 'tesoureiro',
+      exp: 1,
+    };
     expect(guard.canActivate(ctx)).toBe(true);
   });
 
@@ -69,7 +80,12 @@ describe('RolesGuard', () => {
       key === ROLES_KEY ? ['admin'] : undefined,
     );
     const ctx = httpContext({});
-    ctx.switchToHttp().getRequest().auth = { user: 't', userId: '1', role: 'tesoureiro', exp: 1 };
+    ctx.switchToHttp().getRequest().auth = {
+      user: 't',
+      userId: '1',
+      role: 'tesoureiro',
+      exp: 1,
+    };
     expect(() => guard.canActivate(ctx)).toThrow(ForbiddenException);
   });
 });

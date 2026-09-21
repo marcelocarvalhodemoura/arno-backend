@@ -1,8 +1,8 @@
-import { createdAudit, updatedAudit } from "../shared/audit";
-import { id } from "../shared/id";
-import type { BranchId, DatabaseShape, FinancialProject } from "../shared/types";
-import { roundMoney } from "../shared/types";
-import { projectActuals } from "../reports/finance";
+import { createdAudit, updatedAudit } from '../shared/audit';
+import { id } from '../shared/id';
+import type { BranchId, DatabaseShape, FinancialProject } from '../shared/types';
+import { roundMoney } from '../shared/types';
+import { projectActuals } from '../reports/finance';
 
 export type ProjectItemInput = {
   id?: string;

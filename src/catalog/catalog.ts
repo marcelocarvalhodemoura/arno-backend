@@ -1,13 +1,17 @@
-import { createdAudit, updatedAudit } from "../shared/audit";
-import { id } from "../shared/id";
-import type { DatabaseShape, Fee, MovementType, Settings } from "../shared/types";
-import { resolveMensalidadeDueDay, roundMoney } from "../shared/types";
-import { refreshPendingMensalidadeSchedule } from "../mensalidades/mensalidades";
-import { ensureOfficialMensalidadeFees } from "../mensalidades/fee-table";
+import { createdAudit, updatedAudit } from '../shared/audit';
+import { id } from '../shared/id';
+import type { DatabaseShape, Fee, MovementType, Settings } from '../shared/types';
+import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
+import { refreshPendingMensalidadeSchedule } from '../mensalidades/mensalidades';
+import { ensureOfficialMensalidadeFees } from '../mensalidades/fee-table';
 
 export function patchSettings(
   db: DatabaseShape,
-  input: { openingBalance?: number; groupName?: string; mensalidadeDueDay?: number },
+  input: {
+    openingBalance?: number;
+    groupName?: string;
+    mensalidadeDueDay?: number;
+  },
   userId: string,
 ): Settings {
   if (input.openingBalance !== undefined) db.settings.openingBalance = input.openingBalance;
@@ -23,24 +27,24 @@ export function createMovementType(
   db: DatabaseShape,
   input: {
     name: string;
-    direction: MovementType["direction"];
+    direction: MovementType['direction'];
     description?: string;
     pixKey?: string;
-    branch?: MovementType["branch"];
+    branch?: MovementType['branch'];
   },
   userId: string,
 ): MovementType {
   if (db.movementTypes.some((item) => item.name.toLowerCase() === input.name.toLowerCase())) {
-    throw new Error("Tipo já cadastrado");
+    throw new Error('Tipo já cadastrado');
   }
   const type: MovementType = {
     id: id(),
     active: true,
     name: input.name,
     direction: input.direction,
-    description: input.description ?? "",
-    pixKey: (input.pixKey ?? "").trim(),
-    branch: input.branch ?? "grupo",
+    description: input.description ?? '',
+    pixKey: (input.pixKey ?? '').trim(),
+    branch: input.branch ?? 'grupo',
     ...createdAudit(userId),
   };
   db.movementTypes.push(type);
@@ -52,10 +56,10 @@ export function updateMovementType(
   typeId: string,
   input: {
     name?: string;
-    direction?: MovementType["direction"];
+    direction?: MovementType['direction'];
     description?: string;
     pixKey?: string;
-    branch?: MovementType["branch"];
+    branch?: MovementType['branch'];
     active?: boolean;
   },
   userId: string,
@@ -66,7 +70,7 @@ export function updateMovementType(
     const clash = db.movementTypes.some(
       (other) => other.id !== type.id && other.name.toLowerCase() === input.name!.toLowerCase(),
     );
-    if (clash) throw new Error("Tipo já cadastrado");
+    if (clash) throw new Error('Tipo já cadastrado');
   }
   Object.assign(type, input, updatedAudit(userId));
   if (input.pixKey !== undefined) type.pixKey = input.pixKey.trim();
@@ -75,7 +79,7 @@ export function updateMovementType(
 
 export function createFee(db: DatabaseShape, input: { name: string; amount: number }, userId: string): Fee {
   if (db.fees.some((fee) => fee.name.toLowerCase() === input.name.toLowerCase())) {
-    throw new Error("Taxa já cadastrada");
+    throw new Error('Taxa já cadastrada');
   }
   const fee: Fee = {
     id: id(),
@@ -99,7 +103,7 @@ export function updateFee(
     input.name &&
     db.fees.some((item) => item.id !== fee.id && item.name.toLowerCase() === input.name!.toLowerCase())
   ) {
-    throw new Error("Taxa já cadastrada");
+    throw new Error('Taxa já cadastrada');
   }
   if (input.name !== undefined) fee.name = input.name;
   if (input.amount !== undefined) fee.amount = roundMoney(input.amount);

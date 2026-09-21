@@ -19,7 +19,9 @@ const syncBody = z.object({
 @Injectable()
 export class BankingService {
   period(from?: string, to?: string) {
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+    const today = new Date().toLocaleDateString('en-CA', {
+      timeZone: 'America/Sao_Paulo',
+    });
     return {
       from: from && from.length ? from : `${today.slice(0, 8)}01`,
       to: to && to.length ? to : today,
@@ -30,7 +32,12 @@ export class BankingService {
     if (!webhookTokenOk(token)) fail('Webhook não autorizado', HttpStatus.UNAUTHORIZED);
     try {
       const result = await ingestWebhookPix(body);
-      return { ok: true, fetched: result.fetched, created: result.created, paid: result.paid };
+      return {
+        ok: true,
+        fetched: result.fetched,
+        created: result.created,
+        paid: result.paid,
+      };
     } catch (error) {
       fail(errorMessage(error, 'Não foi possível registrar o Pix'), HttpStatus.BAD_REQUEST);
     }

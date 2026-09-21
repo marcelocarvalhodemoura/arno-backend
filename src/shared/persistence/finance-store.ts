@@ -1,7 +1,7 @@
-import { randomBytes } from "node:crypto";
-import { pool } from "../db";
-import { hashPassword } from "../auth/password";
-import { id } from "../id";
+import { randomBytes } from 'node:crypto';
+import { pool } from '../db';
+import { hashPassword } from '../auth/password';
+import { id } from '../id';
 import type {
   DatabaseShape,
   Fee,
@@ -13,9 +13,9 @@ import type {
   RecordOrigin,
   Settings,
   Transaction,
-} from "../types";
-import { countUsers } from "../../identity/users";
-import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from "../types";
+} from '../types';
+import { countUsers } from '../../identity/users';
+import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types';
 
 let cache: DatabaseShape | null = null;
 
@@ -34,22 +34,22 @@ export function invalidateCache(): void {
 export async function persist(db: DatabaseShape): Promise<void> {
   const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock($1)", [FINANCE_LOCK]);
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [FINANCE_LOCK]);
     await writeFinance(client, db);
-    await client.query("COMMIT");
+    await client.query('COMMIT');
     cache = db;
   } catch (error) {
-    await client.query("ROLLBACK");
+    await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
   }
 }
 
-async function writeFinance(client: typeof pool | import("pg").PoolClient, db: DatabaseShape): Promise<void> {
+async function writeFinance(client: typeof pool | import('pg').PoolClient, db: DatabaseShape): Promise<void> {
   await client.query(
-    "TRUNCATE transactions, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE",
+    'TRUNCATE transactions, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE',
   );
 
   for (const type of db.movementTypes) {
@@ -61,10 +61,10 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         type.name,
         type.direction,
         type.description,
-        type.pixKey ?? "",
-        type.branch ?? "grupo",
+        type.pixKey ?? '',
+        type.branch ?? 'grupo',
         type.active,
-        type.origin === "manual" ? "manual" : "integration",
+        type.origin === 'manual' ? 'manual' : 'integration',
         type.createdAt,
         type.createdBy ?? null,
         type.updatedAt ?? null,
@@ -81,7 +81,7 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         fee.id,
         fee.name,
         fee.amount,
-        fee.origin === "manual" ? "manual" : "integration",
+        fee.origin === 'manual' ? 'manual' : 'integration',
         fee.createdAt,
         fee.createdBy ?? null,
         fee.updatedAt ?? null,
@@ -105,7 +105,7 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         member.status,
         member.joinedAt,
         member.clubeLtc,
-        member.origin === "manual" ? "manual" : "integration",
+        member.origin === 'manual' ? 'manual' : 'integration',
         member.createdAt,
         member.createdBy ?? null,
         member.updatedAt ?? null,
@@ -126,7 +126,7 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         guardian.relationship,
         guardian.phone,
         guardian.email,
-        guardian.origin === "manual" ? "manual" : "integration",
+        guardian.origin === 'manual' ? 'manual' : 'integration',
         guardian.createdAt,
         guardian.createdBy ?? null,
         guardian.updatedAt ?? null,
@@ -155,7 +155,7 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         account.notes ?? null,
         account.isPrimary,
         account.active,
-        account.origin === "manual" ? "manual" : "integration",
+        account.origin === 'manual' ? 'manual' : 'integration',
         account.createdAt,
         account.createdBy ?? null,
         account.updatedAt ?? null,
@@ -174,7 +174,7 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         project.year,
         project.name,
         project.description,
-        project.origin === "manual" ? "manual" : "integration",
+        project.origin === 'manual' ? 'manual' : 'integration',
         project.createdAt,
         project.createdBy ?? null,
         project.updatedAt ?? null,
@@ -206,7 +206,7 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         tx.amount,
         tx.branch,
         tx.method,
-        tx.paymentStatus === "pending" ? "pending" : "paid",
+        tx.paymentStatus === 'pending' ? 'pending' : 'paid',
         tx.paidAt ?? null,
         tx.memberId ?? null,
         tx.memberAccountId ?? null,
@@ -218,7 +218,7 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
         tx.createdAt ?? new Date().toISOString(),
         tx.updatedAt ?? null,
         tx.updatedBy ?? null,
-        tx.origin === "manual" ? "manual" : tx.origin === "sicredi" ? "sicredi" : "integration",
+        tx.origin === 'manual' ? 'manual' : tx.origin === 'sicredi' ? 'sicredi' : 'integration',
       ],
     );
   }
@@ -233,16 +233,16 @@ async function writeFinance(client: typeof pool | import("pg").PoolClient, db: D
 export async function mutate<T>(fn: (db: DatabaseShape) => T): Promise<T> {
   const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock($1)", [FINANCE_LOCK]);
+    await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [FINANCE_LOCK]);
     const db = await readFinance(client);
     const result = fn(db);
     await writeFinance(client, db);
-    await client.query("COMMIT");
+    await client.query('COMMIT');
     cache = db;
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
@@ -251,27 +251,27 @@ export async function mutate<T>(fn: (db: DatabaseShape) => T): Promise<T> {
 
 export async function resetDb(): Promise<DatabaseShape> {
   await persist(emptyFinance());
-  await pool.query("TRUNCATE bank_movements, bank_sync_state, message_outbox");
+  await pool.query('TRUNCATE bank_movements, bank_sync_state, message_outbox');
   return emptyFinance();
 }
 
 export async function seedIfEmpty(): Promise<void> {
   cache = null;
   if ((await countUsers()) === 0) {
-    const password = process.env.ADMIN_PASSWORD || randomBytes(12).toString("base64url");
+    const password = process.env.ADMIN_PASSWORD || randomBytes(12).toString('base64url');
     const hash = await hashPassword(password);
     await pool.query(
       `INSERT INTO users (id, username, name, email, password_hash, role, origin)
        VALUES ($1, $2, $3, $4, $5, 'admin', 'manual')`,
-      [id(), "admin", "Administração do Grupo", "admin@arnofriedrich.org.br", hash],
+      [id(), 'admin', 'Administração do Grupo', 'admin@arnofriedrich.org.br', hash],
     );
     await pool.query(
       `INSERT INTO users (id, username, name, email, password_hash, role, origin)
        VALUES ($1, $2, $3, $4, $5, 'tesoureiro', 'manual')`,
-      [id(), process.env.ADMIN_USER ?? "tesouraria", "Tesouraria do Grupo", "tesouraria@arnofriedrich.org.br", hash],
+      [id(), process.env.ADMIN_USER ?? 'tesouraria', 'Tesouraria do Grupo', 'tesouraria@arnofriedrich.org.br', hash],
     );
     if (process.env.ADMIN_PASSWORD) {
-      console.log("Usuários iniciais criados: admin e tesouraria (senha de ADMIN_PASSWORD)");
+      console.log('Usuários iniciais criados: admin e tesouraria (senha de ADMIN_PASSWORD)');
     } else {
       console.log(
         `Usuários iniciais criados: admin e tesouraria\n` +
@@ -281,11 +281,11 @@ export async function seedIfEmpty(): Promise<void> {
     }
   }
 
-  const settings = await pool.query("SELECT id FROM settings LIMIT 1");
+  const settings = await pool.query('SELECT id FROM settings LIMIT 1');
   if ((settings.rowCount ?? 0) === 0) {
     await pool.query(`INSERT INTO settings (opening_balance, group_name, mensalidade_due_day) VALUES ($1, $2, $3)`, [
       0,
-      "Grupo Escoteiro Arno Friedrich",
+      'Grupo Escoteiro Arno Friedrich',
       DEFAULT_MENSALIDADE_DUE_DAY,
     ]);
   }
@@ -304,24 +304,24 @@ function emptyFinance(): DatabaseShape {
     transactions: [],
     settings: {
       openingBalance: 0,
-      groupName: "Grupo Escoteiro Arno Friedrich",
+      groupName: 'Grupo Escoteiro Arno Friedrich',
       mensalidadeDueDay: DEFAULT_MENSALIDADE_DUE_DAY,
     },
   };
 }
 
 async function readFinance(sql: { query: typeof pool.query }): Promise<DatabaseShape> {
-  const members = await sql.query("SELECT * FROM members ORDER BY name");
-  const guardians = await sql.query("SELECT * FROM member_guardians ORDER BY name");
-  const accounts = await sql.query("SELECT * FROM member_accounts ORDER BY holder_name");
-  const types = await sql.query("SELECT * FROM movement_types ORDER BY name");
-  const fees = await sql.query("SELECT * FROM fees ORDER BY name");
-  const projects = await sql.query("SELECT * FROM projects ORDER BY year, branch");
-  const items = await sql.query("SELECT * FROM project_items");
-  const transactions = await sql.query("SELECT * FROM transactions ORDER BY date DESC, created_at DESC");
-  const settings = await sql.query("SELECT * FROM settings LIMIT 1");
+  const members = await sql.query('SELECT * FROM members ORDER BY name');
+  const guardians = await sql.query('SELECT * FROM member_guardians ORDER BY name');
+  const accounts = await sql.query('SELECT * FROM member_accounts ORDER BY holder_name');
+  const types = await sql.query('SELECT * FROM movement_types ORDER BY name');
+  const fees = await sql.query('SELECT * FROM fees ORDER BY name');
+  const projects = await sql.query('SELECT * FROM projects ORDER BY year, branch');
+  const items = await sql.query('SELECT * FROM project_items');
+  const transactions = await sql.query('SELECT * FROM transactions ORDER BY date DESC, created_at DESC');
+  const settings = await sql.query('SELECT * FROM settings LIMIT 1');
 
-  const itemsByProject = new Map<string, FinancialProject["items"]>();
+  const itemsByProject = new Map<string, FinancialProject['items']>();
   for (const row of items.rows) {
     const list = itemsByProject.get(row.project_id) ?? [];
     list.push({
@@ -336,7 +336,7 @@ async function readFinance(sql: { query: typeof pool.query }): Promise<DatabaseS
 
   const defaultSettings: Settings = {
     openingBalance: 0,
-    groupName: "Grupo Escoteiro Arno Friedrich",
+    groupName: 'Grupo Escoteiro Arno Friedrich',
     mensalidadeDueDay: DEFAULT_MENSALIDADE_DUE_DAY,
   };
 
@@ -369,14 +369,14 @@ async function readFinance(sql: { query: typeof pool.query }): Promise<DatabaseS
 }
 
 function toIso(value: unknown): string | undefined {
-  if (value == null || value === "") return undefined;
+  if (value == null || value === '') return undefined;
   if (value instanceof Date) return value.toISOString();
   return String(value);
 }
 
 function mapAudit(row: Record<string, unknown>) {
   return {
-    origin: (row.origin === "manual" ? "manual" : row.origin === "sicredi" ? "sicredi" : "integration") as RecordOrigin,
+    origin: (row.origin === 'manual' ? 'manual' : row.origin === 'sicredi' ? 'sicredi' : 'integration') as RecordOrigin,
     createdAt: toIso(row.created_at) ?? new Date().toISOString(),
     createdBy: row.created_by ? String(row.created_by) : undefined,
     updatedAt: toIso(row.updated_at),
@@ -390,10 +390,10 @@ function mapMember(row: Record<string, unknown>): Member {
     name: String(row.name),
     email: String(row.email),
     phone: String(row.phone),
-    branch: row.branch as Member["branch"],
-    role: row.role as Member["role"],
+    branch: row.branch as Member['branch'],
+    role: row.role as Member['role'],
     monthlyFee: Number(row.monthly_fee),
-    status: row.status as Member["status"],
+    status: row.status as Member['status'],
     joinedAt: String(row.joined_at).slice(0, 10),
     clubeLtc: Boolean(row.clube_ltc),
     ...mapAudit(row),
@@ -405,9 +405,9 @@ function mapGuardian(row: Record<string, unknown>): MemberGuardian {
     id: String(row.id),
     memberId: String(row.member_id),
     name: String(row.name),
-    relationship: String(row.relationship ?? ""),
-    phone: String(row.phone ?? ""),
-    email: String(row.email ?? ""),
+    relationship: String(row.relationship ?? ''),
+    phone: String(row.phone ?? ''),
+    email: String(row.email ?? ''),
     ...mapAudit(row),
   };
 }
@@ -417,13 +417,13 @@ function mapAccount(row: Record<string, unknown>): MemberAccount {
     id: String(row.id),
     memberId: String(row.member_id),
     holderName: String(row.holder_name),
-    holderKind: row.holder_kind as MemberAccount["holderKind"],
-    relationship: String(row.relationship ?? ""),
-    pixKey: String(row.pix_key ?? ""),
-    bank: String(row.bank ?? ""),
-    agency: String(row.agency ?? ""),
-    accountNumber: String(row.account_number ?? ""),
-    document: String(row.document ?? ""),
+    holderKind: row.holder_kind as MemberAccount['holderKind'],
+    relationship: String(row.relationship ?? ''),
+    pixKey: String(row.pix_key ?? ''),
+    bank: String(row.bank ?? ''),
+    agency: String(row.agency ?? ''),
+    accountNumber: String(row.account_number ?? ''),
+    document: String(row.document ?? ''),
     notes: row.notes ? String(row.notes) : undefined,
     isPrimary: Boolean(row.is_primary),
     active: Boolean(row.active),
@@ -435,10 +435,10 @@ function mapMovementType(row: Record<string, unknown>): MovementType {
   return {
     id: String(row.id),
     name: String(row.name),
-    direction: row.direction as MovementType["direction"],
-    description: String(row.description ?? ""),
-    pixKey: String(row.pix_key ?? ""),
-    branch: (row.branch as MovementType["branch"]) || "grupo",
+    direction: row.direction as MovementType['direction'],
+    description: String(row.description ?? ''),
+    pixKey: String(row.pix_key ?? ''),
+    branch: (row.branch as MovementType['branch']) || 'grupo',
     active: Boolean(row.active),
     ...mapAudit(row),
   };
@@ -457,14 +457,14 @@ function mapTransaction(row: Record<string, unknown>): Transaction {
   return {
     id: String(row.id),
     date: String(row.date).slice(0, 10),
-    type: row.type as Transaction["type"],
-    nature: row.nature as Transaction["nature"],
+    type: row.type as Transaction['type'],
+    nature: row.nature as Transaction['nature'],
     movementTypeId: String(row.movement_type_id),
     description: String(row.description),
     amount: Number(row.amount),
-    branch: row.branch as Transaction["branch"],
-    method: row.method as Transaction["method"],
-    paymentStatus: row.payment_status === "pending" ? "pending" : "paid",
+    branch: row.branch as Transaction['branch'],
+    method: row.method as Transaction['method'],
+    paymentStatus: row.payment_status === 'pending' ? 'pending' : 'paid',
     paidAt: row.paid_at ? String(row.paid_at).slice(0, 10) : undefined,
     memberId: row.member_id ? String(row.member_id) : undefined,
     memberAccountId: row.member_account_id ? String(row.member_account_id) : undefined,

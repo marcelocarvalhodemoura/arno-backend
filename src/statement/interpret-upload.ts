@@ -1,11 +1,11 @@
-import { fold } from "../shared/csv";
-import { type DatabaseShape } from "../shared/types";
-import { loadDb, mutate } from "../shared/persistence/finance-store";
-import { ensureIdentifyType } from "./ingest";
-import { interpretStatement, type StatementCatalog } from "./statement";
-import { aiConfigured, enrichWithAi } from "./statement-ai";
-import { remapImportCsv, type FieldMapping } from "./import-map";
-import { pdfToStatementCsv } from "./statement-pdf";
+import { fold } from '../shared/csv';
+import { type DatabaseShape } from '../shared/types';
+import { loadDb, mutate } from '../shared/persistence/finance-store';
+import { ensureIdentifyType } from './ingest';
+import { interpretStatement, type StatementCatalog } from './statement';
+import { aiConfigured, enrichWithAi } from './statement-ai';
+import { remapImportCsv, type FieldMapping } from './import-map';
+import { pdfToStatementCsv } from './statement-pdf';
 
 export function catalogFromDb(db: DatabaseShape): StatementCatalog {
   return {
@@ -30,7 +30,7 @@ export function catalogFromDb(db: DatabaseShape): StatementCatalog {
     })),
     fees: db.fees,
     pendingPayments: db.transactions
-      .filter((tx) => tx.paymentStatus === "pending" && tx.type === "income")
+      .filter((tx) => tx.paymentStatus === 'pending' && tx.type === 'income')
       .map((tx) => ({
         id: tx.id,
         memberId: tx.memberId,
@@ -52,7 +52,7 @@ export async function interpretUploadedStatement(
   },
   userId: string,
 ) {
-  let csv = input.csv ?? "";
+  let csv = input.csv ?? '';
   if (input.pdf) {
     csv = await pdfToStatementCsv(input.pdf);
   }
@@ -60,7 +60,7 @@ export async function interpretUploadedStatement(
     return {
       csv,
       convertOnly: true as const,
-      layout: "bank" as const,
+      layout: 'bank' as const,
       aiUsed: false,
       aiAvailable: aiConfigured(),
       aiMapped: false,
@@ -73,7 +73,7 @@ export async function interpretUploadedStatement(
     };
   }
   const current = await loadDb();
-  if (!current.movementTypes.some((item) => item.active && fold(item.name) === "a identificar")) {
+  if (!current.movementTypes.some((item) => item.active && fold(item.name) === 'a identificar')) {
     await mutate((db) => {
       ensureIdentifyType(db, userId);
     });
@@ -81,15 +81,13 @@ export async function interpretUploadedStatement(
   const db = await loadDb();
   const catalog = catalogFromDb(db);
   const givenMapping = input.mapping && Object.keys(input.mapping).length ? input.mapping : undefined;
-  const remapped = await remapImportCsv(csv, "statement", {
+  const remapped = await remapImportCsv(csv, 'statement', {
     mapping: givenMapping,
     review: !givenMapping,
   });
   const interpreted = interpretStatement(remapped.csv, catalog);
   const offset = input.lineOffset ?? 0;
-  const shifted = offset
-    ? interpreted.rows.map((row) => ({ ...row, line: row.line + offset }))
-    : interpreted.rows;
+  const shifted = offset ? interpreted.rows.map((row) => ({ ...row, line: row.line + offset })) : interpreted.rows;
   const enriched = input.enrichAi === false ? { rows: shifted, used: false } : await enrichWithAi(shifted, catalog);
   return {
     csv: remapped.csv,

@@ -1,38 +1,38 @@
-import { z } from "zod";
+import { z } from 'zod';
 
-export const youthBranch = z.enum(["filhote", "lobinho", "escoteiro", "senior", "pioneiro", "flor-de-lis"]);
-export const branch = z.enum(["filhote", "lobinho", "escoteiro", "senior", "pioneiro", "flor-de-lis", "grupo"]);
-export const method = z.enum(["pix", "cash", "transfer", "card", "other"]);
-export const paymentStatus = z.enum(["paid", "pending"]);
-export const nature = z.enum(["fixed", "variable"]);
-export const txType = z.enum(["income", "expense"]);
-export const holderKind = z.enum(["parent", "youth", "other"]);
-export const direction = z.enum(["income", "expense", "both"]);
-export const userRole = z.enum(["admin", "tesoureiro"]);
+export const youthBranch = z.enum(['filhote', 'lobinho', 'escoteiro', 'senior', 'pioneiro', 'flor-de-lis']);
+export const branch = z.enum(['filhote', 'lobinho', 'escoteiro', 'senior', 'pioneiro', 'flor-de-lis', 'grupo']);
+export const method = z.enum(['pix', 'cash', 'transfer', 'card', 'other']);
+export const paymentStatus = z.enum(['paid', 'pending']);
+export const nature = z.enum(['fixed', 'variable']);
+export const txType = z.enum(['income', 'expense']);
+export const holderKind = z.enum(['parent', 'youth', 'other']);
+export const direction = z.enum(['income', 'expense', 'both']);
+export const userRole = z.enum(['admin', 'tesoureiro']);
 
 export function optionalContactEmail(value: unknown): string {
-  const trimmed = String(value ?? "")
+  const trimmed = String(value ?? '')
     .trim()
-    .replace(/^mailto:/i, "");
-  if (!trimmed) return "";
+    .replace(/^mailto:/i, '');
+  if (!trimmed) return '';
   const candidate =
     trimmed
       .split(/[\s;,/]+/)
-      .map((part) => part.replace(/,+/g, ".").replace(/^\.|\.$/g, ""))
-      .find((part) => part.includes("@")) ?? "";
-  return z.string().email().safeParse(candidate).success ? candidate : "";
+      .map((part) => part.replace(/,+/g, '.').replace(/^\.|\.$/g, ''))
+      .find((part) => part.includes('@')) ?? '';
+  return z.string().email().safeParse(candidate).success ? candidate : '';
 }
 
 export const guardianInput = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(2),
   relationship: z.string().min(2),
-  phone: z.string().optional().default(""),
+  phone: z.string().optional().default(''),
   email: z
     .string()
     .optional()
-    .default("")
-    .refine((value) => !value || z.string().email().safeParse(value).success, "E-mail do responsável inválido"),
+    .default('')
+    .refine((value) => !value || z.string().email().safeParse(value).success, 'E-mail do responsável inválido'),
 });
 
 const guardianImportInput = guardianInput.extend({
@@ -43,11 +43,11 @@ export const accountBody = z.object({
   holderName: z.string().min(2),
   holderKind,
   relationship: z.string().min(1),
-  pixKey: z.string().optional().default(""),
-  bank: z.string().optional().default(""),
-  agency: z.string().optional().default(""),
-  accountNumber: z.string().optional().default(""),
-  document: z.string().optional().default(""),
+  pixKey: z.string().optional().default(''),
+  bank: z.string().optional().default(''),
+  agency: z.string().optional().default(''),
+  accountNumber: z.string().optional().default(''),
+  document: z.string().optional().default(''),
   notes: z.string().optional(),
   isPrimary: z.boolean().optional().default(false),
 });
@@ -57,7 +57,7 @@ export const memberImportRow = z.object({
   email: z.string().email(),
   phone: z.string().min(8),
   branch: youthBranch,
-  role: z.enum(["jovem", "escotista", "dirigente", "clube"]),
+  role: z.enum(['jovem', 'escotista', 'dirigente', 'clube']),
   monthlyFee: z.number().min(0).optional(),
   joinedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   clubeLtc: z.boolean(),
@@ -83,7 +83,7 @@ export const createMemberBody = z.object({
   email: z.string().email(),
   phone: z.string().min(8),
   branch: youthBranch,
-  role: z.enum(["jovem", "escotista", "dirigente", "clube"]),
+  role: z.enum(['jovem', 'escotista', 'dirigente', 'clube']),
   monthlyFee: z.number().min(0).optional(),
   joinedAt: z.string(),
   clubeLtc: z.boolean(),
@@ -95,9 +95,9 @@ export const patchMemberBody = z.object({
   email: z.string().email().optional(),
   phone: z.string().min(8).optional(),
   branch: youthBranch.optional(),
-  role: z.enum(["jovem", "escotista", "dirigente", "clube"]).optional(),
+  role: z.enum(['jovem', 'escotista', 'dirigente', 'clube']).optional(),
   monthlyFee: z.number().min(0).optional(),
-  status: z.enum(["active", "inactive"]).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
   joinedAt: z.string().optional(),
   clubeLtc: z.boolean().optional(),
   guardians: z.array(guardianInput).optional(),

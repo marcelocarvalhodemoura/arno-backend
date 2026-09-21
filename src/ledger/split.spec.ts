@@ -51,8 +51,16 @@ describe('splitTransaction', () => {
       db,
       'tx1',
       [
-        { amount: 60, movementTypeId: 'mt-men', description: 'Mensalidade setembro' },
-        { amount: 90, movementTypeId: 'mt-camp', description: 'Taxa de acampamento' },
+        {
+          amount: 60,
+          movementTypeId: 'mt-men',
+          description: 'Mensalidade setembro',
+        },
+        {
+          amount: 90,
+          movementTypeId: 'mt-camp',
+          description: 'Taxa de acampamento',
+        },
       ],
       'u1',
     );

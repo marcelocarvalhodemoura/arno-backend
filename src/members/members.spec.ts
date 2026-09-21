@@ -23,10 +23,23 @@ describe('members', () => {
   it('trims and drops empty guardians', () => {
     expect(
       cleanedGuardians([
-        { name: '  Helena Souza  ', relationship: 'Mãe', phone: ' 51 ', email: '' },
+        {
+          name: '  Helena Souza  ',
+          relationship: 'Mãe',
+          phone: ' 51 ',
+          email: '',
+        },
         { name: 'X', relationship: 'Pai' },
       ]),
-    ).toEqual([{ id: undefined, name: 'Helena Souza', relationship: 'Mãe', phone: '51', email: '' }]);
+    ).toEqual([
+      {
+        id: undefined,
+        name: 'Helena Souza',
+        relationship: 'Mãe',
+        phone: '51',
+        email: '',
+      },
+    ]);
   });
 
   it('creates a youth with official fee and a guardian', () => {

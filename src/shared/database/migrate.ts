@@ -61,7 +61,7 @@ async function runCli() {
   await getPool().end();
 }
 
-const isCli = process.argv[1]?.includes("migrate");
+const isCli = process.argv[1]?.includes('migrate');
 if (isCli) {
   runCli().catch(async (error) => {
     console.error(error);
