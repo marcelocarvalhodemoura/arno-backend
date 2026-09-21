@@ -25,7 +25,8 @@
     "test:int": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-int.json",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-e2e.json",
     "test:all": "yarn test:unit && yarn test:int && yarn test:e2e",
-    "precommit": "lint-staged && yarn test:unit && yarn test:int && yarn test:e2e"
+    "precommit": "lint-staged && yarn test:unit && yarn test:int && yarn test:e2e",
+    "prepare": "husky"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
@@ -59,6 +60,7 @@
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.0.0",
+    "husky": "^9.1.7",
     "jest": "^30.0.0",
     "lint-staged": "^15.5.2",
     "prettier": "^3.4.2",
