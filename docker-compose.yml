@@ -6,15 +6,15 @@ services:
     container_name: arno-backend-db
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-arno}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no arquivo .env}
-      POSTGRES_DB: ${POSTGRES_DB:-tesouraria}
+      POSTGRES_USER: ${POSTGRES_USER:-arno-finance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-arno-finance}
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - '${POSTGRES_PORT:-5434}:5432'
     volumes:
       - arno_backend_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-arno} -d ${POSTGRES_DB:-tesouraria}"]
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-arno} -d ${POSTGRES_DB:-tesouraria}']
       interval: 5s
       timeout: 5s
       retries: 10
