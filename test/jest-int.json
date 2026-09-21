@@ -1,0 +1,17 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": "..",
+  "testEnvironment": "node",
+  "watchman": false,
+  "testRegex": "test/integration/.*\\.int-spec\\.ts$",
+  "setupFiles": ["<rootDir>/test/integration/env.ts"],
+  "globalSetup": "<rootDir>/test/integration/global-setup.ts",
+  "maxWorkers": 1,
+  "testTimeout": 60000,
+  "transform": {
+    "^.+\\.(t|j)s$": [
+      "ts-jest",
+      { "tsconfig": "tsconfig.spec.json" }
+    ]
+  }
+}

@@ -1,0 +1,1942 @@
+{
+  "_type": "export",
+  "__export_format": 4,
+  "__export_date": "2026-09-21T12:20:56.249Z",
+  "__export_source": "arno-backend:insomnia-generator",
+  "resources": [
+    {
+      "_id": "wrk_arno_tesouraria",
+      "parentId": null,
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Arno Tesouraria API",
+      "description": "API NestJS da tesouraria do Grupo Escoteiro Arno Friedrich (43/RS).\n\n1. Importe este arquivo no Insomnia.\n2. Ajuste base_url, ADMIN_PASSWORD e o token do webhook no ambiente.\n3. Rode POST /api/auth/login e copie o token para a variável token.",
+      "scope": "collection",
+      "_type": "workspace"
+    },
+    {
+      "_id": "env_arno_base",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Base Environment",
+      "data": {
+        "base_url": "http://127.0.0.1:4000",
+        "token": "",
+        "admin_user": "admin",
+        "admin_password": "defina-uma-senha-forte",
+        "tesoureiro_user": "tesouraria",
+        "webhook_token": "um-segredo-longo-para-o-webhook"
+      },
+      "dataPropertyOrder": {
+        "&": [
+          "base_url",
+          "token",
+          "admin_user",
+          "admin_password",
+          "tesoureiro_user",
+          "webhook_token"
+        ]
+      },
+      "color": "#2d8a4e",
+      "isPrivate": false,
+      "metaSortKey": 0,
+      "_type": "environment"
+    },
+    {
+      "_id": "fld_saude",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Saúde e autenticação",
+      "description": "Health check público, login e sessão. Copie o token do login para a variável de ambiente `token`.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -1000,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_usuarios",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Usuários (admin)",
+      "description": "Cadastro de administradores e tesoureiros. Exclusivo do perfil admin. Alterações pedem a senha atual do admin logado.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -900,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_catalogo",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Catálogo e configurações",
+      "description": "Nome do grupo, saldo inicial, dia de vencimento da mensalidade, tipos de movimentação, taxas e metadados de ramos.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -800,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_associados",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Associados",
+      "description": "Cadastro de associados, responsáveis (jovens) e contas de pagamento (PIX/banco). Importação em lotes de até 200 linhas.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -700,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_caixa",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Fluxo de caixa",
+      "description": "Lançamentos manuais, conciliação (pago/pendente), responsável do jovem e rateio de um crédito em várias rubricas.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -600,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_relatorios",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Painel e relatórios",
+      "description": "Dashboard (admin), fluxo de caixa mensal e relatório fiscal/customizado (admin).",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -500,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_projetos",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Projetos financeiros",
+      "description": "Orçamento planejado × realizado por ramo e ano. Criação e edição só para admin.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -400,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_mensalidades",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Mensalidades",
+      "description": "Grade mar–dez com vencimento configurável. Sincroniza lançamentos pendentes e dispara cobrança/comprovante.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -300,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_extrato",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Integração de extrato",
+      "description": "Leitura de CSV/PDF/planilha, mapeamento de colunas (com IA opcional) e ingestão de lançamentos em chunks de 200.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -200,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_sicredi",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Sicredi Pix ao vivo",
+      "description": "Consulta, sincronização, simulação (SICREDI_MOCK=1), registro de webhook e recebimento público autenticado por token.",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": -100,
+      "_type": "request_group"
+    },
+    {
+      "_id": "fld_notify",
+      "parentId": "wrk_arno_tesouraria",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "name": "Notificações e WhatsApp",
+      "description": "Status dos canais (e-mail/WhatsApp), log de disparos e webhook da Meta (público, em /webhook e no caminho interno).",
+      "environment": {},
+      "environmentPropertyOrder": null,
+      "metaSortKey": 0,
+      "_type": "request_group"
+    },
+    {
+      "_id": "req_health",
+      "parentId": "fld_saude",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/health",
+      "name": "Health check",
+      "description": "Público. Confirma que a API está no ar. Resposta: `{ ok: true, service: \"arno-financeiro\" }`.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "none"
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_login",
+      "parentId": "fld_saude",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/auth/login",
+      "name": "Login",
+      "description": "Público. Autentica por usuário/e-mail e senha. Devolve token HMAC (12h), papel (`admin` | `tesoureiro`), nome e nome do grupo. Cole o `token` no ambiente.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"user\": \"{{ _.admin_user }}\",\n  \"password\": \"{{ _.admin_password }}\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_login_ct"
+        }
+      ],
+      "authentication": {
+        "type": "none"
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_me",
+      "parentId": "fld_saude",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/auth/me",
+      "name": "Sessão atual",
+      "description": "Retorna usuário, papel e userId do token Bearer.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_users_list",
+      "parentId": "fld_usuarios",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/users",
+      "name": "Listar usuários",
+      "description": "Admin. Lista usuários com autores de criação/atualização.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_users_create",
+      "parentId": "fld_usuarios",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/users",
+      "name": "Criar usuário",
+      "description": "Admin. Cria admin ou tesoureiro. Senha mínima de 6 caracteres; `password` e `passwordConfirm` devem coincidir. Conflito 409 se usuário/e-mail já existir.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"username\": \"tesoureiro2\",\n  \"name\": \"Tesoureiro Adjunto\",\n  \"email\": \"tesoureiro2@arnofriedrich.org.br\",\n  \"password\": \"senha123\",\n  \"passwordConfirm\": \"senha123\",\n  \"role\": \"tesoureiro\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_users_create_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_users_patch",
+      "parentId": "fld_usuarios",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/users/:id",
+      "name": "Atualizar usuário",
+      "description": "Admin. Atualiza nome, e-mail, papel, ativo ou senha. `currentPassword` é a senha do admin logado (não a do usuário alvo).",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Tesouraria do Grupo\",\n  \"currentPassword\": \"{{ _.admin_password }}\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_users_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_admin_reset",
+      "parentId": "fld_usuarios",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/admin/reset",
+      "name": "Resetar dados financeiros",
+      "description": "Admin. Apaga associados, lançamentos, projetos, taxas, tipos, movimentos bancários e a fila de e-mails. Mantém usuários. Uso de manutenção.",
+      "method": "POST",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -7,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_settings_get",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/settings",
+      "name": "Ler configurações",
+      "description": "Saldo inicial, nome do grupo e dia de vencimento da mensalidade (1–31, padrão 10).",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_settings_patch",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/settings",
+      "name": "Alterar configurações",
+      "description": "Tesoureiro só altera `mensalidadeDueDay`. Nome do grupo e saldo inicial exigem admin. Mudar o dia de vencimento reagenda mensalidades pendentes.",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"mensalidadeDueDay\": 10,\n  \"openingBalance\": 0,\n  \"groupName\": \"Grupo Escoteiro Arno Friedrich\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_settings_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_meta",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/meta",
+      "name": "Metadados de ramos",
+      "description": "Lista ramos jovens (nome, unidade, cor) e todos os ramos incluindo Grupo.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_mt_list",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/movement-types",
+      "name": "Listar tipos de movimentação",
+      "description": "Tipos usados em cada lançamento (mensalidade, sede, doação…). Inclui direção, PIX, ramo e autores.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -7,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_mt_create",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/movement-types",
+      "name": "Criar tipo de movimentação",
+      "description": "`direction`: income | expense | both. `branch` padrão grupo. Nome duplicado retorna 409.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Doação\",\n  \"direction\": \"income\",\n  \"description\": \"Doações avulsas\",\n  \"pixKey\": \"\",\n  \"branch\": \"grupo\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_mt_create_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -6,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_mt_patch",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/movement-types/:id",
+      "name": "Atualizar tipo de movimentação",
+      "description": "Altera nome, direção, descrição, chave PIX, ramo ou ativo.",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"active\": true,\n  \"description\": \"Doações avulsas ao grupo\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_mt_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -5,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_fees_list",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/fees",
+      "name": "Listar taxas",
+      "description": "Garante a tabela oficial da mensalidade (base, extra, pontualidade) e devolve todas as taxas cadastradas.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -4,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_fees_create",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/fees",
+      "name": "Criar taxa",
+      "description": "Cadastra taxa avulsa (`name` + `amount` positivo). Nome duplicado: 409.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Taxa de acampamento\",\n  \"amount\": 50\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_fees_create_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -3,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_fees_patch",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/fees/:id",
+      "name": "Atualizar taxa",
+      "description": "Altera nome e/ou valor da taxa.",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"amount\": 55\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_fees_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -2,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_fees_delete",
+      "parentId": "fld_catalogo",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/fees/:id",
+      "name": "Excluir taxa",
+      "description": "Remove a taxa. 204 em sucesso, 404 se não existir.",
+      "method": "DELETE",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -1,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_members_list",
+      "parentId": "fld_associados",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/members",
+      "name": "Listar associados",
+      "description": "Lista associados com contas e responsáveis. Query opcional: `branch` (ramo jovem) e `status` (active | inactive). Recalcula a mensalidade oficial (ramo + Clube LTC).",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "branch",
+          "value": "escoteiro",
+          "description": "filhote | lobinho | escoteiro | senior | pioneiro | flor-de-lis",
+          "disabled": true,
+          "id": "req_members_list_q0"
+        },
+        {
+          "name": "status",
+          "value": "active",
+          "description": "active | inactive",
+          "disabled": true,
+          "id": "req_members_list_q1"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_members_create",
+      "parentId": "fld_associados",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/members",
+      "name": "Cadastrar associado",
+      "description": "Jovem exige pelo menos um responsável. Papéis: jovem | escotista | dirigente | clube. E-mail duplicado: 409.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"João Silva\",\n  \"email\": \"joao@example.com\",\n  \"phone\": \"51999990000\",\n  \"branch\": \"escoteiro\",\n  \"role\": \"jovem\",\n  \"joinedAt\": \"2026-03-01\",\n  \"clubeLtc\": false,\n  \"guardians\": [\n    {\n      \"name\": \"Maria Silva\",\n      \"relationship\": \"Mãe\",\n      \"phone\": \"51988880000\",\n      \"email\": \"maria@example.com\"\n    }\n  ]\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_members_create_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_members_patch",
+      "parentId": "fld_associados",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/members/:id",
+      "name": "Atualizar associado",
+      "description": "Campos parciais. Enviar `guardians` substitui a lista de responsáveis. Inativar cancela mensalidades futuras pendentes.",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"clubeLtc\": true,\n  \"status\": \"active\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_members_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_accounts_create",
+      "parentId": "fld_associados",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/members/:id/accounts",
+      "name": "Adicionar conta de pagamento",
+      "description": "`holderKind`: parent | youth | other. Útil para PIX/CPF usados na conciliação do extrato e do Sicredi.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"holderName\": \"Maria Silva\",\n  \"holderKind\": \"parent\",\n  \"relationship\": \"Mãe\",\n  \"pixKey\": \"12345678900\",\n  \"bank\": \"Sicredi\",\n  \"agency\": \"0101\",\n  \"accountNumber\": \"12345-6\",\n  \"document\": \"12345678900\",\n  \"isPrimary\": true\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_accounts_create_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -7,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_accounts_patch",
+      "parentId": "fld_associados",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/member-accounts/:id",
+      "name": "Atualizar conta de pagamento",
+      "description": "Atualização parcial da conta, inclusive `active`.",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"active\": true,\n  \"isPrimary\": true\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_accounts_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -6,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_accounts_delete",
+      "parentId": "fld_associados",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/member-accounts/:id",
+      "name": "Excluir conta de pagamento",
+      "description": "Remove a conta. 204 em sucesso.",
+      "method": "DELETE",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -5,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_members_import",
+      "parentId": "fld_associados",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/members",
+      "name": "Importar associados (chunk)",
+      "description": "Importa até 200 linhas por requisição (teto do arquivo: 10 mil). E-mail já existente atualiza responsáveis se houver novos; senão marca skipped.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"rows\": [\n    {\n      \"name\": \"Ana Souza\",\n      \"email\": \"ana@example.com\",\n      \"phone\": \"51977770000\",\n      \"branch\": \"lobinho\",\n      \"role\": \"jovem\",\n      \"joinedAt\": \"2026-03-01\",\n      \"clubeLtc\": false,\n      \"guardians\": [\n        {\n          \"name\": \"Carlos Souza\",\n          \"relationship\": \"Pai\",\n          \"phone\": \"51966660000\"\n        }\n      ]\n    }\n  ]\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_members_import_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -4,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_tx_list",
+      "parentId": "fld_caixa",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/transactions",
+      "name": "Listar lançamentos",
+      "description": "Filtros: `from`, `to` (YYYY-MM-DD), `branch`, `type` (income|expense), `nature` (fixed|variable). Inclui tipo, associado, conta e responsável.",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "from",
+          "value": "2026-01-01",
+          "description": "",
+          "disabled": false,
+          "id": "req_tx_list_q0"
+        },
+        {
+          "name": "to",
+          "value": "2026-12-31",
+          "description": "",
+          "disabled": false,
+          "id": "req_tx_list_q1"
+        },
+        {
+          "name": "branch",
+          "value": "escoteiro",
+          "description": "",
+          "disabled": true,
+          "id": "req_tx_list_q2"
+        },
+        {
+          "name": "type",
+          "value": "income",
+          "description": "",
+          "disabled": true,
+          "id": "req_tx_list_q3"
+        },
+        {
+          "name": "nature",
+          "value": "fixed",
+          "description": "",
+          "disabled": true,
+          "id": "req_tx_list_q4"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_tx_create",
+      "parentId": "fld_caixa",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/transactions",
+      "name": "Lançar transação",
+      "description": "Lançamento manual. O tipo precisa aceitar a direção. Jovem pode levar `memberGuardianId`. `paymentStatus` padrão paid. `method`: pix | cash | transfer | card | other.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"date\": \"2026-04-10\",\n  \"type\": \"income\",\n  \"nature\": \"fixed\",\n  \"movementTypeId\": \"uuid-do-tipo\",\n  \"description\": \"Mensalidade abril — João Silva\",\n  \"amount\": 75,\n  \"branch\": \"escoteiro\",\n  \"method\": \"pix\",\n  \"paymentStatus\": \"paid\",\n  \"memberId\": \"uuid-do-associado\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_tx_create_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_tx_patch",
+      "parentId": "fld_caixa",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/transactions/:id",
+      "name": "Atualizar lançamento",
+      "description": "Classifica ou concilia um lançamento (tipo, associado, ramo, pago/pendente). `notifyReceipt: true` dispara comprovante se houver e-mail/WhatsApp configurado.",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"movementTypeId\": \"uuid-do-tipo\",\n  \"memberId\": \"uuid-do-associado\",\n  \"paymentStatus\": \"paid\",\n  \"notifyReceipt\": false\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_tx_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_tx_delete",
+      "parentId": "fld_caixa",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/transactions/:id",
+      "name": "Excluir lançamento",
+      "description": "Remove o lançamento. 204 em sucesso.",
+      "method": "DELETE",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -7,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_tx_split",
+      "parentId": "fld_caixa",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/transactions/:id/split",
+      "name": "Ratear lançamento",
+      "description": "Divide um crédito/débito em no mínimo duas partes. A soma dos valores precisa ser igual ao lançamento original. A primeira parte atualiza o original; as demais geram novos lançamentos.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"parts\": [\n    {\n      \"amount\": 50,\n      \"movementTypeId\": \"uuid-tipo-a\",\n      \"description\": \"Mensalidade\"\n    },\n    {\n      \"amount\": 25,\n      \"movementTypeId\": \"uuid-tipo-b\",\n      \"description\": \"Doação\"\n    }\n  ]\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_tx_split_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -6,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_dashboard",
+      "parentId": "fld_relatorios",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/dashboard",
+      "name": "Painel (dashboard)",
+      "description": "Admin. Indicadores do período (mês/ano): saldo inicial, entradas, saídas, saldo atual, associados e totais por ramo, mais série do gráfico.",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "year",
+          "value": "2026",
+          "description": "",
+          "disabled": false,
+          "id": "req_dashboard_q0"
+        },
+        {
+          "name": "month",
+          "value": "4",
+          "description": "1–12; omita ou 0 para o ano inteiro conforme a regra do painel",
+          "disabled": false,
+          "id": "req_dashboard_q1"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_cashflow",
+      "parentId": "fld_relatorios",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/reports/cashflow",
+      "name": "Relatório de fluxo de caixa",
+      "description": "Série mensal de entradas, saídas, líquido e saldo, com quebra por tipo e por ramo.",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "from",
+          "value": "2026-01-01",
+          "description": "",
+          "disabled": false,
+          "id": "req_cashflow_q0"
+        },
+        {
+          "name": "to",
+          "value": "2026-12-31",
+          "description": "",
+          "disabled": false,
+          "id": "req_cashflow_q1"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_custom",
+      "parentId": "fld_relatorios",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/reports/custom",
+      "name": "Relatório fiscal / customizado",
+      "description": "Admin. Livro-caixa numerado com saldo acumulado. `groupBy`: none | month | branch | movementType | nature. Filtros vazios = todos.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"from\": \"2026-01-01\",\n  \"to\": \"2026-12-31\",\n  \"branches\": [],\n  \"types\": [],\n  \"natures\": [],\n  \"movementTypeIds\": [],\n  \"groupBy\": \"none\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_custom_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_projects_list",
+      "parentId": "fld_projetos",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/projects",
+      "name": "Listar projetos",
+      "description": "Orçamentos com realizado (`actuals`) e total planejado. Filtros: `year`, `branch`.",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "year",
+          "value": "2026",
+          "description": "",
+          "disabled": true,
+          "id": "req_projects_list_q0"
+        },
+        {
+          "name": "branch",
+          "value": "grupo",
+          "description": "",
+          "disabled": true,
+          "id": "req_projects_list_q1"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_projects_create",
+      "parentId": "fld_projetos",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/projects",
+      "name": "Criar projeto",
+      "description": "Admin. Itens podem vincular `movementTypeId` para casar o realizado dos lançamentos.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"branch\": \"escoteiro\",\n  \"year\": 2026,\n  \"name\": \"Jamboree 2026\",\n  \"description\": \"Orçamento da tropa para o jamboree\",\n  \"items\": [\n    {\n      \"category\": \"Inscrição\",\n      \"description\": \"Taxa de inscrição\",\n      \"planned\": 2000,\n      \"movementTypeId\": \"\"\n    }\n  ]\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_projects_create_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_projects_patch",
+      "parentId": "fld_projetos",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/projects/:id",
+      "name": "Atualizar projeto",
+      "description": "Admin. Enviar `items` substitui o orçamento (ids existentes são reaproveitados).",
+      "method": "PATCH",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"name\": \"Jamboree 2026 — revisão\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_projects_patch_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_mens_get",
+      "parentId": "fld_mensalidades",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/mensalidades",
+      "name": "Grade de mensalidades",
+      "description": "Sincroniza o ano (lança pendências mar–dez conforme tabela oficial) e devolve a grade com status paid | pending | overdue | none.",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "year",
+          "value": "2026",
+          "description": "",
+          "disabled": false,
+          "id": "req_mens_get_q0"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_mens_notify",
+      "parentId": "fld_mensalidades",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/mensalidades/notify",
+      "name": "Disparar cobrança ou comprovante",
+      "description": "`kind`: charge (pendente/atrasado) ou receipt (pago). Filtra por `month`, `memberIds` e/ou `transactionIds`. Canais: email | whatsapp. Sem `channels`, usa o que estiver configurado (MAIL_HOST / WhatsApp).",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"year\": 2026,\n  \"month\": 4,\n  \"kind\": \"charge\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_mens_notify_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_interpret",
+      "parentId": "fld_extrato",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/interpret-statement",
+      "name": "Interpretar extrato (CSV ou PDF)",
+      "description": "Envia `csv` (texto) ou `pdf` (base64). Detecta colunas, sugere tipo/ramo/associado/responsável e devolve amostragem. `convertOnly` só converte PDF. `enrichAi` usa OpenAI se houver chave. Máx. ~7 MB CSV / ~10 MB PDF.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"csv\": \"Data;Historico;Valor\\n10/04/2026;PIX JOAO SILVA;75,00\",\n  \"enrichAi\": false\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_interpret_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_map_import",
+      "parentId": "fld_extrato",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/map-import",
+      "name": "Mapear colunas da planilha",
+      "description": "`kind`: members | statement. Sem `mapping`, devolve revisão + amostragem (e IA se configurada). Com `mapping`, reaplica o mapa e gera CSV canônico.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"csv\": \"Nome;E-mail;Telefone;Ramo\\nAna;ana@ex.com;5199999;Lobinho\",\n  \"kind\": \"members\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_map_import_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_tx_import",
+      "parentId": "fld_extrato",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/transactions",
+      "name": "Ingerir lançamentos do extrato",
+      "description": "Chunk de até 200 linhas. Concilia mensalidade (nome/responsável/PIX/CPF + valor pontual ou atrasado). Linhas sem tipo claro entram como Não identificado. Origem: integration.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"rows\": [\n    {\n      \"date\": \"2026-04-10\",\n      \"type\": \"income\",\n      \"nature\": \"variable\",\n      \"movementTypeId\": \"uuid-tipo\",\n      \"description\": \"PIX JOAO SILVA\",\n      \"amount\": 75,\n      \"branch\": \"escoteiro\",\n      \"method\": \"pix\",\n      \"paymentStatus\": \"paid\"\n    }\n  ]\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_tx_import_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_sicredi_get",
+      "parentId": "fld_sicredi",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/sicredi",
+      "name": "Visão Sicredi",
+      "description": "Status da integração, movimentos Pix do período e conciliação (matched / imported / pending). Sem `from`/`to`, usa o mês corrente (America/Sao_Paulo).",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "from",
+          "value": "2026-04-01",
+          "description": "",
+          "disabled": true,
+          "id": "req_sicredi_get_q0"
+        },
+        {
+          "name": "to",
+          "value": "2026-04-30",
+          "description": "",
+          "disabled": true,
+          "id": "req_sicredi_get_q1"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_sicredi_sync",
+      "parentId": "fld_sicredi",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/sicredi/sync",
+      "name": "Sincronizar Pix agora",
+      "description": "Consulta GET /pix (Bacen) no Sicredi ou o mock. Concilia mensalidade pendente ou lança no caixa (origem sicredi, pago).",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"from\": \"2026-04-01\",\n  \"to\": \"2026-04-30\"\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_sicredi_sync_ct"
+        }
+      ],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_sicredi_sim",
+      "parentId": "fld_sicredi",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/sicredi/simulate",
+      "name": "Simular Pix recebido",
+      "description": "Só com SICREDI_MOCK=1. Injeta um Pix fictício para treinar conciliação e o caixa ao vivo.",
+      "method": "POST",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_sicredi_reg",
+      "parentId": "fld_sicredi",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/sicredi/webhook/register",
+      "name": "Registrar webhook Pix",
+      "description": "Registra na cooperativa a URL `PUBLIC_URL/api/integrations/sicredi/webhook?token=SICREDI_WEBHOOK_TOKEN`.",
+      "method": "POST",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -7,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_sicredi_wh",
+      "parentId": "fld_sicredi",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/sicredi/webhook",
+      "name": "Webhook Pix (público)",
+      "description": "Público, autenticado por `token` na query (SICREDI_WEBHOOK_TOKEN). Corpo no formato de notificação Pix do Sicredi/Bacen.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"pix\": []\n}"
+      },
+      "parameters": [
+        {
+          "name": "token",
+          "value": "{{ _.webhook_token }}",
+          "description": "",
+          "disabled": false,
+          "id": "req_sicredi_wh_q0"
+        }
+      ],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_sicredi_wh_ct"
+        }
+      ],
+      "authentication": {
+        "type": "none"
+      },
+      "metaSortKey": -6,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_notify_status",
+      "parentId": "fld_notify",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/notify/status",
+      "name": "Status dos canais",
+      "description": "Indica se e-mail e WhatsApp estão configurados e quantos disparos estão na fila (outbox).",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -10,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_notify_log",
+      "parentId": "fld_notify",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/notify/log",
+      "name": "Histórico de disparos",
+      "description": "Últimos envios (cobrança/comprovante). `limit` padrão 40.",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "limit",
+          "value": "40",
+          "description": "",
+          "disabled": false,
+          "id": "req_notify_log_q0"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "bearer",
+        "token": "{{ _.token }}",
+        "disabled": false
+      },
+      "metaSortKey": -9,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_wa_verify",
+      "parentId": "fld_notify",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/webhook",
+      "name": "WhatsApp — verificação (GET)",
+      "description": "Público. Handshake da Meta (`hub.mode=subscribe`, `hub.verify_token`, `hub.challenge`). Sem query devolve `{ ok, service }`. Também disponível em /api/integrations/whatsapp/webhook.",
+      "method": "GET",
+      "body": {},
+      "parameters": [
+        {
+          "name": "hub.mode",
+          "value": "subscribe",
+          "description": "",
+          "disabled": true,
+          "id": "req_wa_verify_q0"
+        },
+        {
+          "name": "hub.verify_token",
+          "value": "o-mesmo-segredo-do-painel-da-meta",
+          "description": "",
+          "disabled": true,
+          "id": "req_wa_verify_q1"
+        },
+        {
+          "name": "hub.challenge",
+          "value": "12345",
+          "description": "",
+          "disabled": true,
+          "id": "req_wa_verify_q2"
+        }
+      ],
+      "headers": [],
+      "authentication": {
+        "type": "none"
+      },
+      "metaSortKey": -8,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_wa_event",
+      "parentId": "fld_notify",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/webhook",
+      "name": "WhatsApp — evento (POST)",
+      "description": "Público. Recebe mensagens da Cloud API. Responde texto EVENT_RECEIVED. Objeto que não for whatsapp_business_account retorna 404. Espelho em /api/integrations/whatsapp/webhook.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": []\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_wa_event_ct"
+        }
+      ],
+      "authentication": {
+        "type": "none"
+      },
+      "metaSortKey": -7,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_wa_verify_api",
+      "parentId": "fld_notify",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/whatsapp/webhook",
+      "name": "WhatsApp — verificação (caminho /api)",
+      "description": "Mesmo GET de verificação da Meta, no caminho interno da API.",
+      "method": "GET",
+      "body": {},
+      "parameters": [],
+      "headers": [],
+      "authentication": {
+        "type": "none"
+      },
+      "metaSortKey": -6,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    },
+    {
+      "_id": "req_wa_event_api",
+      "parentId": "fld_notify",
+      "modified": 1789993256249,
+      "created": 1789993256249,
+      "url": "{{ _.base_url }}/api/integrations/whatsapp/webhook",
+      "name": "WhatsApp — evento (caminho /api)",
+      "description": "Mesmo POST de eventos da Meta, no caminho interno da API.",
+      "method": "POST",
+      "body": {
+        "mimeType": "application/json",
+        "text": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": []\n}"
+      },
+      "parameters": [],
+      "headers": [
+        {
+          "name": "Content-Type",
+          "value": "application/json",
+          "id": "req_wa_event_api_ct"
+        }
+      ],
+      "authentication": {
+        "type": "none"
+      },
+      "metaSortKey": -5,
+      "isPrivate": false,
+      "settingStoreCookies": true,
+      "settingSendCookies": true,
+      "settingDisableRenderRequestBody": false,
+      "settingEncodeUrl": true,
+      "settingRebuildPath": true,
+      "settingFollowRedirects": "global",
+      "_type": "request"
+    }
+  ]
+}
