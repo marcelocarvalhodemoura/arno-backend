@@ -5,6 +5,7 @@ import {
   expectedMonthlyFee,
   lateMonthlyFee,
   onTimeMonthlyFee,
+  paysMensalidade,
 } from './fee-table';
 import { id } from '../shared/id';
 import { isMensalidadeName } from '../statement/statement';
@@ -118,6 +119,17 @@ export function cancelSubsequentMensalidades(db: DatabaseShape, memberId: string
   return before - db.transactions.length;
 }
 
+export function cancelUnpaidMensalidades(db: DatabaseShape, memberId: string): number {
+  const before = db.transactions.length;
+  db.transactions = db.transactions.filter((tx) => {
+    if (tx.memberId !== memberId) return true;
+    if (tx.paymentStatus === 'paid') return true;
+    if (!isMensalidadeTx(db, tx)) return true;
+    return false;
+  });
+  return before - db.transactions.length;
+}
+
 export function ensureMensalidadeType(db: DatabaseShape, userId: string) {
   const existing = db.movementTypes.find((item) => item.active && isMensalidadeName(item.name));
   if (existing) return existing;
@@ -136,6 +148,9 @@ export function ensureMensalidadeType(db: DatabaseShape, userId: string) {
 }
 
 export function refreshPendingMensalidadeSchedule(db: DatabaseShape, today = todayISO(), userId?: string) {
+  for (const member of db.members) {
+    if (!paysMensalidade(member)) cancelUnpaidMensalidades(db, member.id);
+  }
   const dueDay = dueDayOf(db);
   let updated = 0;
   for (const tx of db.transactions) {
@@ -167,6 +182,10 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
   let created = 0;
   for (const member of db.members) {
     applyOfficialFee(member);
+    if (!paysMensalidade(member)) {
+      cancelUnpaidMensalidades(db, member.id);
+      continue;
+    }
     if (member.status !== 'active') {
       cancelSubsequentMensalidades(db, member.id, today);
       continue;

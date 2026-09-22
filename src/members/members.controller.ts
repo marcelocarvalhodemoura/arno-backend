@@ -30,7 +30,8 @@ export class MembersController {
   @Post('members')
   @ApiOperation({
     summary: 'Cadastrar associado',
-    description: 'Jovem exige pelo menos um responsável. Papéis: jovem | escotista | dirigente | clube.',
+    description:
+      'Jovem exige pelo menos um responsável. Papéis: jovem | escotista | dirigente | clube. Só o jovem paga mensalidade; dirigente, escotista e Clube da Flor de Lis ficam isentos.',
   })
   @ApiBody({
     schema: {

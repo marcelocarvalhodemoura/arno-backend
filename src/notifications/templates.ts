@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { lateMonthlyFee, onTimeMonthlyFee } from '../mensalidades/fee-table';
+import { lateMonthlyFee, onTimeMonthlyFee, paysMensalidade } from '../mensalidades/fee-table';
 import { dueDayOf, todayISO } from '../mensalidades/mensalidades';
 import type { DatabaseShape, Member, Transaction } from '../shared/types';
 import { YOUTH_BRANCHES } from '../shared/types';
@@ -352,7 +352,7 @@ export function composeNotifyMessage(db: DatabaseShape, tx: Transaction, kind: N
   const dueDay = dueDayOf(db);
   const overdue = tx.date.slice(0, 10) < todayISO();
   const punctualNote =
-    member && !member.clubeLtc
+    member && paysMensalidade(member) && !member.clubeLtc
       ? {
           dueDay,
           onTime: brl(onTimeMonthlyFee(member)),

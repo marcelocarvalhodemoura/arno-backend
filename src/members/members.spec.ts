@@ -62,6 +62,52 @@ describe('members', () => {
     expect(db.memberGuardians).toHaveLength(1);
   });
 
+  it('does not charge dirigentes, escotistas or Clube da Flor de Lis', () => {
+    const db = emptyDb();
+    const escotista = createMember(
+      db,
+      {
+        name: 'Bia Lima',
+        email: 'bia@example.com',
+        phone: '51999990001',
+        branch: 'escoteiro',
+        role: 'escotista',
+        joinedAt: '2026-03-01',
+        clubeLtc: false,
+      },
+      'u1',
+    );
+    const dirigente = createMember(
+      db,
+      {
+        name: 'Caio Dias',
+        email: 'caio@example.com',
+        phone: '51999990002',
+        branch: 'senior',
+        role: 'dirigente',
+        joinedAt: '2026-03-01',
+        clubeLtc: false,
+      },
+      'u1',
+    );
+    const clube = createMember(
+      db,
+      {
+        name: 'Duda Nunes',
+        email: 'duda@example.com',
+        phone: '51999990003',
+        branch: 'flor-de-lis',
+        role: 'clube',
+        joinedAt: '2026-03-01',
+        clubeLtc: true,
+      },
+      'u1',
+    );
+    expect(escotista.monthlyFee).toBe(0);
+    expect(dirigente.monthlyFee).toBe(0);
+    expect(clube.monthlyFee).toBe(0);
+  });
+
   it('rejects a youth without guardians', () => {
     const db = emptyDb();
     expect(() =>

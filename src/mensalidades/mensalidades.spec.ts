@@ -194,6 +194,69 @@ describe('mensalidades', () => {
     expect(db.transactions.find((tx) => tx.date === '2026-04-10')?.amount).toBe(89.5);
   });
 
+  it('does not charge dirigentes, escotistas or Clube da Flor de Lis', () => {
+    const movement: MovementType = {
+      id: 'mt-men',
+      name: 'Mensalidade',
+      direction: 'income',
+      description: '',
+      pixKey: '',
+      branch: 'grupo',
+      active: true,
+      origin: 'manual',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    const pending: Transaction = {
+      id: 't-open',
+      date: '2026-04-10',
+      type: 'income',
+      nature: 'fixed',
+      movementTypeId: 'mt-men',
+      description: 'Mensalidade abril',
+      amount: 89.5,
+      branch: 'escoteiro',
+      method: 'pix',
+      paymentStatus: 'pending',
+      memberId: 'm2',
+      origin: 'manual',
+      createdAt: '2026-04-01T00:00:00.000Z',
+    };
+    const paid: Transaction = {
+      id: 't-paid',
+      date: '2026-03-10',
+      type: 'income',
+      nature: 'fixed',
+      movementTypeId: 'mt-men',
+      description: 'Mensalidade março',
+      amount: 89.5,
+      branch: 'escoteiro',
+      method: 'pix',
+      paymentStatus: 'paid',
+      memberId: 'm2',
+      origin: 'manual',
+      createdAt: '2026-03-10T00:00:00.000Z',
+    };
+    const db = emptyDb({
+      members: [
+        member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', role: 'jovem' }),
+        member({ id: 'm2', name: 'Bia Lima', joinedAt: '2026-03-01', role: 'escotista' }),
+        member({ id: 'm3', name: 'Caio Dias', joinedAt: '2026-03-01', role: 'dirigente', branch: 'senior' }),
+        member({ id: 'm4', name: 'Duda Nunes', joinedAt: '2026-03-01', role: 'clube', branch: 'flor-de-lis' }),
+      ],
+      movementTypes: [movement],
+      transactions: [pending, paid],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-03-01');
+    expect(db.members.find((item) => item.id === 'm2')?.monthlyFee).toBe(0);
+    expect(db.members.find((item) => item.id === 'm3')?.monthlyFee).toBe(0);
+    expect(db.members.find((item) => item.id === 'm4')?.monthlyFee).toBe(0);
+    expect(db.transactions.filter((tx) => tx.memberId === 'm2')).toEqual([paid]);
+    expect(db.transactions.some((tx) => tx.memberId === 'm3' || tx.memberId === 'm4')).toBe(false);
+    expect(db.transactions.some((tx) => tx.memberId === 'm1' && tx.paymentStatus === 'pending')).toBe(true);
+    const report = buildMensalidadeReport(db, 2026, '2026-03-01');
+    expect(report.rows.map((row) => row.memberId)).toEqual(['m1']);
+  });
+
   it('uses the due day stored in settings for pending rows', () => {
     const db = emptyDb({
       members: [

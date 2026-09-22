@@ -15,9 +15,17 @@ export const MENSALIDADE_TABLE = {
 
 export type MensalidadeProfile = {
   branch: string;
+  role?: string;
   clubeLtc?: boolean;
   monthlyFee?: number;
 };
+
+/** Dirigente, escotista e Clube da Flor de Lis não pagam mensalidade. */
+export function paysMensalidade(profile: { role?: string; branch?: string }): boolean {
+  if (profile.branch === 'flor-de-lis') return false;
+  if (profile.role === 'escotista' || profile.role === 'dirigente' || profile.role === 'clube') return false;
+  return true;
+}
 
 export const OFFICIAL_MENSALIDADE_FEES: { name: string; amount: number }[] = [
   {
@@ -60,12 +68,14 @@ export function mensalidadeBase(branch: string): number {
 }
 
 export function onTimeMonthlyFee(profile: MensalidadeProfile): number {
+  if (!paysMensalidade(profile)) return 0;
   const base = mensalidadeBase(profile.branch);
   if (profile.clubeLtc) return base;
   return roundMoney(base + MENSALIDADE_TABLE.punctual + MENSALIDADE_TABLE.extra);
 }
 
 export function lateMonthlyFee(profile: MensalidadeProfile): number {
+  if (!paysMensalidade(profile)) return 0;
   const base = mensalidadeBase(profile.branch);
   if (profile.clubeLtc) return base;
   return roundMoney(base + MENSALIDADE_TABLE.late + MENSALIDADE_TABLE.extra);

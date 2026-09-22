@@ -10,7 +10,12 @@ import {
   type MemberImportRow,
   type PatchMemberInput,
 } from '../shared/http/schemas';
-import { assignOfficialFee, cancelSubsequentMensalidades } from '../mensalidades/mensalidades';
+import { paysMensalidade } from '../mensalidades/fee-table';
+import {
+  assignOfficialFee,
+  cancelSubsequentMensalidades,
+  cancelUnpaidMensalidades,
+} from '../mensalidades/mensalidades';
 
 export function cleanedGuardians(list: GuardianInput[]) {
   return list
@@ -89,7 +94,10 @@ export function resolveGuardianId(db: DatabaseShape, memberId: string | undefine
 }
 
 export function refreshOfficialFees(db: DatabaseShape) {
-  for (const member of db.members) assignOfficialFee(member);
+  for (const member of db.members) {
+    assignOfficialFee(member);
+    if (!paysMensalidade(member)) cancelUnpaidMensalidades(db, member.id);
+  }
   return db;
 }
 
@@ -142,7 +150,9 @@ export function updateMember(
   const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
   Object.assign(member, data);
   assignOfficialFee(member, userId);
-  if (becameInactive) {
+  if (!paysMensalidade(member)) {
+    cancelUnpaidMensalidades(db, member.id);
+  } else if (becameInactive) {
     cancelSubsequentMensalidades(db, member.id);
   }
   return member;
