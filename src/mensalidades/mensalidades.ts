@@ -8,6 +8,7 @@ import {
   lateMonthlyFee,
   onTimeMonthlyFee,
   paysMensalidade,
+  resolveFeeOverride,
 } from './fee-table';
 import { id } from '../shared/id';
 import { isMensalidadeName } from '../statement/statement';
@@ -22,7 +23,8 @@ import type {
 } from '../shared/types';
 import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
 
-export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+/** Ano escoteiro: mensalidade do grupo de março a novembro (sem dezembro). */
+export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 const MONTH_NAMES = [
   '',
@@ -188,10 +190,23 @@ export function refreshPendingMensalidadeAmounts(db: DatabaseShape, today = toda
   return refreshPendingMensalidadeSchedule(db, today, userId);
 }
 
+/** Remove mensalidades pendentes fora do calendário (ex.: dezembro legado). */
+export function cancelOutOfSeasonMensalidades(db: DatabaseShape): number {
+  const before = db.transactions.length;
+  db.transactions = db.transactions.filter((tx) => {
+    if (tx.paymentStatus === 'paid') return true;
+    if (!isMensalidadeTx(db, tx)) return true;
+    const month = Number(tx.date.slice(5, 7));
+    return MENSALIDADE_MONTHS.includes(month);
+  });
+  return before - db.transactions.length;
+}
+
 export function syncMensalidades(db: DatabaseShape, year: number, userId: string, today = todayISO()): number {
   const dueDay = dueDayOf(db);
   ensureOfficialMensalidadeFees(db, userId);
   const movement = ensureMensalidadeType(db, userId);
+  cancelOutOfSeasonMensalidades(db);
   let created = 0;
   for (const member of db.members) {
     applyOfficialFee(member);
@@ -356,6 +371,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         monthlyFee: onTime,
         lateFee: late,
         clubeLtc: member.clubeLtc,
+        feeOverride: resolveFeeOverride(member),
         cells,
       };
     })

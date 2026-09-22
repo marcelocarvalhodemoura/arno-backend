@@ -565,7 +565,7 @@ describe('API integration', () => {
     expect(res.status).toBe(403);
   });
 
-  it('builds the March-December mensalidade grid and launches pending cash-flow rows', async () => {
+  it('builds the March-November mensalidade grid and launches pending cash-flow rows', async () => {
     const auth = await tesoureiroAuth();
     const stamp = Date.now();
     const created = await request(server)
@@ -597,17 +597,17 @@ describe('API integration', () => {
     expect(first.body.dueDay).toBe(10);
     expect(row.cells.find((cell: { month: number }) => cell.month === 3).status).toBe('none');
     expect(row.cells.find((cell: { month: number }) => cell.month === 5).dueDate).toBe('2026-05-10');
-    expect(row.cells.filter((cell: { status: string }) => cell.status !== 'none')).toHaveLength(8);
+    expect(row.cells.filter((cell: { status: string }) => cell.status !== 'none')).toHaveLength(7);
 
     const again = await request(server).get('/api/mensalidades?year=2026').set(auth);
     expect(again.status).toBe(200);
 
-    const listed = await request(server).get('/api/transactions?from=2026-05-01&to=2026-12-31').set(auth);
+    const listed = await request(server).get('/api/transactions?from=2026-05-01&to=2026-11-30').set(auth);
     const launched = listed.body.filter(
       (item: { memberId?: string; movementType?: { name: string } }) =>
         item.memberId === created.body.id && item.movementType?.name === 'Mensalidade',
     );
-    expect(launched).toHaveLength(8);
+    expect(launched).toHaveLength(7);
     expect(launched.every((item: { paymentStatus: string }) => item.paymentStatus === 'pending')).toBe(true);
 
     const inactivated = await request(server)

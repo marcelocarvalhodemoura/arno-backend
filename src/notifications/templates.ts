@@ -351,12 +351,13 @@ export function composeNotifyMessage(db: DatabaseShape, tx: Transaction, kind: N
 
   const dueDay = dueDayOf(db);
   const overdue = tx.date.slice(0, 10) < todayISO();
+  const billingMonth = Number(tx.date.slice(5, 7));
   const punctualNote =
     member && paysMensalidade(member) && !member.clubeLtc
       ? {
           dueDay,
-          onTime: brl(onTimeMonthlyFee(member)),
-          late: brl(lateMonthlyFee(member)),
+          onTime: brl(onTimeMonthlyFee(member, billingMonth)),
+          late: brl(lateMonthlyFee(member, billingMonth)),
         }
       : undefined;
   const subject = overdue

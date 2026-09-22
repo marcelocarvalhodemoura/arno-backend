@@ -10,12 +10,17 @@ import {
   type MemberImportRow,
   type PatchMemberInput,
 } from '../shared/http/schemas';
-import { paysMensalidade } from '../mensalidades/fee-table';
+import { paysMensalidade, resolveFeeOverride } from '../mensalidades/fee-table';
 import {
   assignOfficialFee,
   cancelSubsequentMensalidades,
   cancelUnpaidMensalidades,
+  refreshPendingMensalidadeSchedule,
 } from '../mensalidades/mensalidades';
+
+function normalizeFeeOverride(value: number | null | undefined): number | null {
+  return resolveFeeOverride({ feeOverride: value == null ? null : value });
+}
 
 export function cleanedGuardians(list: GuardianInput[]) {
   return list
@@ -105,13 +110,14 @@ export function createMember(db: DatabaseShape, input: CreateMemberInput, userId
   if (db.members.some((item) => item.email.toLowerCase() === input.email.toLowerCase())) {
     throw new Error('E-mail já cadastrado');
   }
-  const { guardians, ...data } = input;
+  const { guardians, feeOverride: feeOverrideInput, ...data } = input;
   const list = cleanedGuardians(guardians ?? []);
   assertYouthGuardians(data.role, list.length);
   const created: Member = {
     id: id(),
     status: 'active',
     ...data,
+    feeOverride: normalizeFeeOverride(feeOverrideInput),
     monthlyFee: 0,
     ...createdAudit(userId),
   };
@@ -135,7 +141,7 @@ export function updateMember(
   ) {
     throw new Error('E-mail já cadastrado');
   }
-  const { guardians, ...data } = input;
+  const { guardians, feeOverride: feeOverrideInput, ...data } = input;
   const nextRole = data.role ?? member.role;
   if (nextRole !== 'jovem') {
     replaceGuardians(db, member.id, [], userId);
@@ -149,11 +155,16 @@ export function updateMember(
   }
   const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
   Object.assign(member, data);
+  if (feeOverrideInput !== undefined) {
+    member.feeOverride = feeOverrideInput === null ? null : normalizeFeeOverride(feeOverrideInput);
+  }
   assignOfficialFee(member, userId);
   if (!paysMensalidade(member)) {
     cancelUnpaidMensalidades(db, member.id);
   } else if (becameInactive) {
     cancelSubsequentMensalidades(db, member.id);
+  } else {
+    refreshPendingMensalidadeSchedule(db, undefined, userId);
   }
   return member;
 }

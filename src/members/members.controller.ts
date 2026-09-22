@@ -48,6 +48,12 @@ export class MembersController {
         },
         joinedAt: { type: 'string', example: '2026-03-01' },
         clubeLtc: { type: 'boolean', example: false },
+        feeOverride: {
+          type: 'number',
+          nullable: true,
+          example: 82,
+          description: 'Valor fixo opcional (filho de chefe / irmão no grupo). Null usa a tabela oficial.',
+        },
         guardians: {
           type: 'array',
           items: {

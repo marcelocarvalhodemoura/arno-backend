@@ -72,7 +72,7 @@ describe('mensalidades', () => {
       ],
     });
     const created = syncMensalidades(db, 2026, 'u1', '2026-05-01');
-    expect(created).toBe(8);
+    expect(created).toBe(7);
     expect(db.movementTypes.some((type) => type.name === 'Mensalidade')).toBe(true);
     expect(db.transactions.every((tx) => tx.paymentStatus === 'pending' && tx.memberId === 'm1')).toBe(true);
     expect(db.transactions[0].date).toBe('2026-05-10');
@@ -142,17 +142,17 @@ describe('mensalidades', () => {
       ],
     });
     syncMensalidades(db, 2026, 'u1');
-    expect(db.transactions).toHaveLength(10);
+    expect(db.transactions).toHaveLength(9);
 
     db.members[0].status = 'inactive';
-    expect(cancelSubsequentMensalidades(db, 'm1', '2026-06-11')).toBe(6);
+    expect(cancelSubsequentMensalidades(db, 'm1', '2026-06-11')).toBe(5);
     expect(db.transactions.map((tx) => tx.date.slice(5, 7))).toEqual(['03', '04', '05', '06']);
 
     const report = buildMensalidadeReport(db, 2026, '2026-06-11');
     const cells = report.rows[0].cells;
     expect(cells.find((cell) => cell.month === 6)?.status).toBe('overdue');
     expect(cells.find((cell) => cell.month === 7)?.status).toBe('none');
-    expect(cells.find((cell) => cell.month === 12)?.status).toBe('none');
+    expect(cells.find((cell) => cell.month === 12)).toBeUndefined();
     expect(syncMensalidades(db, 2026, 'u1', '2026-06-11')).toBe(0);
     expect(db.transactions).toHaveLength(4);
   });
@@ -169,15 +169,23 @@ describe('mensalidades', () => {
       ],
     });
     syncMensalidades(db, 2026, 'u1', '2026-03-01');
-    const paid = db.transactions[0];
-    paid.paymentStatus = 'paid';
+    const march = db.transactions.find((tx) => tx.date.startsWith('2026-03'))!;
+    const april = db.transactions.find((tx) => tx.date.startsWith('2026-04'))!;
+    const may = db.transactions.find((tx) => tx.date.startsWith('2026-05'))!;
+    march.paymentStatus = 'paid';
     applyMensalidadeFee(db, 55, 70, 'u1', '2026-03-01');
     expect(db.members[0].monthlyFee).toBe(89.5);
-    expect(paid.amount).toBe(89.5);
-    expect(db.transactions.filter((tx) => tx.paymentStatus === 'pending').every((tx) => tx.amount === 89.5)).toBe(true);
+    expect(march.amount).toBe(60);
+    expect(april.amount).toBe(60);
+    expect(may.amount).toBe(89.5);
+    expect(
+      db.transactions
+        .filter((tx) => tx.paymentStatus === 'pending' && tx.date.slice(5, 7) >= '05')
+        .every((tx) => tx.amount === 89.5),
+    ).toBe(true);
   });
 
-  it('raises pending amounts after the 10th for non-members', () => {
+  it('raises pending amounts after the 10th for non-members from maio', () => {
     const db = emptyDb({
       members: [
         member({
@@ -190,10 +198,13 @@ describe('mensalidades', () => {
       ],
     });
     syncMensalidades(db, 2026, 'u1', '2026-03-10');
-    expect(db.transactions.find((tx) => tx.date === '2026-03-10')?.amount).toBe(89.5);
-    syncMensalidades(db, 2026, 'u1', '2026-03-11');
-    expect(db.transactions.find((tx) => tx.date === '2026-03-10')?.amount).toBe(99.5);
-    expect(db.transactions.find((tx) => tx.date === '2026-04-10')?.amount).toBe(89.5);
+    expect(db.transactions.find((tx) => tx.date === '2026-03-10')?.amount).toBe(60);
+    expect(db.transactions.find((tx) => tx.date === '2026-04-10')?.amount).toBe(60);
+    expect(db.transactions.find((tx) => tx.date === '2026-05-10')?.amount).toBe(89.5);
+    syncMensalidades(db, 2026, 'u1', '2026-05-11');
+    expect(db.transactions.find((tx) => tx.date === '2026-03-10')?.amount).toBe(60);
+    expect(db.transactions.find((tx) => tx.date === '2026-05-10')?.amount).toBe(99.5);
+    expect(db.transactions.find((tx) => tx.date === '2026-06-10')?.amount).toBe(89.5);
   });
 
   it('does not charge dirigentes, escotistas or Clube da Flor de Lis', () => {
@@ -287,21 +298,40 @@ describe('mensalidades', () => {
     });
     syncMensalidades(db, 2026, 'u1', '2026-03-01');
     const april = db.transactions.find((tx) => tx.memberId === 'm1' && tx.date.startsWith('2026-04'));
-    expect(april?.clubFeeIncluded).toBe(true);
-    expect(april?.amount).toBe(89.5);
+    expect(april?.amount).toBe(60);
     setMensalidadeClubFee(db, april!.id, false, 'u1', '2026-03-01');
     expect(april?.clubFeeIncluded).toBe(false);
-    expect(april?.amount).toBe(69.5);
-    const updated = setMensalidadeClubFeeBulk(db, { year: 2026, month: 5, clubFeeIncluded: false }, 'u1', '2026-03-01');
+    expect(april?.amount).toBe(60);
+    const may = db.transactions.find((tx) => tx.memberId === 'm1' && tx.date.startsWith('2026-05'));
+    expect(may?.amount).toBe(89.5);
+    setMensalidadeClubFee(db, may!.id, false, 'u1', '2026-03-01');
+    expect(may?.clubFeeIncluded).toBe(false);
+    expect(may?.amount).toBe(69.5);
+    const updated = setMensalidadeClubFeeBulk(db, { year: 2026, month: 6, clubFeeIncluded: false }, 'u1', '2026-03-01');
     expect(updated).toBe(2);
     expect(
       db.transactions
-        .filter((tx) => tx.date.startsWith('2026-05'))
+        .filter((tx) => tx.date.startsWith('2026-06'))
         .every((tx) => tx.clubFeeIncluded === false && tx.amount === 69.5),
     ).toBe(true);
     const report = buildMensalidadeReport(db, 2026, '2026-03-01');
-    const anaApril = report.rows.find((row) => row.memberId === 'm1')?.cells.find((cell) => cell.month === 4);
-    expect(anaApril?.clubFeeIncluded).toBe(false);
-    expect(anaApril?.amount).toBe(69.5);
+    const anaMay = report.rows.find((row) => row.memberId === 'm1')?.cells.find((cell) => cell.month === 5);
+    expect(anaMay?.clubFeeIncluded).toBe(false);
+    expect(anaMay?.amount).toBe(69.5);
+  });
+
+  it('applies a member fee override from maio without late bump', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', feeOverride: 82 })],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-05-11');
+    expect(db.members[0].monthlyFee).toBe(82);
+    expect(db.transactions.find((tx) => tx.date === '2026-03-10')?.amount).toBe(60);
+    expect(db.transactions.find((tx) => tx.date === '2026-05-10')?.amount).toBe(82);
+    expect(db.transactions.find((tx) => tx.date === '2026-06-10')?.amount).toBe(82);
+    const report = buildMensalidadeReport(db, 2026, '2026-05-11');
+    expect(report.rows[0].feeOverride).toBe(82);
+    expect(report.rows[0].monthlyFee).toBe(82);
+    expect(report.rows[0].lateFee).toBe(82);
   });
 });

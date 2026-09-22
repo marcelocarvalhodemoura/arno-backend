@@ -197,6 +197,8 @@ export interface Member {
   branch: YouthBranchId;
   role: MemberRole;
   monthlyFee: number;
+  /** Valor fixo opcional (ex.: R$ 82 filho de chefe / irmão). Null = tabela oficial. */
+  feeOverride?: number | null;
   status: MemberStatus;
   joinedAt: string;
   clubeLtc: boolean;
@@ -339,6 +341,7 @@ export interface MensalidadeRow {
   monthlyFee: number;
   lateFee: number;
   clubeLtc: boolean;
+  feeOverride?: number | null;
   cells: MensalidadeCell[];
 }
 

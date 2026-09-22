@@ -75,6 +75,8 @@ model Member {
   branch      String
   role        String
   monthlyFee  Decimal   @default(0) @map("monthly_fee") @db.Decimal(12, 2)
+  /** Valor fixo opcional (ex.: filho de chefe / irmão no grupo). Null = tabela oficial. */
+  feeOverride Decimal?  @map("fee_override") @db.Decimal(12, 2)
   status      String    @default("active")
   joinedAt    DateTime  @map("joined_at") @db.Date
   clubeLtc    Boolean   @default(false) @map("clube_ltc")

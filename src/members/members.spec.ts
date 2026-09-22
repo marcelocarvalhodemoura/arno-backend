@@ -59,7 +59,29 @@ describe('members', () => {
       'u1',
     );
     expect(member.monthlyFee).toBe(75);
+    expect(member.feeOverride).toBeNull();
     expect(db.memberGuardians).toHaveLength(1);
+  });
+
+  it('stores a fee override for sibling or chief-child discounts', () => {
+    const db = emptyDb();
+    const member = createMember(
+      db,
+      {
+        name: 'Caio Dias',
+        email: 'caio@example.com',
+        phone: '51999990004',
+        branch: 'escoteiro',
+        role: 'jovem',
+        joinedAt: '2026-03-01',
+        clubeLtc: false,
+        feeOverride: 82,
+        guardians: [{ name: 'Lia Dias', relationship: 'Mãe' }],
+      },
+      'u1',
+    );
+    expect(member.feeOverride).toBe(82);
+    expect(member.monthlyFee).toBe(82);
   });
 
   it('does not charge dirigentes, escotistas or Clube da Flor de Lis', () => {

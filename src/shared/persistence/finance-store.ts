@@ -114,6 +114,7 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         branch: member.branch,
         role: member.role,
         monthlyFee: member.monthlyFee,
+        feeOverride: member.feeOverride ?? null,
         status: member.status,
         joinedAt: asDate(member.joinedAt),
         clubeLtc: member.clubeLtc,
@@ -408,6 +409,7 @@ function mapMember(row: {
   branch: string;
   role: string;
   monthlyFee: Prisma.Decimal;
+  feeOverride: Prisma.Decimal | null;
   status: string;
   joinedAt: Date;
   clubeLtc: boolean;
@@ -425,6 +427,7 @@ function mapMember(row: {
     branch: row.branch as Member['branch'],
     role: row.role as Member['role'],
     monthlyFee: Number(row.monthlyFee),
+    feeOverride: row.feeOverride == null ? null : Number(row.feeOverride),
     status: row.status as Member['status'],
     joinedAt: dateOnly(row.joinedAt),
     clubeLtc: row.clubeLtc,
