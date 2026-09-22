@@ -67,7 +67,18 @@ if [[ "$ENV_FILE" != "-" ]]; then
     echo "Falta $ENV_FILE no servidor. Esse arquivo não vai no Git."
     exit 1
   fi
+  # .env no disco fica com 127.0.0.1 (válido no host). No container isso não
+  # alcança o Postgres do host — sobrescreve só na hora do docker run.
+  db_url="$(grep -E '^DATABASE_URL=' "$ENV_FILE" | head -n1 | cut -d= -f2- || true)"
+  db_url="${db_url%\"}"
+  db_url="${db_url#\"}"
+  db_url="${db_url%\'}"
+  db_url="${db_url#\'}"
+  db_url_docker="$(printf '%s' "$db_url" | sed -e 's/@127\.0\.0\.1:/@host.docker.internal:/g' -e 's/@localhost:/@host.docker.internal:/g')"
   args+=(--env-file "$ENV_FILE" --add-host=host.docker.internal:host-gateway -e "PORT=${CONTAINER_PORT}")
+  if [[ -n "$db_url_docker" ]]; then
+    args+=(-e "DATABASE_URL=${db_url_docker}")
+  fi
 fi
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
