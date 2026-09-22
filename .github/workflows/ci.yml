@@ -66,4 +66,4 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_PASSWORD: ${{ secrets.DEPLOY_SSH_PASSWORD }}
           DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
-        run: bash deploy/ship.sh arno-backend arno-backend:${{ github.sha }} 4000 4000 /opt/arno/backend/.env /api/health
+        run: bash deploy/ship.sh arno-backend arno-backend:${{ github.sha }} 4000 4000 /home/arno-backend/.env /api/health
