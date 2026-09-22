@@ -217,6 +217,7 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         projectId: tx.projectId ?? null,
         notes: tx.notes ?? null,
         externalId: tx.externalId ?? null,
+        clubFeeIncluded: tx.clubFeeIncluded ?? null,
         createdById: tx.createdBy ?? null,
         createdAt: tx.createdAt ? new Date(tx.createdAt) : new Date(),
         updatedAt: asTimestamp(tx.updatedAt),
@@ -555,6 +556,7 @@ function mapTransaction(row: {
   projectId: string | null;
   notes: string | null;
   externalId: string | null;
+  clubFeeIncluded: boolean | null;
   origin: string;
   createdAt: Date;
   createdById: string | null;
@@ -579,6 +581,7 @@ function mapTransaction(row: {
     projectId: row.projectId ?? undefined,
     notes: row.notes ?? undefined,
     externalId: row.externalId ?? undefined,
+    clubFeeIncluded: row.clubFeeIncluded ?? undefined,
     ...mapAudit(row),
   };
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Query } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../shared/auth/current-user.decorator';
 import type { AuthPayload } from '../shared/auth/token';
@@ -19,6 +19,48 @@ export class MensalidadesController {
   @ApiQuery({ name: 'year', required: false, example: '2026' })
   report(@Query('year') year: string | undefined, @CurrentUser() auth: AuthPayload) {
     return this.mensalidades.report(year, auth.userId);
+  }
+
+  @Patch('mensalidades/club-fee')
+  @ApiOperation({
+    summary: 'Incluir ou remover a taxa do clube em uma mensalidade',
+    description:
+      'Altera só lançamentos pendentes. clubFeeIncluded=true inclui a parcela do clube (R$ 20, exceto pioneiros).',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['transactionId', 'clubFeeIncluded'],
+      properties: {
+        transactionId: { type: 'string' },
+        clubFeeIncluded: { type: 'boolean' },
+      },
+    },
+  })
+  setClubFee(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.mensalidades.setClubFee(body, auth.userId);
+  }
+
+  @Post('mensalidades/club-fee/bulk')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Incluir ou remover a taxa do clube em massa',
+    description:
+      'Aplica a todos os mensalistas com lançamento pendente no ano. Informe month (3–12) para limitar a um mês.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['year', 'clubFeeIncluded'],
+      properties: {
+        year: { type: 'integer', example: 2026 },
+        month: { type: 'integer', example: 4 },
+        clubFeeIncluded: { type: 'boolean' },
+      },
+    },
+  })
+  setClubFeeBulk(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.mensalidades.setClubFeeBulk(body, auth.userId);
   }
 
   @Post('mensalidades/notify')

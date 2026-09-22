@@ -1,8 +1,10 @@
 import { createdAudit, updatedAudit } from '../shared/audit';
 import {
   applyOfficialFee,
+  defaultClubFeeIncluded,
+  effectiveClubFeeIncluded,
   ensureOfficialMensalidadeFees,
-  expectedMonthlyFee,
+  expectedMensalidadeAmount,
   lateMonthlyFee,
   onTimeMonthlyFee,
   paysMensalidade,
@@ -161,10 +163,21 @@ export function refreshPendingMensalidadeSchedule(db: DatabaseShape, today = tod
     if (!year || !month) continue;
     const nextDate = dueDateForMonth(year, month, dueDay);
     const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
-    const nextAmount = member ? roundMoney(expectedMonthlyFee(member, nextDate, today)) : roundMoney(tx.amount);
-    if (tx.date === nextDate && roundMoney(tx.amount) === nextAmount) continue;
+    const included = member ? effectiveClubFeeIncluded(member, tx.clubFeeIncluded) : true;
+    const nextAmount = member
+      ? roundMoney(expectedMensalidadeAmount(member, nextDate, today, included))
+      : roundMoney(tx.amount);
+    if (tx.date === nextDate && roundMoney(tx.amount) === nextAmount) {
+      if (member && tx.clubFeeIncluded === undefined) {
+        tx.clubFeeIncluded = included;
+        if (userId) Object.assign(tx, updatedAudit(userId));
+        updated += 1;
+      }
+      continue;
+    }
     tx.date = nextDate;
     tx.amount = nextAmount;
+    if (member && tx.clubFeeIncluded === undefined) tx.clubFeeIncluded = included;
     if (userId) Object.assign(tx, updatedAudit(userId));
     updated += 1;
   }
@@ -197,6 +210,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
       if (month < first) continue;
       if (mensalidadeForMonth(db, member.id, year, month)) continue;
       const dueDate = dueDateForMonth(year, month, dueDay);
+      const clubFeeIncluded = defaultClubFeeIncluded(member);
       db.transactions.push({
         id: id(),
         date: dueDate,
@@ -204,11 +218,12 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
         nature: 'fixed',
         movementTypeId: movement.id,
         description: `Mensalidade ${MONTH_NAMES[month]} ${year} — ${member.name}`,
-        amount: roundMoney(expectedMonthlyFee(member, dueDate, today)),
+        amount: roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded)),
         branch: member.branch,
         method: 'pix',
         paymentStatus: 'pending',
         memberId: member.id,
+        clubFeeIncluded,
         ...createdAudit(userId),
       });
       created += 1;
@@ -243,6 +258,54 @@ export function assignOfficialFee(member: Member, userId?: string) {
   return member.monthlyFee;
 }
 
+/** Altera a parcela do clube em uma mensalidade pendente e recalcula o valor. */
+export function setMensalidadeClubFee(
+  db: DatabaseShape,
+  transactionId: string,
+  clubFeeIncluded: boolean,
+  userId: string,
+  today = todayISO(),
+): Transaction | null {
+  const tx = db.transactions.find((item) => item.id === transactionId);
+  if (!tx || !isMensalidadeTx(db, tx)) return null;
+  if (tx.paymentStatus === 'paid') throw new Error('Mensalidade já paga não pode alterar a taxa do clube');
+  const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
+  if (!member) throw new Error('Mensalidade sem associado');
+  tx.clubFeeIncluded = clubFeeIncluded;
+  tx.amount = roundMoney(expectedMensalidadeAmount(member, tx.date.slice(0, 10), today, clubFeeIncluded));
+  Object.assign(tx, updatedAudit(userId));
+  return tx;
+}
+
+/** Inclui ou remove a taxa do clube em todas as mensalidades pendentes do ano (opcionalmente de um mês). */
+export function setMensalidadeClubFeeBulk(
+  db: DatabaseShape,
+  input: { year: number; month?: number; clubFeeIncluded: boolean },
+  userId: string,
+  today = todayISO(),
+): number {
+  let updated = 0;
+  for (const tx of db.transactions) {
+    if (tx.paymentStatus === 'paid') continue;
+    if (!isMensalidadeTx(db, tx)) continue;
+    const year = Number(tx.date.slice(0, 4));
+    const month = Number(tx.date.slice(5, 7));
+    if (year !== input.year) continue;
+    if (input.month && month !== input.month) continue;
+    const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
+    if (!member || !paysMensalidade(member)) continue;
+    const nextAmount = roundMoney(
+      expectedMensalidadeAmount(member, tx.date.slice(0, 10), today, input.clubFeeIncluded),
+    );
+    if (tx.clubFeeIncluded === input.clubFeeIncluded && roundMoney(tx.amount) === nextAmount) continue;
+    tx.clubFeeIncluded = input.clubFeeIncluded;
+    tx.amount = nextAmount;
+    Object.assign(tx, updatedAudit(userId));
+    updated += 1;
+  }
+  return updated;
+}
+
 export function buildMensalidadeReport(db: DatabaseShape, year: number, today = todayISO()): MensalidadeReport {
   const dueDay = dueDayOf(db);
   const rows: MensalidadeRow[] = db.members
@@ -253,19 +316,33 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
       const first = firstOwedMonth(year, member.joinedAt);
       const cells: MensalidadeCell[] = MENSALIDADE_MONTHS.map((month) => {
         if (!first || month < first) {
-          return { month, dueDate: null, status: 'none', amount: onTime };
+          return {
+            month,
+            dueDate: null,
+            status: 'none',
+            amount: onTime,
+            clubFeeIncluded: defaultClubFeeIncluded(member),
+          };
         }
         const dueDate = dueDateForMonth(year, month, dueDay);
         const tx = mensalidadeForMonth(db, member.id, year, month);
         if (!tx && member.status !== 'active') {
-          return { month, dueDate: null, status: 'none', amount: onTime };
+          return {
+            month,
+            dueDate: null,
+            status: 'none',
+            amount: onTime,
+            clubFeeIncluded: defaultClubFeeIncluded(member),
+          };
         }
+        const clubFeeIncluded = effectiveClubFeeIncluded(member, tx?.clubFeeIncluded);
         return {
           month,
           dueDate,
           status: cellStatus(tx?.paymentStatus, dueDate, today),
           transactionId: tx?.id,
-          amount: tx?.amount ?? expectedMonthlyFee(member, dueDate, today),
+          amount: tx?.amount ?? expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded),
+          clubFeeIncluded,
         };
       });
       return {

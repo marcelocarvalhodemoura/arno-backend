@@ -1,6 +1,11 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { buildMensalidadeReport, syncMensalidades } from './mensalidades';
+import {
+  buildMensalidadeReport,
+  setMensalidadeClubFee,
+  setMensalidadeClubFeeBulk,
+  syncMensalidades,
+} from './mensalidades';
 import { collectMensalidadeNotifyIds, notifyMensalidadeTransactions } from './notify';
 import { fail } from '../shared/http/api';
 import { configuredNotifyChannels } from '../notifications/notify';
@@ -18,6 +23,17 @@ const notifyBody = z.object({
     .optional(),
 });
 
+const clubFeeBody = z.object({
+  transactionId: z.string().min(1),
+  clubFeeIncluded: z.boolean(),
+});
+
+const clubFeeBulkBody = z.object({
+  year: z.number().int().min(2000).max(2100),
+  month: z.number().int().min(3).max(12).optional(),
+  clubFeeIncluded: z.boolean(),
+});
+
 @Injectable()
 export class MensalidadesService {
   async report(yearQuery: string | undefined, userId: string) {
@@ -28,6 +44,35 @@ export class MensalidadesService {
     return mutate((db) => {
       syncMensalidades(db, year, userId);
       return buildMensalidadeReport(db, year);
+    });
+  }
+
+  async setClubFee(body: unknown, userId: string) {
+    const parsed = clubFeeBody.safeParse(body);
+    if (!parsed.success) {
+      fail('Informe a mensalidade e se a taxa do clube entra ou não', HttpStatus.BAD_REQUEST);
+    }
+    return mutate((db) => {
+      try {
+        const tx = setMensalidadeClubFee(db, parsed.data.transactionId, parsed.data.clubFeeIncluded, userId);
+        if (!tx) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
+        return tx;
+      } catch (err) {
+        if (err && typeof err === 'object' && 'status' in err) throw err;
+        fail(err instanceof Error ? err.message : 'Não foi possível alterar a taxa do clube', HttpStatus.BAD_REQUEST);
+      }
+    });
+  }
+
+  async setClubFeeBulk(body: unknown, userId: string) {
+    const parsed = clubFeeBulkBody.safeParse(body);
+    if (!parsed.success) {
+      fail('Informe o ano e se a taxa do clube entra ou não', HttpStatus.BAD_REQUEST);
+    }
+    return mutate((db) => {
+      syncMensalidades(db, parsed.data.year, userId);
+      const updated = setMensalidadeClubFeeBulk(db, parsed.data, userId);
+      return { updated, report: buildMensalidadeReport(db, parsed.data.year) };
     });
   }
 

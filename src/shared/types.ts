@@ -260,6 +260,8 @@ export interface Transaction {
   projectId?: string;
   notes?: string;
   externalId?: string;
+  /** Mensalidade: se a parcela do clube (R$ 20) entra neste mês. */
+  clubFeeIncluded?: boolean;
   createdBy?: string;
   createdAt: string;
   updatedAt?: string;
@@ -322,6 +324,8 @@ export interface MensalidadeCell {
   status: MensalidadeCellStatus;
   transactionId?: string;
   amount: number;
+  /** Se a parcela do clube está incluída neste mês. */
+  clubFeeIncluded: boolean;
 }
 
 export interface MensalidadeRow {

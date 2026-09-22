@@ -11,6 +11,8 @@ export const MENSALIDADE_TABLE = {
   extra: 4.5,
   punctual: 10,
   late: 20,
+  /** Parcela do clube embutida na mensalidade (não pioneiros). */
+  clubShare: 20,
 } as const;
 
 export type MensalidadeProfile = {
@@ -85,8 +87,56 @@ export function expectedMonthlyFee(profile: MensalidadeProfile, dueDate: string,
   return dueDate < today ? lateMonthlyFee(profile) : onTimeMonthlyFee(profile);
 }
 
+/** Parcela do clube na mensalidade: R$ 20 (exceto pioneiros). */
+export function clubFeeShare(branch: string): number {
+  return branch === 'pioneiro' ? 0 : MENSALIDADE_TABLE.clubShare;
+}
+
+/**
+ * Valor do mês com ou sem a parcela do clube.
+ * Não sócio: tabela oficial já inclui o clube → remover abate clubFeeShare.
+ * Sócio Lindóia: tabela oficial já exclui → incluir soma clubFeeShare.
+ */
+export function expectedMensalidadeAmount(
+  profile: MensalidadeProfile,
+  dueDate: string,
+  today: string,
+  clubFeeIncluded: boolean,
+): number {
+  const standard = expectedMonthlyFee(profile, dueDate, today);
+  const share = clubFeeShare(profile.branch);
+  if (!share) return standard;
+  if (profile.clubeLtc) {
+    return clubFeeIncluded ? roundMoney(standard + share) : standard;
+  }
+  return clubFeeIncluded ? standard : roundMoney(Math.max(0, standard - share));
+}
+
+/** Padrão do mês: não sócio inclui clube; sócio Lindóia não. */
+export function defaultClubFeeIncluded(profile: { clubeLtc?: boolean }): boolean {
+  return !profile.clubeLtc;
+}
+
+export function effectiveClubFeeIncluded(
+  profile: { clubeLtc?: boolean },
+  clubFeeIncluded: boolean | null | undefined,
+): boolean {
+  return clubFeeIncluded ?? defaultClubFeeIncluded(profile);
+}
+
 export function isOfficialMensalidadeAmount(profile: MensalidadeProfile, amount: number): boolean {
-  return amountsNear(amount, onTimeMonthlyFee(profile)) || amountsNear(amount, lateMonthlyFee(profile));
+  const onTime = onTimeMonthlyFee(profile);
+  const late = lateMonthlyFee(profile);
+  if (amountsNear(amount, onTime) || amountsNear(amount, late)) return true;
+  const share = clubFeeShare(profile.branch);
+  if (!share) return false;
+  if (profile.clubeLtc) {
+    return amountsNear(amount, roundMoney(onTime + share)) || amountsNear(amount, roundMoney(late + share));
+  }
+  return (
+    amountsNear(amount, roundMoney(Math.max(0, onTime - share))) ||
+    amountsNear(amount, roundMoney(Math.max(0, late - share)))
+  );
 }
 
 export function matchesMensalidadeAmount(profile: MensalidadeProfile, amount: number): boolean {

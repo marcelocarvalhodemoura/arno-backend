@@ -214,6 +214,7 @@ model Transaction {
   projectId        String?   @map("project_id") @db.Uuid
   notes            String?
   externalId       String?   @unique @map("external_id")
+  clubFeeIncluded  Boolean?  @map("club_fee_included")
   origin           String    @default("manual")
   createdById      String?   @map("created_by") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)

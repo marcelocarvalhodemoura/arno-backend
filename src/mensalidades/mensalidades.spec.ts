@@ -6,6 +6,8 @@ import {
   dueDateForMonth,
   firstOwedMonth,
   nextMonthStart,
+  setMensalidadeClubFee,
+  setMensalidadeClubFeeBulk,
   syncMensalidades,
 } from './mensalidades';
 import type { DatabaseShape, Member, MovementType, Transaction } from '../shared/types';
@@ -274,5 +276,32 @@ describe('mensalidades', () => {
     db.settings.mensalidadeDueDay = 20;
     syncMensalidades(db, 2026, 'u1', '2026-03-01');
     expect(db.transactions.every((tx) => tx.date.endsWith('-20'))).toBe(true);
+  });
+
+  it('toggles club fee on a pending month and in bulk', () => {
+    const db = emptyDb({
+      members: [
+        member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01' }),
+        member({ id: 'm2', name: 'Bia Lima', joinedAt: '2026-03-01' }),
+      ],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-03-01');
+    const april = db.transactions.find((tx) => tx.memberId === 'm1' && tx.date.startsWith('2026-04'));
+    expect(april?.clubFeeIncluded).toBe(true);
+    expect(april?.amount).toBe(89.5);
+    setMensalidadeClubFee(db, april!.id, false, 'u1', '2026-03-01');
+    expect(april?.clubFeeIncluded).toBe(false);
+    expect(april?.amount).toBe(69.5);
+    const updated = setMensalidadeClubFeeBulk(db, { year: 2026, month: 5, clubFeeIncluded: false }, 'u1', '2026-03-01');
+    expect(updated).toBe(2);
+    expect(
+      db.transactions
+        .filter((tx) => tx.date.startsWith('2026-05'))
+        .every((tx) => tx.clubFeeIncluded === false && tx.amount === 69.5),
+    ).toBe(true);
+    const report = buildMensalidadeReport(db, 2026, '2026-03-01');
+    const anaApril = report.rows.find((row) => row.memberId === 'm1')?.cells.find((cell) => cell.month === 4);
+    expect(anaApril?.clubFeeIncluded).toBe(false);
+    expect(anaApril?.amount).toBe(69.5);
   });
 });
