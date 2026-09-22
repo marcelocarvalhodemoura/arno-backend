@@ -94,7 +94,16 @@ export class MensalidadesService {
       fail('Informe a mensalidade e se o pagamento foi pontual ou com atraso', HttpStatus.BAD_REQUEST);
     }
     try {
-      const settled = await mutate((db) => settleMensalidade(db, parsed.data, userId));
+      const settled = await mutate((db) =>
+        settleMensalidade(
+          db,
+          {
+            ...parsed.data,
+            notifyReceipt: parsed.data.notifyReceipt !== false,
+          },
+          userId,
+        ),
+      );
       if (!settled) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
       if (settled.shouldNotify && settled.tx.memberId) {
         const channels = configuredNotifyChannels();
@@ -103,6 +112,17 @@ export class MensalidadesService {
           const notify = summarizeDeliveries(await notifyTransaction(db, settled.tx, 'receipt', channels, userId));
           return { ...settled.tx, notify };
         }
+        return {
+          ...settled.tx,
+          notify: {
+            queued: 0,
+            sent: 0,
+            failed: 0,
+            skipped: 1,
+            total: 1,
+            note: 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo',
+          },
+        };
       }
       return settled.tx;
     } catch (err) {

@@ -292,29 +292,61 @@ function receiptHtml(input: {
   member?: Member;
   amount: string;
   paidOn: string;
+  dueDate: string;
+  monthLabel: string;
+  year: string;
   description: string;
+  receiptCode: string;
 }) {
   const greeting = escapeHtml(firstName(input.who));
+  const ramo = branchLabel(input.member);
+  const successBanner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px;border-left:4px solid ${MOSS};background:${CREAM};">
+    <tr>
+      <td style="padding:14px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:${INK};">
+        <strong style="color:${MOSS};">Pagamento confirmado com sucesso.</strong>
+        Este e-mail é o recibo oficial da tesouraria referente à mensalidade abaixo.
+      </td>
+    </tr>
+  </table>`;
   return wrapEmail(
     input.group,
     `
       <p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:${MOSS};">
-        Comprovante
+        Recibo de pagamento
       </p>
       <h1 style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:1.2;color:${FOREST};font-weight:400;">
         Obrigado, ${greeting}.
       </h1>
-      <p style="margin:0 0 22px;font-size:16px;line-height:1.6;color:${INK};">
-        A tesouraria confirma o recebimento. Sua contribuição já entra no programa do grupo.
+      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:${INK};">
+        A tesouraria do ${escapeHtml(input.group)} confirma o recebimento. Sua contribuição já entra no programa do grupo.
       </p>
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 28px;">
-        ${input.member ? detailRow('Associado', input.member.name) : ''}
-        ${detailRow('Referência', input.description)}
-        ${detailRow('Data', input.paidOn)}
-        ${detailRow('Valor', input.amount)}
+      ${successBanner}
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 12px;border:1px solid ${LINE};">
+        <tr>
+          <td bgcolor="${FOREST}" style="background:${FOREST};padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">
+            Recibo
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              ${input.member ? detailRow('Associado', input.member.name) : ''}
+              ${ramo ? detailRow('Ramo', ramo) : ''}
+              ${detailRow('Competência', `${input.monthLabel} de ${input.year}`)}
+              ${detailRow('Vencimento', input.dueDate)}
+              ${detailRow('Data do pagamento', input.paidOn)}
+              ${detailRow('Valor pago', input.amount)}
+              ${detailRow('Referência', input.description)}
+              ${detailRow('Nº do recibo', input.receiptCode)}
+            </table>
+          </td>
+        </tr>
       </table>
+      <p style="margin:18px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:${MUTED};">
+        Guarde este e-mail como comprovante. Em caso de divergência, responda esta mensagem ou fale com a tesouraria no WhatsApp ${FINANCE_WHATSAPP_DISPLAY}.
+      </p>
     `,
-    `Tesouraria · 43/RS. Este é um comprovante interno do ${escapeHtml(input.group)}. Dúvidas: responda este e-mail.`,
+    `Tesouraria · 43/RS. Este é um recibo interno do ${escapeHtml(input.group)}. Dúvidas: responda este e-mail.`,
   );
 }
 
@@ -326,15 +358,22 @@ export function composeNotifyMessage(db: DatabaseShape, tx: Transaction, kind: N
   const monthLabel = MONTH_NAMES[month] ?? tx.date;
   const amount = brl(tx.amount);
   const dueDate = formatDate(tx.date);
+  const paidOn = formatDate((tx.paidAt ?? tx.date).slice(0, 10));
+  const receiptCode = tx.id.replace(/-/g, '').slice(0, 12).toUpperCase();
 
   if (kind === 'receipt') {
-    const subject = `Comprovante de pagamento · ${group}`;
+    const subject = `Pagamento confirmado · Mensalidade ${monthLabel} ${year} · ${group}`;
     const text =
       `Olá, ${firstName(who)}.\n\n` +
-      `A tesouraria do ${group} confirma o recebimento de ${amount} referente a “${tx.description}”, em ${dueDate}.\n` +
+      `Pagamento confirmado com sucesso.\n\n` +
+      `A tesouraria do ${group} confirma o recebimento de ${amount} referente à mensalidade de ${monthLabel} de ${year}.\n` +
       (member ? `Associado: ${member.name}.\n` : '') +
-      `\nObrigado por manter o programa do grupo em dia.\n` +
-      `Este recado é um comprovante interno da tesouraria.`;
+      `Vencimento: ${dueDate}.\n` +
+      `Data do pagamento: ${paidOn}.\n` +
+      `Referência: ${tx.description}.\n` +
+      `Nº do recibo: ${receiptCode}.\n\n` +
+      `Obrigado por manter o programa do grupo em dia.\n` +
+      `Guarde este e-mail como comprovante. Em caso de divergência, fale com a tesouraria no WhatsApp ${FINANCE_WHATSAPP_DISPLAY}.`;
     return {
       subject,
       text,
@@ -343,8 +382,12 @@ export function composeNotifyMessage(db: DatabaseShape, tx: Transaction, kind: N
         who,
         member,
         amount,
-        paidOn: dueDate,
+        paidOn,
+        dueDate,
+        monthLabel,
+        year,
         description: tx.description,
+        receiptCode,
       }),
     };
   }

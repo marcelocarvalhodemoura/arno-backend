@@ -94,3 +94,37 @@ describe('charge email template', () => {
     expect(message.html).toContain('Clube da Flor de Lis');
   });
 });
+
+describe('receipt email template', () => {
+  it('confirms payment and builds a branded receipt with paidAt', () => {
+    const ana = member({ id: 'm1', name: 'Ana Souza' });
+    const message = composeNotifyMessage(
+      db([ana]),
+      tx({
+        id: '01a0caa4-1d63-7685-a93c-246dfaeea77d',
+        date: '2026-09-10',
+        paidAt: '2026-09-08',
+        amount: 89.5,
+        paymentStatus: 'paid',
+        description: 'Mensalidade setembro 2026 — Ana Souza',
+      }),
+      'receipt',
+      'Helena Souza',
+    );
+    expect(message.subject).toContain('Pagamento confirmado');
+    expect(message.subject).toContain('setembro 2026');
+    expect(message.text).toContain('Pagamento confirmado com sucesso');
+    expect(message.text).toContain('08/09/2026');
+    expect(message.text).toContain('10/09/2026');
+    expect(message.text).toContain('Nº do recibo');
+    expect(message.html).toContain('Pagamento confirmado com sucesso');
+    expect(message.html).toContain('Recibo de pagamento');
+    expect(message.html).toContain('Data do pagamento');
+    expect(message.html).toContain('08/09/2026');
+    expect(message.html).toContain('Competência');
+    expect(message.html).toContain('setembro de 2026');
+    expect(message.html).toContain('Ana Souza');
+    expect(message.html).toContain('Ramo Escoteiro');
+    expect(message.html).toMatch(/R\$(\u00a0|&nbsp;|\s*)89,50/);
+  });
+});

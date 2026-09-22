@@ -363,7 +363,7 @@ export function settleMensalidade(
   const dueDate = tx.date.slice(0, 10);
   const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
   const amount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing);
-  const shouldNotify = Boolean(input.notifyReceipt);
+  const shouldNotify = input.notifyReceipt !== false;
   const movement = db.movementTypes.find((item) => item.id === tx.movementTypeId);
   tx.amount = amount;
   tx.clubFeeIncluded = clubFeeIncluded;
