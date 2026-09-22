@@ -14,11 +14,33 @@ export class MensalidadesController {
   @Get('mensalidades')
   @ApiOperation({
     summary: 'Grade de mensalidades',
-    description: 'Sincroniza o ano (mar–dez) e devolve a grade com status paid | pending | overdue | none.',
+    description: 'Sincroniza o ano (mar–nov) e devolve a grade com status paid | pending | overdue | none.',
   })
   @ApiQuery({ name: 'year', required: false, example: '2026' })
   report(@Query('year') year: string | undefined, @CurrentUser() auth: AuthPayload) {
     return this.mensalidades.report(year, auth.userId);
+  }
+
+  @Patch('mensalidades/settle')
+  @ApiOperation({
+    summary: 'Registrar pagamento de mensalidade',
+    description:
+      'timing=on_time grava o valor pontual; timing=late grava o valor com atraso. paidAt é a data do pagamento (retroativo).',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['transactionId', 'timing'],
+      properties: {
+        transactionId: { type: 'string' },
+        timing: { type: 'string', enum: ['on_time', 'late'] },
+        paidAt: { type: 'string', example: '2026-09-08', nullable: true },
+        notifyReceipt: { type: 'boolean', example: true },
+      },
+    },
+  })
+  settle(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.mensalidades.settle(body, auth.userId);
   }
 
   @Patch('mensalidades/club-fee')
@@ -46,7 +68,7 @@ export class MensalidadesController {
   @ApiOperation({
     summary: 'Incluir ou remover a taxa do clube em massa',
     description:
-      'Aplica a todos os mensalistas com lançamento pendente no ano. Informe month (3–12) para limitar a um mês.',
+      'Aplica a todos os mensalistas com lançamento pendente no ano. Informe month (3–11) para limitar a um mês.',
   })
   @ApiBody({
     schema: {

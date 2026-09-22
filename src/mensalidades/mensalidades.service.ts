@@ -4,11 +4,12 @@ import {
   buildMensalidadeReport,
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
+  settleMensalidade,
   syncMensalidades,
 } from './mensalidades';
 import { collectMensalidadeNotifyIds, notifyMensalidadeTransactions } from './notify';
 import { fail } from '../shared/http/api';
-import { configuredNotifyChannels } from '../notifications/notify';
+import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from '../notifications/notify';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
 
 const notifyBody = z.object({
@@ -30,8 +31,19 @@ const clubFeeBody = z.object({
 
 const clubFeeBulkBody = z.object({
   year: z.number().int().min(2000).max(2100),
-  month: z.number().int().min(3).max(12).optional(),
+  month: z.number().int().min(3).max(11).optional(),
   clubFeeIncluded: z.boolean(),
+});
+
+const settleBody = z.object({
+  transactionId: z.string().min(1),
+  timing: z.enum(['on_time', 'late']),
+  paidAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  notifyReceipt: z.boolean().optional(),
 });
 
 @Injectable()
@@ -74,6 +86,29 @@ export class MensalidadesService {
       const updated = setMensalidadeClubFeeBulk(db, parsed.data, userId);
       return { updated, report: buildMensalidadeReport(db, parsed.data.year) };
     });
+  }
+
+  async settle(body: unknown, userId: string) {
+    const parsed = settleBody.safeParse(body);
+    if (!parsed.success) {
+      fail('Informe a mensalidade e se o pagamento foi pontual ou com atraso', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      const settled = await mutate((db) => settleMensalidade(db, parsed.data, userId));
+      if (!settled) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
+      if (settled.shouldNotify && settled.tx.memberId) {
+        const channels = configuredNotifyChannels();
+        if (channels.length) {
+          const db = await loadDb();
+          const notify = summarizeDeliveries(await notifyTransaction(db, settled.tx, 'receipt', channels, userId));
+          return { ...settled.tx, notify };
+        }
+      }
+      return settled.tx;
+    } catch (err) {
+      if (err && typeof err === 'object' && 'status' in err) throw err;
+      fail(err instanceof Error ? err.message : 'Não foi possível registrar o pagamento', HttpStatus.BAD_REQUEST);
+    }
   }
 
   async notify(body: unknown, userId: string) {

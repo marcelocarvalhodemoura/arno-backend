@@ -22,9 +22,28 @@ import type {
   Transaction,
 } from '../shared/types';
 import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
+import { stampPaidAt } from '../ledger/transactions';
 
-/** Ano escoteiro: mensalidade do grupo de março a novembro (sem dezembro). */
 export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
+
+export type MensalidadeSettleTiming = 'on_time' | 'late';
+
+/** Dia seguinte (ISO YYYY-MM-DD) para forçar cálculo do valor com atraso. */
+export function dayAfterISO(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  return next.toISOString().slice(0, 10);
+}
+
+export function mensalidadeAmountForTiming(
+  profile: Parameters<typeof expectedMensalidadeAmount>[0],
+  dueDate: string,
+  clubFeeIncluded: boolean,
+  timing: MensalidadeSettleTiming,
+): number {
+  const today = timing === 'on_time' ? dueDate : dayAfterISO(dueDate);
+  return roundMoney(expectedMensalidadeAmount(profile, dueDate, today, clubFeeIncluded));
+}
 
 const MONTH_NAMES = [
   '',
@@ -321,6 +340,38 @@ export function setMensalidadeClubFeeBulk(
   return updated;
 }
 
+/**
+ * Marca mensalidade como paga com valor pontual ou com atraso (lançamento retroativo).
+ * paidAt opcional: data em que o pagamento ocorreu.
+ */
+export function settleMensalidade(
+  db: DatabaseShape,
+  input: {
+    transactionId: string;
+    timing: MensalidadeSettleTiming;
+    paidAt?: string | null;
+    notifyReceipt?: boolean;
+  },
+  userId: string,
+  today = todayISO(),
+): { tx: Transaction; shouldNotify: boolean } | null {
+  const tx = db.transactions.find((item) => item.id === input.transactionId);
+  if (!tx || !isMensalidadeTx(db, tx)) return null;
+  if (tx.paymentStatus === 'paid') throw new Error('Mensalidade já está paga');
+  const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
+  if (!member) throw new Error('Mensalidade sem associado');
+  const dueDate = tx.date.slice(0, 10);
+  const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
+  const amount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing);
+  const shouldNotify = Boolean(input.notifyReceipt);
+  const movement = db.movementTypes.find((item) => item.id === tx.movementTypeId);
+  tx.amount = amount;
+  tx.clubFeeIncluded = clubFeeIncluded;
+  stampPaidAt(tx, movement?.name ?? 'Mensalidade', 'paid', input.paidAt ?? today, today);
+  Object.assign(tx, updatedAudit(userId));
+  return { tx, shouldNotify };
+}
+
 export function buildMensalidadeReport(db: DatabaseShape, year: number, today = todayISO()): MensalidadeReport {
   const dueDay = dueDayOf(db);
   const rows: MensalidadeRow[] = db.members
@@ -336,6 +387,8 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
             dueDate: null,
             status: 'none',
             amount: onTime,
+            onTimeAmount: onTime,
+            lateAmount: late,
             clubFeeIncluded: defaultClubFeeIncluded(member),
           };
         }
@@ -347,16 +400,22 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
             dueDate: null,
             status: 'none',
             amount: onTime,
+            onTimeAmount: onTime,
+            lateAmount: late,
             clubFeeIncluded: defaultClubFeeIncluded(member),
           };
         }
         const clubFeeIncluded = effectiveClubFeeIncluded(member, tx?.clubFeeIncluded);
+        const onTimeAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time');
+        const lateAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late');
         return {
           month,
           dueDate,
           status: cellStatus(tx?.paymentStatus, dueDate, today),
           transactionId: tx?.id,
           amount: tx?.amount ?? expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded),
+          onTimeAmount,
+          lateAmount,
           clubFeeIncluded,
         };
       });

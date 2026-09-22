@@ -326,6 +326,10 @@ export interface MensalidadeCell {
   status: MensalidadeCellStatus;
   transactionId?: string;
   amount: number;
+  /** Valor se pago até o dia de vencimento. */
+  onTimeAmount: number;
+  /** Valor se pago após o dia de vencimento. */
+  lateAmount: number;
   /** Se a parcela do clube está incluída neste mês. */
   clubFeeIncluded: boolean;
 }

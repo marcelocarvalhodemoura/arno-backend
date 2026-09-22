@@ -5,9 +5,11 @@ import {
   cellStatus,
   dueDateForMonth,
   firstOwedMonth,
+  mensalidadeAmountForTiming,
   nextMonthStart,
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
+  settleMensalidade,
   syncMensalidades,
 } from './mensalidades';
 import type { DatabaseShape, Member, MovementType, Transaction } from '../shared/types';
@@ -333,5 +335,41 @@ describe('mensalidades', () => {
     expect(report.rows[0].feeOverride).toBe(82);
     expect(report.rows[0].monthlyFee).toBe(82);
     expect(report.rows[0].lateFee).toBe(82);
+  });
+
+  it('settles overdue months as on-time or late with a paidAt date', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01' })],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-09-20');
+    const september = db.transactions.find((tx) => tx.date === '2026-09-10')!;
+    expect(september.amount).toBe(99.5);
+    expect(mensalidadeAmountForTiming(db.members[0], '2026-09-10', true, 'on_time')).toBe(89.5);
+    expect(mensalidadeAmountForTiming(db.members[0], '2026-09-10', true, 'late')).toBe(99.5);
+
+    const onTime = settleMensalidade(
+      db,
+      { transactionId: september.id, timing: 'on_time', paidAt: '2026-09-08', notifyReceipt: true },
+      'u1',
+      '2026-09-20',
+    );
+    expect(onTime?.shouldNotify).toBe(true);
+    expect(onTime?.tx.paymentStatus).toBe('paid');
+    expect(onTime?.tx.amount).toBe(89.5);
+    expect(onTime?.tx.paidAt).toBe('2026-09-08');
+
+    const october = db.transactions.find((tx) => tx.date === '2026-10-10')!;
+    const late = settleMensalidade(
+      db,
+      { transactionId: october.id, timing: 'late', paidAt: '2026-10-15' },
+      'u1',
+      '2026-10-20',
+    );
+    expect(late?.tx.amount).toBe(99.5);
+    expect(late?.tx.paidAt).toBe('2026-10-15');
+
+    const mayCell = buildMensalidadeReport(db, 2026, '2026-09-20').rows[0].cells.find((cell) => cell.month === 5);
+    expect(mayCell?.onTimeAmount).toBe(89.5);
+    expect(mayCell?.lateAmount).toBe(99.5);
   });
 });
