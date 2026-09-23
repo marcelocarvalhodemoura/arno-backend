@@ -35,6 +35,7 @@ const db: DatabaseShape = {
   ],
   members: [],
   memberGuardians: [],
+  memberSiblings: [],
   memberAccounts: [],
   fees: [],
   projects: [

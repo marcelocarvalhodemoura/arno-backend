@@ -1,10 +1,11 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
-  addMemberAccount,
+  siblingIdsOf,
+  refreshOfficialFees,
   createMember,
   importMembers,
-  refreshOfficialFees,
+  addMemberAccount,
   removeMemberAccount,
   updateMember,
   updateMemberAccount,
@@ -31,6 +32,7 @@ export class MembersService {
     if (status) list = list.filter((member) => member.status === status);
     return list.map((member) => ({
       ...withAuthors(member, users),
+      siblingIds: siblingIdsOf(db, member.id),
       accounts: db.memberAccounts
         .filter((account) => account.memberId === member.id)
         .map((account) => withAuthors(account, users)),

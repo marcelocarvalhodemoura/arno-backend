@@ -21,7 +21,12 @@ export const MENSALIDADE_TABLE = {
   late: 20,
   /** Parcela do clube embutida na mensalidade (não pioneiros, a partir de maio). */
   clubShare: 20,
+  /** Filho de chefe ou irmão(s) no grupo (maio–novembro). */
+  specialFamily: 82,
 } as const;
+
+/** Valor especial aplicado por filho de chefe ou irmão no grupo. */
+export const SPECIAL_FAMILY_FEE = MENSALIDADE_TABLE.specialFamily;
 
 /** Meses com a tabela antiga (valor total fixo). */
 export function isEarlyMensalidadeMonth(month: number): boolean {
@@ -77,7 +82,7 @@ export const OFFICIAL_MENSALIDADE_FEES: { name: string; amount: number }[] = [
     name: 'Mensalidade base — pioneiro',
     amount: MENSALIDADE_TABLE.basePioneer,
   },
-  { name: 'Valor especial — filho de chefe / irmão', amount: 82 },
+  { name: 'Valor especial — filho de chefe / irmão', amount: SPECIAL_FAMILY_FEE },
   { name: 'Taxa extra — não sócios (maio–nov)', amount: MENSALIDADE_TABLE.extra },
   { name: 'Taxa até o dia 10', amount: MENSALIDADE_TABLE.punctual },
   { name: 'Taxa após o dia 10', amount: MENSALIDADE_TABLE.late },

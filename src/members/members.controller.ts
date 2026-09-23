@@ -48,11 +48,21 @@ export class MembersController {
         },
         joinedAt: { type: 'string', example: '2026-03-01' },
         clubeLtc: { type: 'boolean', example: false },
+        chiefChild: {
+          type: 'boolean',
+          example: false,
+          description: 'Filho de chefe (XOR com siblingIds). Aplica valor especial R$ 82.',
+        },
+        siblingIds: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'IDs de irmãos associados (XOR com chiefChild). Vínculo bidirecional; aplica R$ 82.',
+        },
         feeOverride: {
           type: 'number',
           nullable: true,
           example: 82,
-          description: 'Valor fixo opcional (filho de chefe / irmão no grupo). Null usa a tabela oficial.',
+          description: 'Valor fixo legado. Preferir chiefChild ou siblingIds. Null usa a tabela oficial.',
         },
         guardians: {
           type: 'array',

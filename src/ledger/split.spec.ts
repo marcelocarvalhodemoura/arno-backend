@@ -37,6 +37,7 @@ function dbWithTx(amount = 150): DatabaseShape {
     ],
     members: [],
     memberGuardians: [],
+    memberSiblings: [],
     memberAccounts: [],
     fees: [],
     projects: [],

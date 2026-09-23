@@ -109,22 +109,22 @@ export const YOUTH_BRANCHES: BranchMeta[] = [
     id: 'senior',
     name: 'Ramo Sênior',
     unit: 'Tropa Sênior',
-    color: '#c8102e',
-    tone: 'clay',
+    color: '#8b1a2b',
+    tone: 'wine',
   },
   {
     id: 'pioneiro',
     name: 'Ramo Pioneiro',
     unit: 'Clã Pioneiro',
-    color: '#8b1a2b',
-    tone: 'wine',
+    color: '#c8102e',
+    tone: 'clay',
   },
   {
     id: 'flor-de-lis',
     name: 'Clube da Flor de Lis',
     unit: 'Flor de Lis',
-    color: '#c45d7a',
-    tone: 'rose',
+    color: '#0c2d6b',
+    tone: 'navy',
   },
 ];
 
@@ -199,6 +199,8 @@ export interface Member {
   monthlyFee: number;
   /** Valor fixo opcional (ex.: R$ 82 filho de chefe / irmão). Null = tabela oficial. */
   feeOverride?: number | null;
+  /** Filho de chefe — XOR com irmãos; aplica feeOverride especial. */
+  chiefChild?: boolean;
   status: MemberStatus;
   joinedAt: string;
   clubeLtc: boolean;
@@ -207,6 +209,14 @@ export interface Member {
   createdBy?: string;
   updatedAt?: string;
   updatedBy?: string;
+}
+
+export interface MemberSibling {
+  id: string;
+  memberId: string;
+  siblingId: string;
+  createdAt: string;
+  createdBy?: string;
 }
 
 export interface MemberGuardian {
@@ -346,6 +356,7 @@ export interface MensalidadeRow {
   lateFee: number;
   clubeLtc: boolean;
   feeOverride?: number | null;
+  chiefChild?: boolean;
   cells: MensalidadeCell[];
 }
 
@@ -366,6 +377,7 @@ export interface MensalidadeReport {
 export interface DatabaseShape {
   members: Member[];
   memberGuardians: MemberGuardian[];
+  memberSiblings: MemberSibling[];
   memberAccounts: MemberAccount[];
   movementTypes: MovementType[];
   fees: Fee[];

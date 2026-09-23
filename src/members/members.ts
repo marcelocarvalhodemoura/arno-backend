@@ -1,7 +1,14 @@
 import { fold } from '../shared/csv';
 import { createdAudit, updatedAudit } from '../shared/audit';
 import { id } from '../shared/id';
-import type { DatabaseShape, Member, MemberAccount, MemberGuardian, RecordOrigin } from '../shared/types';
+import type {
+  DatabaseShape,
+  Member,
+  MemberAccount,
+  MemberGuardian,
+  MemberSibling,
+  RecordOrigin,
+} from '../shared/types';
 import {
   optionalContactEmail,
   type AccountInput,
@@ -10,7 +17,7 @@ import {
   type MemberImportRow,
   type PatchMemberInput,
 } from '../shared/http/schemas';
-import { paysMensalidade, resolveFeeOverride } from '../mensalidades/fee-table';
+import { paysMensalidade, resolveFeeOverride, SPECIAL_FAMILY_FEE } from '../mensalidades/fee-table';
 import {
   assignOfficialFee,
   cancelSubsequentMensalidades,
@@ -20,6 +27,138 @@ import {
 
 function normalizeFeeOverride(value: number | null | undefined): number | null {
   return resolveFeeOverride({ feeOverride: value == null ? null : value });
+}
+
+export function siblingIdsOf(db: DatabaseShape, memberId: string): string[] {
+  return (db.memberSiblings ?? []).filter((link) => link.memberId === memberId).map((link) => link.siblingId);
+}
+
+export function assertFamilyDiscountXor(chiefChild: boolean, siblingIds: string[]) {
+  if (chiefChild && siblingIds.length > 0) {
+    throw new Error('Escolha só uma opção: filho de chefe ou irmão(s) no grupo');
+  }
+}
+
+function refreshFamilyFee(db: DatabaseShape, memberId: string) {
+  const member = db.members.find((item) => item.id === memberId);
+  if (!member) return;
+  if (member.chiefChild) {
+    member.feeOverride = SPECIAL_FAMILY_FEE;
+    assignOfficialFee(member);
+    return;
+  }
+  if (siblingIdsOf(db, memberId).length > 0) {
+    member.feeOverride = SPECIAL_FAMILY_FEE;
+    assignOfficialFee(member);
+    return;
+  }
+  if (member.feeOverride === SPECIAL_FAMILY_FEE) {
+    member.feeOverride = null;
+  }
+  assignOfficialFee(member);
+}
+
+/** Substitui os irmãos do associado e mantém o vínculo bidirecional. */
+export function replaceSiblings(db: DatabaseShape, memberId: string, siblingIds: string[], userId: string) {
+  const unique = [...new Set(siblingIds.map((item) => item.trim()).filter(Boolean))].filter(
+    (item) => item !== memberId,
+  );
+  for (const siblingId of unique) {
+    const sibling = db.members.find((item) => item.id === siblingId);
+    if (!sibling) throw new Error('Irmão vinculado não encontrado');
+    if (sibling.chiefChild) {
+      throw new Error(`Não é possível vincular ${sibling.name}: já marcado como filho de chefe`);
+    }
+  }
+
+  const previous = siblingIdsOf(db, memberId);
+  const nextSet = new Set(unique);
+
+  db.memberSiblings = (db.memberSiblings ?? []).filter((link) => {
+    if (link.memberId === memberId) return nextSet.has(link.siblingId);
+    if (link.siblingId === memberId) return nextSet.has(link.memberId);
+    return true;
+  });
+
+  const now = new Date().toISOString();
+  for (const siblingId of unique) {
+    const hasForward = (db.memberSiblings ?? []).some(
+      (link) => link.memberId === memberId && link.siblingId === siblingId,
+    );
+    if (!hasForward) {
+      const forward: MemberSibling = {
+        id: id(),
+        memberId,
+        siblingId,
+        createdAt: now,
+        createdBy: userId,
+      };
+      db.memberSiblings.push(forward);
+    }
+    const hasBack = (db.memberSiblings ?? []).some(
+      (link) => link.memberId === siblingId && link.siblingId === memberId,
+    );
+    if (!hasBack) {
+      const back: MemberSibling = {
+        id: id(),
+        memberId: siblingId,
+        siblingId: memberId,
+        createdAt: now,
+        createdBy: userId,
+      };
+      db.memberSiblings.push(back);
+    }
+  }
+
+  const affected = new Set<string>([memberId, ...previous, ...unique]);
+  for (const affectedId of affected) {
+    refreshFamilyFee(db, affectedId);
+  }
+}
+
+/**
+ * Aplica filho de chefe XOR irmãos e sincroniza feeOverride = R$ 82.
+ * Se nenhum dos campos de família vier no payload, preserva feeOverride manual.
+ */
+export function applyFamilyDiscount(
+  db: DatabaseShape,
+  member: Member,
+  input: { chiefChild?: boolean; siblingIds?: string[]; feeOverride?: number | null },
+  userId: string,
+) {
+  const touchesFamily = input.chiefChild !== undefined || input.siblingIds !== undefined;
+  if (!touchesFamily) {
+    if (input.feeOverride !== undefined) {
+      member.feeOverride = input.feeOverride === null ? null : normalizeFeeOverride(input.feeOverride);
+    }
+    return;
+  }
+
+  if (input.chiefChild === true && input.siblingIds !== undefined && input.siblingIds.length > 0) {
+    throw new Error('Escolha só uma opção: filho de chefe ou irmão(s) no grupo');
+  }
+
+  let chiefChild = input.chiefChild ?? Boolean(member.chiefChild);
+  let siblingIds = input.siblingIds !== undefined ? input.siblingIds : siblingIdsOf(db, member.id);
+
+  if (input.chiefChild === true) {
+    chiefChild = true;
+    siblingIds = [];
+  } else if (input.siblingIds !== undefined && input.siblingIds.length > 0) {
+    chiefChild = false;
+  }
+
+  assertFamilyDiscountXor(chiefChild, siblingIds);
+  member.chiefChild = chiefChild;
+  replaceSiblings(db, member.id, chiefChild ? [] : siblingIds, userId);
+
+  if (chiefChild) {
+    member.feeOverride = SPECIAL_FAMILY_FEE;
+  } else if (siblingIdsOf(db, member.id).length > 0) {
+    member.feeOverride = SPECIAL_FAMILY_FEE;
+  } else {
+    member.feeOverride = null;
+  }
 }
 
 export function cleanedGuardians(list: GuardianInput[]) {
@@ -110,20 +249,40 @@ export function createMember(db: DatabaseShape, input: CreateMemberInput, userId
   if (db.members.some((item) => item.email.toLowerCase() === input.email.toLowerCase())) {
     throw new Error('E-mail já cadastrado');
   }
-  const { guardians, feeOverride: feeOverrideInput, ...data } = input;
+  const {
+    guardians,
+    feeOverride: feeOverrideInput,
+    chiefChild: chiefChildInput,
+    siblingIds: siblingIdsInput,
+    ...data
+  } = input;
   const list = cleanedGuardians(guardians ?? []);
   assertYouthGuardians(data.role, list.length);
   const created: Member = {
     id: id(),
     status: 'active',
     ...data,
-    feeOverride: normalizeFeeOverride(feeOverrideInput),
+    chiefChild: false,
+    feeOverride: null,
     monthlyFee: 0,
     ...createdAudit(userId),
   };
-  assignOfficialFee(created);
   db.members.push(created);
   replaceGuardians(db, created.id, list, userId);
+  if (chiefChildInput !== undefined || siblingIdsInput !== undefined) {
+    applyFamilyDiscount(
+      db,
+      created,
+      {
+        chiefChild: chiefChildInput ?? false,
+        siblingIds: siblingIdsInput ?? [],
+      },
+      userId,
+    );
+  } else {
+    created.feeOverride = normalizeFeeOverride(feeOverrideInput);
+  }
+  assignOfficialFee(created);
   return created;
 }
 
@@ -141,7 +300,13 @@ export function updateMember(
   ) {
     throw new Error('E-mail já cadastrado');
   }
-  const { guardians, feeOverride: feeOverrideInput, ...data } = input;
+  const {
+    guardians,
+    feeOverride: feeOverrideInput,
+    chiefChild: chiefChildInput,
+    siblingIds: siblingIdsInput,
+    ...data
+  } = input;
   const nextRole = data.role ?? member.role;
   if (nextRole !== 'jovem') {
     replaceGuardians(db, member.id, [], userId);
@@ -155,8 +320,20 @@ export function updateMember(
   }
   const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
   Object.assign(member, data);
-  if (feeOverrideInput !== undefined) {
-    member.feeOverride = feeOverrideInput === null ? null : normalizeFeeOverride(feeOverrideInput);
+  applyFamilyDiscount(
+    db,
+    member,
+    {
+      chiefChild: chiefChildInput,
+      siblingIds: siblingIdsInput,
+      feeOverride: feeOverrideInput,
+    },
+    userId,
+  );
+  if (nextRole !== 'jovem' && (member.chiefChild || siblingIdsOf(db, member.id).length)) {
+    member.chiefChild = false;
+    replaceSiblings(db, member.id, [], userId);
+    member.feeOverride = null;
   }
   assignOfficialFee(member, userId);
   if (!paysMensalidade(member)) {
@@ -241,6 +418,7 @@ export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId
       id: id(),
       status: 'active',
       ...data,
+      chiefChild: false,
       monthlyFee: 0,
       ...createdAudit(userId, 'integration'),
     };

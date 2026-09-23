@@ -77,6 +77,8 @@ model Member {
   monthlyFee  Decimal   @default(0) @map("monthly_fee") @db.Decimal(12, 2)
   /** Valor fixo opcional (ex.: filho de chefe / irmão no grupo). Null = tabela oficial. */
   feeOverride Decimal?  @map("fee_override") @db.Decimal(12, 2)
+  /** Filho de chefe — XOR com vínculos de irmão; aplica feeOverride = 82. */
+  chiefChild  Boolean   @default(false) @map("chief_child")
   status      String    @default("active")
   joinedAt    DateTime  @map("joined_at") @db.Date
   clubeLtc    Boolean   @default(false) @map("clube_ltc")
@@ -90,11 +92,28 @@ model Member {
   updatedBy    User?            @relation("MemberUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   accounts     MemberAccount[]
   guardians    MemberGuardian[]
+  siblingsFrom MemberSibling[]  @relation("SiblingFrom")
+  siblingsTo   MemberSibling[]  @relation("SiblingTo")
   transactions Transaction[]
   outbox       MessageOutbox[]
 
   @@index([joinedAt])
   @@map("members")
+}
+
+model MemberSibling {
+  id          String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  memberId    String   @map("member_id") @db.Uuid
+  siblingId   String   @map("sibling_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById String?  @map("created_by") @db.Uuid
+
+  member  Member @relation("SiblingFrom", fields: [memberId], references: [id], onDelete: Cascade)
+  sibling Member @relation("SiblingTo", fields: [siblingId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, siblingId])
+  @@index([siblingId])
+  @@map("member_siblings")
 }
 
 model MemberGuardian {

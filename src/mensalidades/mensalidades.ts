@@ -431,6 +431,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         lateFee: late,
         clubeLtc: member.clubeLtc,
         feeOverride: resolveFeeOverride(member),
+        chiefChild: Boolean(member.chiefChild),
         cells,
       };
     })

@@ -33,6 +33,7 @@ function emptyDb(partial: Partial<DatabaseShape> = {}): DatabaseShape {
   return {
     members: [],
     memberGuardians: [],
+    memberSiblings: [],
     memberAccounts: [],
     movementTypes: [],
     fees: [],

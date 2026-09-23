@@ -133,7 +133,7 @@ function wrapEmail(group: string, inner: string, footerNote: string) {
             </td>
           </tr>
           <tr>
-            <td bgcolor="${PAPER}" style="background:${PAPER};padding:32px 36px 12px;font-family:Arial,Helvetica,sans-serif;color:${INK};">
+            <td bgcolor="${PAPER}" style="background:${PAPER};padding:32px 28px 28px;font-family:Arial,Helvetica,sans-serif;color:${INK};">
               ${inner}
             </td>
           </tr>
@@ -162,10 +162,11 @@ function wrapEmail(group: string, inner: string, footerNote: string) {
 </html>`;
 }
 
-function detailRow(label: string, value: string) {
+function detailRow(label: string, value: string, options?: { last?: boolean }) {
+  const border = options?.last ? 'none' : `1px solid ${LINE}`;
   return `<tr>
-    <td style="padding:10px 0;border-bottom:1px solid ${LINE};font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${MUTED};width:42%;">${escapeHtml(label)}</td>
-    <td style="padding:10px 0;border-bottom:1px solid ${LINE};font-family:Arial,Helvetica,sans-serif;font-size:14px;color:${INK};font-weight:700;">${escapeHtml(value)}</td>
+    <td style="padding:12px 20px;border-bottom:${border};font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${MUTED};width:40%;vertical-align:top;">${escapeHtml(label)}</td>
+    <td style="padding:12px 20px;border-bottom:${border};font-family:Arial,Helvetica,sans-serif;font-size:14px;color:${INK};font-weight:700;text-align:right;vertical-align:top;">${escapeHtml(value)}</td>
   </tr>`;
 }
 
@@ -302,7 +303,7 @@ function receiptHtml(input: {
   const ramo = branchLabel(input.member);
   const successBanner = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px;border-left:4px solid ${MOSS};background:${CREAM};">
     <tr>
-      <td style="padding:14px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:${INK};">
+      <td style="padding:16px 20px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:${INK};">
         <strong style="color:${MOSS};">Pagamento confirmado com sucesso.</strong>
         Este e-mail é o recibo oficial da tesouraria referente à mensalidade abaixo.
       </td>
@@ -321,15 +322,15 @@ function receiptHtml(input: {
         A tesouraria do ${escapeHtml(input.group)} confirma o recebimento. Sua contribuição já entra no programa do grupo.
       </p>
       ${successBanner}
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 12px;border:1px solid ${LINE};">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;border:1px solid ${LINE};border-collapse:collapse;">
         <tr>
-          <td bgcolor="${FOREST}" style="background:${FOREST};padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">
+          <td bgcolor="${FOREST}" style="background:${FOREST};padding:14px 20px;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">
             Recibo
           </td>
         </tr>
         <tr>
-          <td style="padding:8px 0;">
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <td style="padding:0;background:${PAPER};">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
               ${input.member ? detailRow('Associado', input.member.name) : ''}
               ${ramo ? detailRow('Ramo', ramo) : ''}
               ${detailRow('Competência', `${input.monthLabel} de ${input.year}`)}
@@ -337,12 +338,12 @@ function receiptHtml(input: {
               ${detailRow('Data do pagamento', input.paidOn)}
               ${detailRow('Valor pago', input.amount)}
               ${detailRow('Referência', input.description)}
-              ${detailRow('Nº do recibo', input.receiptCode)}
+              ${detailRow('Nº do recibo', input.receiptCode, { last: true })}
             </table>
           </td>
         </tr>
       </table>
-      <p style="margin:18px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:${MUTED};">
+      <p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.55;color:${MUTED};">
         Guarde este e-mail como comprovante. Em caso de divergência, responda esta mensagem ou fale com a tesouraria no WhatsApp ${FINANCE_WHATSAPP_DISPLAY}.
       </p>
     `,

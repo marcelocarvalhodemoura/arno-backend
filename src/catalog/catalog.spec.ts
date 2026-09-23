@@ -5,6 +5,7 @@ function emptyDb(): DatabaseShape {
   return {
     members: [],
     memberGuardians: [],
+    memberSiblings: [],
     memberAccounts: [],
     movementTypes: [],
     fees: [],

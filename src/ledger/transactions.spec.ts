@@ -17,6 +17,7 @@ function emptyDb(): DatabaseShape {
   return {
     members: [],
     memberGuardians: [],
+    memberSiblings: [],
     memberAccounts: [],
     movementTypes: [
       movement({ id: 'mt-doa', name: 'Doação', direction: 'income' }),

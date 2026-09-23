@@ -38,6 +38,7 @@ function db(members: Member[]): DatabaseShape {
   return {
     members,
     memberGuardians: [],
+    memberSiblings: [],
     memberAccounts: [],
     movementTypes: [],
     fees: [],

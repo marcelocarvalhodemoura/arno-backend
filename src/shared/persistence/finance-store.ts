@@ -67,7 +67,7 @@ function asTimestamp(value: string | null | undefined): Date | null {
 
 async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
   await client.$executeRawUnsafe(
-    'TRUNCATE transactions, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE',
+    'TRUNCATE transactions, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE',
   );
 
   if (db.movementTypes.length) {
@@ -115,6 +115,7 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         role: member.role,
         monthlyFee: member.monthlyFee,
         feeOverride: member.feeOverride ?? null,
+        chiefChild: Boolean(member.chiefChild),
         status: member.status,
         joinedAt: asDate(member.joinedAt),
         clubeLtc: member.clubeLtc,
@@ -123,6 +124,18 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         createdById: member.createdBy ?? null,
         updatedAt: asTimestamp(member.updatedAt),
         updatedById: member.updatedBy ?? null,
+      })),
+    });
+  }
+
+  if (db.memberSiblings?.length) {
+    await client.memberSibling.createMany({
+      data: db.memberSiblings.map((link) => ({
+        id: link.id,
+        memberId: link.memberId,
+        siblingId: link.siblingId,
+        createdAt: new Date(link.createdAt),
+        createdById: link.createdBy ?? null,
       })),
     });
   }
@@ -314,6 +327,7 @@ function emptyFinance(): DatabaseShape {
   return {
     members: [],
     memberGuardians: [],
+    memberSiblings: [],
     memberAccounts: [],
     movementTypes: [],
     fees: [],
@@ -328,17 +342,19 @@ function emptyFinance(): DatabaseShape {
 }
 
 async function readFinance(sql: Db): Promise<DatabaseShape> {
-  const [members, guardians, accounts, types, fees, projects, items, transactions, settings] = await Promise.all([
-    sql.member.findMany({ orderBy: { name: 'asc' } }),
-    sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
-    sql.memberAccount.findMany({ orderBy: { holderName: 'asc' } }),
-    sql.movementType.findMany({ orderBy: { name: 'asc' } }),
-    sql.fee.findMany({ orderBy: { name: 'asc' } }),
-    sql.project.findMany({ orderBy: [{ year: 'asc' }, { branch: 'asc' }] }),
-    sql.projectItem.findMany(),
-    sql.transaction.findMany({ orderBy: [{ date: 'desc' }, { createdAt: 'desc' }] }),
-    sql.settings.findFirst(),
-  ]);
+  const [members, guardians, siblings, accounts, types, fees, projects, items, transactions, settings] =
+    await Promise.all([
+      sql.member.findMany({ orderBy: { name: 'asc' } }),
+      sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
+      sql.memberSibling.findMany(),
+      sql.memberAccount.findMany({ orderBy: { holderName: 'asc' } }),
+      sql.movementType.findMany({ orderBy: { name: 'asc' } }),
+      sql.fee.findMany({ orderBy: { name: 'asc' } }),
+      sql.project.findMany({ orderBy: [{ year: 'asc' }, { branch: 'asc' }] }),
+      sql.projectItem.findMany(),
+      sql.transaction.findMany({ orderBy: [{ date: 'desc' }, { createdAt: 'desc' }] }),
+      sql.settings.findFirst(),
+    ]);
 
   const itemsByProject = new Map<string, FinancialProject['items']>();
   for (const row of items) {
@@ -362,6 +378,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
   return {
     members: members.map(mapMember),
     memberGuardians: guardians.map(mapGuardian),
+    memberSiblings: siblings.map(mapSibling),
     memberAccounts: accounts.map(mapAccount),
     movementTypes: types.map(mapMovementType),
     fees: fees.map(mapFee),
@@ -410,6 +427,7 @@ function mapMember(row: {
   role: string;
   monthlyFee: Prisma.Decimal;
   feeOverride: Prisma.Decimal | null;
+  chiefChild: boolean;
   status: string;
   joinedAt: Date;
   clubeLtc: boolean;
@@ -428,10 +446,27 @@ function mapMember(row: {
     role: row.role as Member['role'],
     monthlyFee: Number(row.monthlyFee),
     feeOverride: row.feeOverride == null ? null : Number(row.feeOverride),
+    chiefChild: row.chiefChild,
     status: row.status as Member['status'],
     joinedAt: dateOnly(row.joinedAt),
     clubeLtc: row.clubeLtc,
     ...mapAudit(row),
+  };
+}
+
+function mapSibling(row: {
+  id: string;
+  memberId: string;
+  siblingId: string;
+  createdAt: Date;
+  createdById: string | null;
+}) {
+  return {
+    id: row.id,
+    memberId: row.memberId,
+    siblingId: row.siblingId,
+    createdAt: row.createdAt.toISOString(),
+    createdBy: row.createdById ?? undefined,
   };
 }
 
