@@ -274,6 +274,14 @@ export interface Transaction {
   externalId?: string;
   /** Mensalidade: se a parcela do clube (R$ 20) entra neste mês. */
   clubFeeIncluded?: boolean;
+  /** Rateio: id comum a todas as partes do mesmo crédito. */
+  splitGroupId?: string;
+  /** Rateio: valor original do lançamento antes de partir. */
+  splitTotal?: number;
+  /** Rateio: índice 1-based desta parte. */
+  splitIndex?: number;
+  /** Rateio: quantidade de partes. */
+  splitCount?: number;
   createdBy?: string;
   createdAt: string;
   updatedAt?: string;
@@ -357,6 +365,8 @@ export interface MensalidadeRow {
   clubeLtc: boolean;
   feeOverride?: number | null;
   chiefChild?: boolean;
+  /** Irmãos no grupo (para baixar mensalidades juntas). */
+  siblingIds?: string[];
   cells: MensalidadeCell[];
 }
 

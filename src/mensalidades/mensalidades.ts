@@ -11,6 +11,7 @@ import {
   resolveFeeOverride,
 } from './fee-table';
 import { id } from '../shared/id';
+import { siblingIdsOf } from '../members/members';
 import { isMensalidadeName } from '../statement/statement';
 import type {
   DatabaseShape,
@@ -372,6 +373,39 @@ export function settleMensalidade(
   return { tx, shouldNotify };
 }
 
+/** Baixa várias mensalidades (ex.: irmãos no mesmo mês) com o mesmo timing/data. */
+export function settleMensalidades(
+  db: DatabaseShape,
+  input: {
+    transactionIds: string[];
+    timing: MensalidadeSettleTiming;
+    paidAt?: string | null;
+    notifyReceipt?: boolean;
+  },
+  userId: string,
+  today = todayISO(),
+): { items: { tx: Transaction; shouldNotify: boolean }[] } {
+  const unique = [...new Set(input.transactionIds.map((item) => item.trim()).filter(Boolean))];
+  if (!unique.length) throw new Error('Informe ao menos uma mensalidade');
+  const items: { tx: Transaction; shouldNotify: boolean }[] = [];
+  for (const transactionId of unique) {
+    const settled = settleMensalidade(
+      db,
+      {
+        transactionId,
+        timing: input.timing,
+        paidAt: input.paidAt,
+        notifyReceipt: input.notifyReceipt,
+      },
+      userId,
+      today,
+    );
+    if (!settled) throw new Error('Mensalidade não encontrada');
+    items.push(settled);
+  }
+  return { items };
+}
+
 export function buildMensalidadeReport(db: DatabaseShape, year: number, today = todayISO()): MensalidadeReport {
   const dueDay = dueDayOf(db);
   const rows: MensalidadeRow[] = db.members
@@ -432,6 +466,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         clubeLtc: member.clubeLtc,
         feeOverride: resolveFeeOverride(member),
         chiefChild: Boolean(member.chiefChild),
+        siblingIds: siblingIdsOf(db, member.id),
         cells,
       };
     })

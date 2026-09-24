@@ -232,6 +232,10 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         notes: tx.notes ?? null,
         externalId: tx.externalId ?? null,
         clubFeeIncluded: tx.clubFeeIncluded ?? null,
+        splitGroupId: tx.splitGroupId ?? null,
+        splitTotal: tx.splitTotal ?? null,
+        splitIndex: tx.splitIndex ?? null,
+        splitCount: tx.splitCount ?? null,
         createdById: tx.createdBy ?? null,
         createdAt: tx.createdAt ? new Date(tx.createdAt) : new Date(),
         updatedAt: asTimestamp(tx.updatedAt),
@@ -595,6 +599,10 @@ function mapTransaction(row: {
   notes: string | null;
   externalId: string | null;
   clubFeeIncluded: boolean | null;
+  splitGroupId: string | null;
+  splitTotal: Prisma.Decimal | null;
+  splitIndex: number | null;
+  splitCount: number | null;
   origin: string;
   createdAt: Date;
   createdById: string | null;
@@ -620,6 +628,10 @@ function mapTransaction(row: {
     notes: row.notes ?? undefined,
     externalId: row.externalId ?? undefined,
     clubFeeIncluded: row.clubFeeIncluded ?? undefined,
+    splitGroupId: row.splitGroupId ?? undefined,
+    splitTotal: row.splitTotal != null ? Number(row.splitTotal) : undefined,
+    splitIndex: row.splitIndex ?? undefined,
+    splitCount: row.splitCount ?? undefined,
     ...mapAudit(row),
   };
 }

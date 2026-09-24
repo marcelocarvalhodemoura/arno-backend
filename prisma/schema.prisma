@@ -236,6 +236,10 @@ model Transaction {
   notes            String?
   externalId       String?   @unique @map("external_id")
   clubFeeIncluded  Boolean?  @map("club_fee_included")
+  splitGroupId     String?   @map("split_group_id") @db.Uuid
+  splitTotal       Decimal?  @map("split_total") @db.Decimal(12, 2)
+  splitIndex       Int?      @map("split_index")
+  splitCount       Int?      @map("split_count")
   origin           String    @default("manual")
   createdById      String?   @map("created_by") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -256,6 +260,7 @@ model Transaction {
   @@index([movementTypeId])
   @@index([paymentStatus])
   @@index([memberGuardianId])
+  @@index([splitGroupId])
   @@map("transactions")
 }
 

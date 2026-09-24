@@ -5,12 +5,14 @@ import {
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
   settleMensalidade,
+  settleMensalidades,
   syncMensalidades,
 } from './mensalidades';
 import { collectMensalidadeNotifyIds, notifyMensalidadeTransactions } from './notify';
 import { fail } from '../shared/http/api';
 import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from '../notifications/notify';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
+import { roundMoney, type Transaction } from '../shared/types';
 
 const notifyBody = z.object({
   year: z.number().int(),
@@ -35,16 +37,25 @@ const clubFeeBulkBody = z.object({
   clubFeeIncluded: z.boolean(),
 });
 
-const settleBody = z.object({
-  transactionId: z.string().min(1),
-  timing: z.enum(['on_time', 'late']),
-  paidAt: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .nullable()
-    .optional(),
-  notifyReceipt: z.boolean().optional(),
-});
+const settleBody = z
+  .object({
+    transactionId: z.string().min(1).optional(),
+    transactionIds: z.array(z.string().min(1)).min(1).optional(),
+    timing: z.enum(['on_time', 'late']),
+    paidAt: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+    notifyReceipt: z.boolean().optional(),
+  })
+  .refine((data) => Boolean(data.transactionId) || Boolean(data.transactionIds?.length), {
+    message: 'Informe transactionId ou transactionIds',
+  });
+
+function roundMoneySum(amounts: number[]) {
+  return roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
+}
 
 @Injectable()
 export class MensalidadesService {
@@ -93,38 +104,85 @@ export class MensalidadesService {
     if (!parsed.success) {
       fail('Informe a mensalidade e se o pagamento foi pontual ou com atraso', HttpStatus.BAD_REQUEST);
     }
+    const ids = parsed.data.transactionIds?.length
+      ? parsed.data.transactionIds
+      : parsed.data.transactionId
+        ? [parsed.data.transactionId]
+        : [];
     try {
-      const settled = await mutate((db) =>
-        settleMensalidade(
+      const settled = await mutate((db) => {
+        if (ids.length === 1) {
+          const one = settleMensalidade(
+            db,
+            {
+              transactionId: ids[0],
+              timing: parsed.data.timing,
+              paidAt: parsed.data.paidAt,
+              notifyReceipt: parsed.data.notifyReceipt !== false,
+            },
+            userId,
+          );
+          return one ? { items: [one] } : null;
+        }
+        return settleMensalidades(
           db,
           {
-            ...parsed.data,
+            transactionIds: ids,
+            timing: parsed.data.timing,
+            paidAt: parsed.data.paidAt,
             notifyReceipt: parsed.data.notifyReceipt !== false,
           },
           userId,
-        ),
-      );
-      if (!settled) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
-      if (settled.shouldNotify && settled.tx.memberId) {
-        const channels = configuredNotifyChannels();
-        if (channels.length) {
-          const db = await loadDb();
-          const notify = summarizeDeliveries(await notifyTransaction(db, settled.tx, 'receipt', channels, userId));
-          return { ...settled.tx, notify };
+        );
+      });
+      if (!settled?.items.length) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
+
+      const channels = configuredNotifyChannels();
+      const notified: Transaction[] = [];
+      let notifySummary = {
+        queued: 0,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+        total: 0,
+        note: undefined as string | undefined,
+      };
+
+      for (const item of settled.items) {
+        if (!item.shouldNotify || !item.tx.memberId) {
+          notified.push(item.tx);
+          continue;
         }
+        if (!channels.length) {
+          notifySummary.skipped += 1;
+          notifySummary.total += 1;
+          notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
+          notified.push(item.tx);
+          continue;
+        }
+        const db = await loadDb();
+        const notify = summarizeDeliveries(await notifyTransaction(db, item.tx, 'receipt', channels, userId));
+        notifySummary.queued += notify.queued;
+        notifySummary.sent += notify.sent;
+        notifySummary.failed += notify.failed;
+        notifySummary.skipped += notify.skipped;
+        notifySummary.total += notify.total;
+        notified.push({ ...item.tx });
+      }
+
+      const amount = roundMoneySum(settled.items.map((item) => item.tx.amount));
+      if (ids.length === 1) {
         return {
-          ...settled.tx,
-          notify: {
-            queued: 0,
-            sent: 0,
-            failed: 0,
-            skipped: 1,
-            total: 1,
-            note: 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo',
-          },
+          ...notified[0],
+          notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
         };
       }
-      return settled.tx;
+      return {
+        settled: notified.length,
+        amount,
+        items: notified,
+        notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
+      };
     } catch (err) {
       if (err && typeof err === 'object' && 'status' in err) throw err;
       fail(err instanceof Error ? err.message : 'Não foi possível registrar o pagamento', HttpStatus.BAD_REQUEST);

@@ -30,9 +30,10 @@ export class MensalidadesController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['transactionId', 'timing'],
+      required: ['timing'],
       properties: {
         transactionId: { type: 'string' },
+        transactionIds: { type: 'array', items: { type: 'string' }, description: 'Várias mensalidades (ex.: irmãos)' },
         timing: { type: 'string', enum: ['on_time', 'late'] },
         paidAt: { type: 'string', example: '2026-09-08', nullable: true },
         notifyReceipt: { type: 'boolean', example: true },

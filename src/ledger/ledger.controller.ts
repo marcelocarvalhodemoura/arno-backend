@@ -101,6 +101,7 @@ export class LedgerController {
               amount: { type: 'number' },
               movementTypeId: { type: 'string' },
               description: { type: 'string' },
+              memberId: { type: 'string', nullable: true },
             },
           },
         },

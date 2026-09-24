@@ -17,11 +17,22 @@ export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPa
   if (parts.length < 2) throw new Error('Informe pelo menos duas partes para o rateio');
   const amounts = parts.map((part) => roundMoney(part.amount));
   if (amounts.some((amount) => !(amount > 0))) throw new Error('Cada parte precisa ter valor maior que zero');
+  const originalAmount = roundMoney(tx.amount);
   const total = roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
-  if (total !== roundMoney(tx.amount)) {
+  if (total !== originalAmount) {
     throw new Error('A soma das partes precisa ser igual ao valor do lançamento');
   }
+  for (const part of parts) {
+    if (part.memberId) {
+      const member = db.members.find((item) => item.id === part.memberId);
+      if (!member) throw new Error('Associado inválido no rateio');
+    }
+  }
+
+  const splitGroupId = id();
+  const splitCount = parts.length;
   const created: Transaction[] = [];
+
   for (const [index, part] of parts.entries()) {
     const movement = db.movementTypes.find((item) => item.id === part.movementTypeId);
     if (!movement) throw new Error('Tipo de movimentação inválido no rateio');
@@ -30,10 +41,15 @@ export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPa
     }
     const description = part.description.trim();
     if (description.length < 2) throw new Error('Informe a descrição de cada parte');
+    const splitIndex = index + 1;
     if (index === 0) {
       tx.amount = amounts[index];
       tx.movementTypeId = part.movementTypeId;
       tx.description = description;
+      tx.splitGroupId = splitGroupId;
+      tx.splitTotal = originalAmount;
+      tx.splitIndex = splitIndex;
+      tx.splitCount = splitCount;
       if (part.projectId === null) delete tx.projectId;
       else if (part.projectId) tx.projectId = part.projectId;
       if (part.memberId === null) delete tx.memberId;
@@ -50,12 +66,17 @@ export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPa
       description,
       notes: tx.notes,
       externalId: tx.externalId ? `${tx.externalId}:${index + 1}` : undefined,
+      splitGroupId,
+      splitTotal: originalAmount,
+      splitIndex,
+      splitCount,
       ...createdAudit(userId, tx.origin),
     };
     if (part.projectId === null) delete copy.projectId;
     else if (part.projectId) copy.projectId = part.projectId;
     if (part.memberId === null) delete copy.memberId;
     else if (part.memberId) copy.memberId = part.memberId;
+    else delete copy.memberId;
     delete copy.updatedAt;
     delete copy.updatedBy;
     db.transactions.push(copy);
