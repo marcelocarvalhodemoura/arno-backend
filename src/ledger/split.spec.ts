@@ -126,6 +126,36 @@ describe('splitTransaction', () => {
     expect(db.transactions[1].memberId).toBe('m2');
   });
 
+  it('re-splits an existing rateio from the first part', () => {
+    const db = dbWithTx(60);
+    splitTransaction(
+      db,
+      'tx1',
+      [
+        { amount: 30, movementTypeId: 'mt-men', description: 'Parte A' },
+        { amount: 30, movementTypeId: 'mt-men', description: 'Parte B' },
+      ],
+      'u1',
+    );
+    expect(db.transactions).toHaveLength(2);
+    const again = splitTransaction(
+      db,
+      'tx1',
+      [
+        { amount: 20, movementTypeId: 'mt-men', description: 'Nova A' },
+        { amount: 40, movementTypeId: 'mt-camp', description: 'Nova B' },
+      ],
+      'u1',
+    );
+    expect(again).toHaveLength(2);
+    expect(db.transactions).toHaveLength(2);
+    expect(db.transactions[0].amount).toBe(20);
+    expect(db.transactions[0].description).toBe('Nova A');
+    expect(db.transactions[0].splitTotal).toBe(60);
+    expect(db.transactions[1].amount).toBe(40);
+    expect(db.transactions[1].description).toBe('Nova B');
+  });
+
   it('rejects parts that do not sum to the original amount', () => {
     const db = dbWithTx(150);
     expect(() =>

@@ -11,9 +11,36 @@ export type SplitPart = {
   memberId?: string | null;
 };
 
+/**
+ * Se o lançamento já está rateado, remove as outras partes e restaura o valor original na primeira parte.
+ * Devolve o lançamento “pai” pronto para um novo rateio.
+ */
+function consolidateSplitGroup(db: DatabaseShape, txId: string): Transaction {
+  const seed = db.transactions.find((item) => item.id === txId);
+  if (!seed) throw new Error('Lançamento não encontrado');
+  if (!seed.splitGroupId) return seed;
+
+  const groupId = seed.splitGroupId;
+  const peers = db.transactions.filter((item) => item.splitGroupId === groupId);
+  const primary = peers.find((item) => item.splitIndex === 1) ?? peers.find((item) => item.id === txId) ?? peers[0];
+  if (!primary) throw new Error('Lançamento não encontrado');
+
+  const total = roundMoney(primary.splitTotal ?? peers.reduce((sum, item) => sum + item.amount, 0));
+  const drop = new Set(peers.filter((item) => item.id !== primary.id).map((item) => item.id));
+  if (drop.size) {
+    db.transactions = db.transactions.filter((item) => !drop.has(item.id));
+  }
+
+  primary.amount = total;
+  delete primary.splitGroupId;
+  delete primary.splitTotal;
+  delete primary.splitIndex;
+  delete primary.splitCount;
+  return primary;
+}
+
 export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPart[], userId: string): Transaction[] {
-  const tx = db.transactions.find((item) => item.id === txId);
-  if (!tx) throw new Error('Lançamento não encontrado');
+  const tx = consolidateSplitGroup(db, txId);
   if (parts.length < 2) throw new Error('Informe pelo menos duas partes para o rateio');
   const amounts = parts.map((part) => roundMoney(part.amount));
   if (amounts.some((amount) => !(amount > 0))) throw new Error('Cada parte precisa ter valor maior que zero');
