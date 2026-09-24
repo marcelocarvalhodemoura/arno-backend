@@ -56,6 +56,110 @@ export function ensureIdentifyType(db: DatabaseShape, userId: string, origin: Re
   });
 }
 
+/** Normaliza histórico de Pix (PDF Sicredi vs API) para comparar o mesmo recebimento. */
+export function normalizePixDescription(description: string): string {
+  return fold(description)
+    .replace(/\brecebimento\s+pix\b/g, ' ')
+    .replace(/\bpix\s+recebido\b/g, ' ')
+    .replace(/\bpix_cred\b/g, ' ')
+    .replace(/\bpix\b/g, ' ')
+    .replace(/\b\d{11}\b/g, ' ')
+    .replace(/\b\d{14}\b/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function descriptionsCompatible(left: string, right: string): boolean {
+  const a = normalizePixDescription(left);
+  const b = normalizePixDescription(right);
+  if (!a || !b) return true;
+  if (a === b) return true;
+  const tokensA = new Set(a.split(' ').filter((token) => token.length > 2));
+  const tokensB = new Set(b.split(' ').filter((token) => token.length > 2));
+  if (!tokensA.size || !tokensB.size) return true;
+  for (const token of tokensA) {
+    if (tokensB.has(token)) return true;
+  }
+  return false;
+}
+
+function contentFingerprint(row: {
+  date: string;
+  type: string;
+  description: string;
+  amount: number;
+  memberId?: string;
+}) {
+  return `${row.date}|${row.type}|${row.amount}|${normalizePixDescription(row.description)}|${row.memberId ?? ''}`;
+}
+
+function ingestFingerprint(row: {
+  date: string;
+  type: string;
+  description: string;
+  amount: number;
+  memberId?: string;
+  externalId?: string;
+}) {
+  if (row.externalId) return `ext:${row.externalId}`;
+  return contentFingerprint(row);
+}
+
+function scoreReusable(tx: Transaction, row: IngestRow): number {
+  let score = 0;
+  if (!tx.externalId) score += 4;
+  if (row.memberId && tx.memberId === row.memberId) score += 3;
+  if (normalizePixDescription(tx.description) === normalizePixDescription(row.description)) score += 2;
+  if (tx.origin === 'integration') score += 1;
+  if ((tx.paymentStatus ?? 'paid') === 'paid') score += 1;
+  return score;
+}
+
+/** Casa extrato (sem endToEndId) com Pix Sicredi (com id) quando data/valor/histórico batem. */
+export function findReusableTransaction(
+  db: DatabaseShape,
+  row: Pick<IngestRow, 'date' | 'type' | 'description' | 'amount' | 'memberId' | 'externalId'>,
+): Transaction | undefined {
+  const amount = roundMoney(row.amount);
+  const candidates = db.transactions.filter((tx) => {
+    if (tx.date !== row.date || tx.type !== row.type) return false;
+    if (!amountsNear(tx.amount, amount)) return false;
+    if (tx.externalId && row.externalId && tx.externalId !== row.externalId) return false;
+    if (tx.externalId && !row.externalId) {
+      // Reimportação de extrato após Sicredi: não cria outro se o histórico for compatível.
+    } else if (!tx.externalId && !row.externalId) {
+      // Dois lançamentos sem id: só reusa se o conteúdo for o mesmo (já coberto pelo fingerprint).
+      return false;
+    }
+    if (row.memberId && tx.memberId && row.memberId !== tx.memberId) return false;
+    return descriptionsCompatible(tx.description, row.description);
+  });
+  if (!candidates.length) return undefined;
+  return [...candidates].sort((a, b) => scoreReusable(b, row as IngestRow) - scoreReusable(a, row as IngestRow))[0];
+}
+
+function attachIncomingIds(tx: Transaction, row: IngestRow, memberGuardianId: string | undefined, userId: string) {
+  let changed = false;
+  if (row.externalId && !tx.externalId) {
+    tx.externalId = row.externalId;
+    changed = true;
+  }
+  if (row.memberId && !tx.memberId) {
+    tx.memberId = row.memberId;
+    changed = true;
+  }
+  if (memberGuardianId && !tx.memberGuardianId) {
+    tx.memberGuardianId = memberGuardianId;
+    changed = true;
+  }
+  if (row.method && !tx.method) {
+    tx.method = row.method;
+    changed = true;
+  }
+  if (changed) Object.assign(tx, updatedAudit(userId));
+}
+
 export function ingestTransactions(
   db: DatabaseShape,
   rows: IngestRow[],
@@ -67,8 +171,18 @@ export function ingestTransactions(
   const unidentified: string[] = [];
   const skipped: { description: string; reason: string }[] = [];
   const seen = new Set<string>();
+  const byContent = new Map<string, Transaction>();
+
   for (const tx of db.transactions) {
     rememberIngest(seen, tx);
+    const key = contentFingerprint({
+      date: tx.date,
+      type: tx.type,
+      description: tx.description,
+      amount: roundMoney(tx.amount),
+      memberId: tx.memberId,
+    });
+    if (!byContent.has(key)) byContent.set(key, tx);
   }
 
   for (const row of rows) {
@@ -79,10 +193,12 @@ export function ingestTransactions(
     }
     const memberGuardianId = resolveGuardianId(db, row.memberId, row.memberGuardianId);
     const amount = roundMoney(row.amount);
-    const contentKey = ingestFingerprint({
-      ...row,
+    const contentKey = contentFingerprint({
+      date: row.date,
+      type: row.type,
+      description: row.description,
       amount,
-      externalId: undefined,
+      memberId: row.memberId,
     });
     const extKey = row.externalId ? `ext:${row.externalId}` : '';
     if (extKey && seen.has(extKey)) {
@@ -93,12 +209,31 @@ export function ingestTransactions(
       continue;
     }
     if (seen.has(contentKey)) {
+      const existing = byContent.get(contentKey) ?? findReusableTransaction(db, { ...row, amount });
+      if (existing) {
+        attachIncomingIds(existing, row, memberGuardianId, userId);
+        rememberIngest(seen, existing);
+        byContent.set(contentKey, existing);
+      }
       skipped.push({
         description: row.description,
         reason: 'Lançamento já importado',
       });
       continue;
     }
+
+    const reusable = findReusableTransaction(db, { ...row, amount });
+    if (reusable && (row.externalId || reusable.externalId)) {
+      attachIncomingIds(reusable, row, memberGuardianId, userId);
+      rememberIngest(seen, reusable);
+      byContent.set(contentKey, reusable);
+      skipped.push({
+        description: row.description,
+        reason: 'Lançamento já importado',
+      });
+      continue;
+    }
+
     if (row.type === 'income' && row.memberId && isMensalidadeName(movement.name)) {
       const month = row.date.slice(0, 7);
       const member = db.members.find((item) => item.id === row.memberId);
@@ -126,6 +261,7 @@ export function ingestTransactions(
         if (memberGuardianId && !pending.memberGuardianId) pending.memberGuardianId = memberGuardianId;
         Object.assign(pending, updatedAudit(userId));
         paid.push(pending.id);
+        rememberIngest(seen, pending);
         continue;
       }
       if (
@@ -147,6 +283,7 @@ export function ingestTransactions(
             (tx.date === row.date || tx.date.startsWith(month)),
         );
         if (paidTx && row.externalId && !paidTx.externalId) paidTx.externalId = row.externalId;
+        if (paidTx) rememberIngest(seen, paidTx);
         skipped.push({
           description: row.description,
           reason: 'Mensalidade já está paga neste período',
@@ -179,6 +316,7 @@ export function ingestTransactions(
     db.transactions.push(tx);
     created.push(tx.id);
     rememberIngest(seen, { ...row, amount });
+    byContent.set(contentKey, tx);
     if (isUnidentifiedName(movement.name)) unidentified.push(tx.id);
   }
 
@@ -198,18 +336,6 @@ function rememberIngest(
 ) {
   seen.add(ingestFingerprint(row));
   if (row.externalId) {
-    seen.add(ingestFingerprint({ ...row, externalId: undefined }));
+    seen.add(contentFingerprint(row));
   }
-}
-
-function ingestFingerprint(row: {
-  date: string;
-  type: string;
-  description: string;
-  amount: number;
-  memberId?: string;
-  externalId?: string;
-}) {
-  if (row.externalId) return `ext:${row.externalId}`;
-  return `${row.date}|${row.type}|${row.amount}|${fold(row.description)}|${row.memberId ?? ''}`;
 }

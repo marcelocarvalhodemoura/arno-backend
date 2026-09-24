@@ -222,6 +222,7 @@ export async function syncSicrediPix(options: { from?: string; to?: string; user
     const createdSet = new Set(ingest.created);
     const db = await loadDb();
     for (const item of pending) {
+      // ingestTransactions grava externalId no lançamento reutilizado (extrato sem id do Pix).
       const matchedTx = db.transactions.find((tx) => tx.externalId === item.externalId);
       if (matchedTx && paidSet.has(matchedTx.id)) {
         await markBankMovement(item.externalId, 'matched', matchedTx.id);

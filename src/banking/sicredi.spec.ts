@@ -183,5 +183,143 @@ describe('ingestTransactions', () => {
     const again = ingestTransactions(db, [{ ...row, externalId: 'FILE-1' }], 'user-1', 'integration');
     expect(again.created).toHaveLength(0);
     expect(again.skipped[0]?.reason).toBe('Lançamento já importado');
+    expect(db.transactions[0]?.externalId).toBe('FILE-1');
+  });
+
+  it('links Sicredi Pix to a prior PDF/CSV import with different historico', () => {
+    const db = emptyDb();
+    db.transactions = [];
+    ensureIdentifyType(db, 'user-1');
+    const identify = db.movementTypes.find((item) => item.name === 'A identificar')!;
+    const fromPdf = ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-01-05',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'RECEBIMENTO PIX 11111111111 JOANA EXEMPLO PIX_CRED',
+          amount: 60,
+          branch: 'grupo',
+          method: 'pix',
+        },
+      ],
+      'user-1',
+      'integration',
+    );
+    expect(fromPdf.created).toHaveLength(1);
+    expect(db.transactions[0]?.externalId).toBeUndefined();
+
+    const fromApi = ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-01-05',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'PIX RECEBIDO JOANA EXEMPLO',
+          amount: 60,
+          branch: 'grupo',
+          method: 'pix',
+          externalId: 'E2E-PDF-1',
+        },
+      ],
+      'user-1',
+      'sicredi',
+    );
+    expect(fromApi.created).toHaveLength(0);
+    expect(fromApi.skipped[0]?.reason).toBe('Lançamento já importado');
+    expect(db.transactions).toHaveLength(1);
+    expect(db.transactions[0]?.externalId).toBe('E2E-PDF-1');
+  });
+
+  it('does not merge two same-day incomes from different payers', () => {
+    const db = emptyDb();
+    db.transactions = [];
+    ensureIdentifyType(db, 'user-1');
+    const identify = db.movementTypes.find((item) => item.name === 'A identificar')!;
+    ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-01-05',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'RECEBIMENTO PIX JOANA EXEMPLO PIX_CRED',
+          amount: 60,
+          branch: 'grupo',
+          method: 'pix',
+        },
+      ],
+      'user-1',
+    );
+    const second = ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-01-05',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'PIX RECEBIDO MARIA SILVA',
+          amount: 60,
+          branch: 'grupo',
+          method: 'pix',
+          externalId: 'E2E-OTHER',
+        },
+      ],
+      'user-1',
+      'sicredi',
+    );
+    expect(second.created).toHaveLength(1);
+    expect(db.transactions).toHaveLength(2);
+  });
+
+  it('skips statement reimport after Sicredi already stored the Pix id', () => {
+    const db = emptyDb();
+    db.transactions = [];
+    ensureIdentifyType(db, 'user-1');
+    const identify = db.movementTypes.find((item) => item.name === 'A identificar')!;
+    ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-01-05',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'PIX RECEBIDO JOANA EXEMPLO',
+          amount: 60,
+          branch: 'grupo',
+          method: 'pix',
+          externalId: 'E2E-FIRST',
+        },
+      ],
+      'user-1',
+      'sicredi',
+    );
+    const again = ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-01-05',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'RECEBIMENTO PIX 11111111111 JOANA EXEMPLO PIX_CRED',
+          amount: 60,
+          branch: 'grupo',
+          method: 'pix',
+        },
+      ],
+      'user-1',
+      'integration',
+    );
+    expect(again.created).toHaveLength(0);
+    expect(db.transactions).toHaveLength(1);
+    expect(db.transactions[0]?.externalId).toBe('E2E-FIRST');
   });
 });
