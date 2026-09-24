@@ -49,6 +49,7 @@ export class ReportsService {
           updatedByName: updated?.name,
           updatedAt: tx?.updatedAt,
           origin: tx?.origin ?? 'integration',
+          importSource: tx?.importSource ?? line.importSource,
         };
       }),
     };

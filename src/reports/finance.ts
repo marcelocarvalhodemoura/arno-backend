@@ -264,6 +264,7 @@ export function customReport(
       createdByName: '',
       createdAt: t.createdAt,
       origin: t.origin,
+      importSource: t.importSource,
       updatedAt: t.updatedAt,
     };
   });

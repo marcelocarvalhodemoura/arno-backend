@@ -241,6 +241,8 @@ model Transaction {
   splitIndex       Int?      @map("split_index")
   splitCount       Int?      @map("split_count")
   origin           String    @default("manual")
+  /** csv | pdf | sicredi — formato da integração que gerou o lançamento. */
+  importSource     String?   @map("import_source")
   createdById      String?   @map("created_by") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime? @map("updated_at") @db.Timestamptz(6)

@@ -31,6 +31,7 @@ const mapImportBody = z.object({
 
 const ingestBody = z.object({
   rows: z.array(txImportRow).min(1).max(IMPORT_CHUNK_SIZE),
+  importSource: z.enum(['csv', 'pdf']).optional(),
 });
 
 @Injectable()
@@ -76,7 +77,12 @@ export class StatementService {
       throw new HttpException({ error: parsed.error.flatten() }, HttpStatus.BAD_REQUEST);
     }
     try {
-      const result = await mutate((db) => ingestTransactions(db, parsed.data.rows, userId, 'integration'));
+      const batchSource = parsed.data.importSource;
+      const rows = parsed.data.rows.map((row) => ({
+        ...row,
+        importSource: row.importSource ?? batchSource,
+      }));
+      const result = await mutate((db) => ingestTransactions(db, rows, userId, 'integration'));
       return {
         created: result.created.length,
         paid: result.paid.length,

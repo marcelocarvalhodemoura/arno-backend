@@ -157,6 +157,35 @@ describe('ingestTransactions', () => {
     expect(result.created).toHaveLength(1);
     expect(result.unidentified).toHaveLength(1);
     expect(db.transactions[0]?.origin).toBe('sicredi');
+    expect(db.transactions[0]?.importSource).toBeUndefined();
+  });
+
+  it('stores importSource from Sicredi-style ingest rows', () => {
+    const db = emptyDb();
+    db.transactions = [];
+    ensureIdentifyType(db, 'user-1');
+    const identify = db.movementTypes.find((item) => item.name === 'A identificar')!;
+    const result = ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-09-16',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'PIX RECEBIDO Doação',
+          amount: 40,
+          branch: 'grupo',
+          method: 'pix',
+          externalId: 'E2E-SRC',
+          importSource: 'sicredi',
+        },
+      ],
+      'user-1',
+      'sicredi',
+    );
+    expect(result.created).toHaveLength(1);
+    expect(db.transactions[0]?.importSource).toBe('sicredi');
   });
 
   it('does not duplicate the same launch in one import or a second file', () => {
@@ -321,5 +350,76 @@ describe('ingestTransactions', () => {
     expect(again.created).toHaveLength(0);
     expect(db.transactions).toHaveLength(1);
     expect(db.transactions[0]?.externalId).toBe('E2E-FIRST');
+  });
+
+  it('skips reimport when the prior launch was already split (rateio)', () => {
+    const db = emptyDb();
+    db.transactions = [];
+    ensureIdentifyType(db, 'user-1');
+    const identify = db.movementTypes.find((item) => item.name === 'A identificar')!;
+    const groupId = 'split-group-1';
+    db.transactions.push(
+      {
+        id: 'tx-part-1',
+        date: '2026-09-10',
+        type: 'income',
+        nature: 'variable',
+        movementTypeId: 'mt-men',
+        description:
+          'LUCAS SONEBORN ALMINHANA · parte 1/2 · R$ 82,00 de R$ 164,00 · RECEBIMENTO PIX 64588955004 Cláudia soneborn Alm PIX_CRED',
+        amount: 82,
+        branch: 'escoteiro',
+        method: 'pix',
+        paymentStatus: 'paid',
+        memberId: 'm-ana',
+        splitGroupId: groupId,
+        splitTotal: 164,
+        splitIndex: 1,
+        splitCount: 2,
+        origin: 'integration',
+        createdAt: '2026-09-23T18:15:53.400Z',
+      },
+      {
+        id: 'tx-part-2',
+        date: '2026-09-08',
+        type: 'income',
+        nature: 'variable',
+        movementTypeId: 'mt-men',
+        description:
+          'RENATA SONEBORN ALMINHANA · parte 2/2 · R$ 82,00 de R$ 164,00 · RECEBIMENTO PIX 64588955004 Cláudia soneborn Alm PIX_CRED',
+        amount: 82,
+        branch: 'senior',
+        method: 'pix',
+        paymentStatus: 'paid',
+        splitGroupId: groupId,
+        splitTotal: 164,
+        splitIndex: 2,
+        splitCount: 2,
+        origin: 'integration',
+        createdAt: '2026-09-24T11:48:39.198Z',
+      },
+    );
+    const again = ingestTransactions(
+      db,
+      [
+        {
+          date: '2026-09-08',
+          type: 'income',
+          nature: 'variable',
+          movementTypeId: identify.id,
+          description: 'RECEBIMENTO PIX 64588955004 Cláudia soneborn Alm PIX_CRED',
+          amount: 164,
+          branch: 'grupo',
+          method: 'pix',
+          importSource: 'pdf',
+        },
+      ],
+      'user-1',
+      'integration',
+    );
+    expect(again.created).toHaveLength(0);
+    expect(again.skipped[0]?.reason).toBe('Lançamento já importado');
+    expect(db.transactions).toHaveLength(2);
+    expect(db.transactions.every((tx) => tx.splitGroupId === groupId)).toBe(true);
   });
 });

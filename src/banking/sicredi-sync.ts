@@ -213,6 +213,7 @@ export async function syncSicrediPix(options: { from?: string; to?: string; user
           memberGuardianId: suggested?.memberGuardianId,
           notes: `Sicredi PIX ${item.externalId}`,
           externalId: item.externalId,
+          importSource: 'sicredi' as const,
         };
       });
       return ingestTransactions(db, rows, userId, 'sicredi');

@@ -64,6 +64,8 @@ export const memberImportRow = z.object({
   guardians: z.array(guardianImportInput).optional(),
 });
 
+export const importSource = z.enum(['csv', 'pdf', 'sicredi']);
+
 export const txImportRow = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   type: txType,
@@ -76,6 +78,7 @@ export const txImportRow = z.object({
   paymentStatus: paymentStatus.optional(),
   memberId: z.string().optional(),
   memberGuardianId: z.string().optional(),
+  importSource: importSource.optional(),
 });
 
 export const createMemberBody = z.object({

@@ -59,7 +59,8 @@ export class StatementController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Ingerir lançamentos do extrato',
-    description: 'Chunk de até 200 linhas. Origem: integration.',
+    description:
+      'Chunk de até 200 linhas. Origem: integration. Informe importSource=csv|pdf no corpo ou em cada linha.',
   })
   ingest(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
     return this.statement.ingest(body, auth.userId);

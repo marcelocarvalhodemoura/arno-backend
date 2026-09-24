@@ -241,6 +241,7 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         updatedAt: asTimestamp(tx.updatedAt),
         updatedById: tx.updatedBy ?? null,
         origin: storedOrigin(tx.origin, true),
+        importSource: tx.importSource ?? null,
       })),
     });
   }
@@ -604,6 +605,7 @@ function mapTransaction(row: {
   splitIndex: number | null;
   splitCount: number | null;
   origin: string;
+  importSource: string | null;
   createdAt: Date;
   createdById: string | null;
   updatedAt: Date | null;
@@ -632,6 +634,10 @@ function mapTransaction(row: {
     splitTotal: row.splitTotal != null ? Number(row.splitTotal) : undefined,
     splitIndex: row.splitIndex ?? undefined,
     splitCount: row.splitCount ?? undefined,
+    importSource:
+      row.importSource === 'csv' || row.importSource === 'pdf' || row.importSource === 'sicredi'
+        ? row.importSource
+        : undefined,
     ...mapAudit(row),
   };
 }
