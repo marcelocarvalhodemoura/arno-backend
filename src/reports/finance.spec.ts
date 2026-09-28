@@ -1,4 +1,14 @@
-import { cashBalance, cashFlow, customReport, dashboard, inRange, projectActuals, sumBy } from './finance';
+import {
+  budgetStatus,
+  cashBalance,
+  cashFlow,
+  customReport,
+  dashboard,
+  inRange,
+  projectActuals,
+  sumBy,
+  yearBudget,
+} from './finance';
 import type { DatabaseShape, MovementType, Transaction } from '../shared/types';
 
 function movement(partial: Partial<MovementType> & Pick<MovementType, 'id' | 'name' | 'direction'>): MovementType {
@@ -157,6 +167,7 @@ describe('finance helpers', () => {
     expect(august.expense).toBe(50);
     expect(august.chart[0]?.balance).toBe(150);
     expect(august.current).toBe(1150);
+    expect(august.budget.actualExpense).toBe(50);
 
     const year = dashboard(db, 2026, 0);
     expect(year.chart).toHaveLength(12);
@@ -164,6 +175,80 @@ describe('finance helpers', () => {
     expect(year.expense).toBe(50);
     expect(year.chart[7]?.balance).toBe(150);
     expect(year.chart[8]?.balance).toBe(80);
+    expect(year.budget.actualExpense).toBe(50);
+  });
+
+  it('classifies budget status as ok, watch or over', () => {
+    expect(budgetStatus(1200, 100, 1)).toBe('ok');
+    expect(budgetStatus(1200, 200, 1)).toBe('watch');
+    expect(budgetStatus(1200, 1300, 6)).toBe('over');
+    expect(budgetStatus(1200, 200, null)).toBe('ok');
+  });
+
+  it('consolidates annual budget by branch and movement type', () => {
+    const withPlan: DatabaseShape = {
+      ...db,
+      projects: [
+        {
+          ...db.projects[0]!,
+          items: [
+            {
+              id: 'i1',
+              category: 'Sede',
+              description: 'Aluguel',
+              planned: 80,
+              movementTypeId: 'mt-sede',
+            },
+          ],
+        },
+        {
+          id: 'p2',
+          branch: 'grupo',
+          year: 2026,
+          name: 'Grupo',
+          description: '',
+          items: [
+            {
+              id: 'i2',
+              category: 'Sede',
+              description: 'Manutenção',
+              planned: 20,
+              movementTypeId: 'mt-sede',
+            },
+          ],
+          origin: 'integration',
+          createdAt: '2026-01-01T12:00:00.000Z',
+        },
+      ],
+      transactions: [
+        ...db.transactions,
+        tx({
+          id: 't5',
+          date: '2026-03-01',
+          type: 'expense',
+          amount: 90,
+          movementTypeId: 'mt-sede',
+          projectId: 'p1',
+          description: 'Extra',
+        }),
+      ],
+    };
+
+    const budget = yearBudget(withPlan, 2026, 3);
+    expect(budget.plannedExpense).toBe(100);
+    expect(budget.actualExpense).toBe(140);
+    expect(budget.remaining).toBe(-40);
+    expect(budget.pctUsed).toBe(140);
+
+    const escoteiro = budget.byBranch.find((row) => row.branch === 'escoteiro');
+    expect(escoteiro?.planned).toBe(80);
+    expect(escoteiro?.actual).toBe(140);
+    expect(escoteiro?.status).toBe('over');
+
+    const sede = budget.byMovementType.find((row) => row.movementTypeId === 'mt-sede');
+    expect(sede?.planned).toBe(100);
+    expect(sede?.actual).toBe(140);
+    expect(sede?.status).toBe('over');
   });
 
   it('filters a custom fiscal report', () => {

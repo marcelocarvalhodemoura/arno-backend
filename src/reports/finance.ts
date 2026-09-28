@@ -1,9 +1,11 @@
 import { fold } from '../shared/csv';
 import type {
   BranchId,
+  BudgetStatus,
   CashFlowMonth,
   CustomReportQuery,
   CustomReportRow,
+  DashboardBudget,
   DashboardPayload,
   DatabaseShape,
   FinancialProject,
@@ -130,6 +132,103 @@ export function projectItemActuals(db: DatabaseShape, project: FinancialProject,
       txs.filter((tx) => tx.type === 'expense'),
       (tx) => tx.amount,
     ),
+  };
+}
+
+/** Status da previsão: estourou, acima do ritmo do ano, ou no caminho. */
+export function budgetStatus(planned: number, actual: number, paceMonth?: number | null): BudgetStatus {
+  const safePlanned = Number.isFinite(planned) ? planned : 0;
+  const safeActual = Number.isFinite(actual) ? actual : 0;
+  if (safeActual > safePlanned && (safePlanned > 0 || safeActual > 0)) return 'over';
+  if (paceMonth && paceMonth >= 1 && paceMonth <= 12 && safePlanned > 0) {
+    const expected = safePlanned * (paceMonth / 12);
+    if (safeActual > expected) return 'watch';
+  }
+  return 'ok';
+}
+
+function budgetSlice(planned: number, actual: number, paceMonth?: number | null) {
+  const safePlanned = roundMoney(planned);
+  const safeActual = roundMoney(actual);
+  return {
+    planned: safePlanned,
+    actual: safeActual,
+    remaining: roundMoney(safePlanned - safeActual),
+    status: budgetStatus(safePlanned, safeActual, paceMonth),
+  };
+}
+
+/** Consolidado anual da previsão (projetos do ano × saídas liquidadas com projectId). */
+export function yearBudget(db: DatabaseShape, year: number, paceMonth?: number | null): DashboardBudget {
+  const yearFrom = `${year}-01-01`;
+  const yearTo = `${year}-12-31`;
+  const projects = db.projects.filter((project) => project.year === year);
+  const projectIds = new Set(projects.map((project) => project.id));
+  const yearExpenses = db.transactions.filter(
+    (tx) =>
+      isSettled(tx) &&
+      tx.type === 'expense' &&
+      tx.projectId &&
+      projectIds.has(tx.projectId) &&
+      inRange(tx.date, yearFrom, yearTo),
+  );
+
+  const byBranch = DASHBOARD_BRANCHES.map((branch) => {
+    const branchProjects = projects.filter((project) => project.branch === branch);
+    const planned = sumBy(
+      branchProjects.flatMap((project) => project.items),
+      (item) => item.planned,
+    );
+    const ids = new Set(branchProjects.map((project) => project.id));
+    const actual = sumBy(
+      yearExpenses.filter((tx) => tx.projectId && ids.has(tx.projectId)),
+      (tx) => tx.amount,
+    );
+    return { branch, ...budgetSlice(planned, actual, paceMonth) };
+  }).filter((row) => row.planned > 0 || row.actual > 0);
+
+  const typePlanned = new Map<string, { name: string; planned: number }>();
+  for (const project of projects) {
+    for (const item of project.items) {
+      const typeId =
+        item.movementTypeId || db.movementTypes.find((type) => fold(type.name) === fold(item.category))?.id || '';
+      if (!typeId) continue;
+      const name = typeName(db, typeId);
+      const current = typePlanned.get(typeId) ?? { name, planned: 0 };
+      current.planned = roundMoney(current.planned + item.planned);
+      typePlanned.set(typeId, current);
+    }
+  }
+
+  const byMovementType = [...typePlanned.entries()]
+    .map(([movementTypeId, row]) => {
+      const actual = sumBy(
+        yearExpenses.filter((tx) => tx.movementTypeId === movementTypeId),
+        (tx) => tx.amount,
+      );
+      return {
+        movementTypeId,
+        name: row.name,
+        ...budgetSlice(row.planned, actual, paceMonth),
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+  const plannedExpense = sumBy(
+    projects.flatMap((project) => project.items),
+    (item) => item.planned,
+  );
+  const actualExpense = sumBy(yearExpenses, (tx) => tx.amount);
+  const remaining = roundMoney(plannedExpense - actualExpense);
+  const pctUsed = plannedExpense > 0 ? Math.min(999, Math.round((actualExpense / plannedExpense) * 100)) : 0;
+
+  return {
+    plannedExpense: roundMoney(plannedExpense),
+    actualExpense: roundMoney(actualExpense),
+    remaining,
+    pctUsed,
+    byBranch,
+    byMovementType,
   };
 }
 
@@ -320,6 +419,9 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
     };
   });
 
+  // Ritmo do calendário só no modo ano completo; com mês filtrado, só ok/over.
+  const paceMonth = month === 0 ? new Date().getMonth() + 1 : null;
+
   return {
     year,
     month,
@@ -333,5 +435,6 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
     activeMembers: membersInPeriod.filter((m) => m.status === 'active').length,
     byBranch,
     chart,
+    budget: yearBudget(db, year, paceMonth),
   };
 }
