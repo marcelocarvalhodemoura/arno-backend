@@ -99,6 +99,10 @@ export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPa
       splitCount,
       ...createdAudit(userId, tx.origin),
     };
+    // A nota fica só na primeira parte do rateio.
+    delete copy.notaKey;
+    delete copy.notaFileName;
+    delete copy.notaContentType;
     if (part.projectId === null) delete copy.projectId;
     else if (part.projectId) copy.projectId = part.projectId;
     if (part.memberId === null) delete copy.memberId;

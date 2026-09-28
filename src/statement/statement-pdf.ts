@@ -4,7 +4,9 @@ import { fold, parseSignedAmount } from '../shared/csv';
 const MONEY = /-?\d{1,3}(?:\.\d{3})*,\d{2}/g;
 const SKIP =
   /^(saldo\s+(anterior|atual|do dia|final)|sicredi fone|^sac\b|ouvidoria|periodo de|cooperativa:|associado:|^conta:|aplicacao automatica|rendimento de aplicacao)/;
-const FOOTER = /\s+(sicredi fone|sac\b|ouvidoria)\b.*$/i;
+/** Rodapé/resumo do Sicredi que cola no último lançamento e corrompe o valor. */
+const TRAILING_SUMMARY =
+  /\s+(saldo da conta|saldo atual|saldo bloqueado|lan[cç]amentos a conferir|saldo de investimentos|limite cheque especial|taxa de juros|custo efetivo total|sicredi fone|sac\b|ouvidoria)\b.*$/i;
 
 export function looksLikeBankStatement(text: string): boolean {
   const key = fold(text);
@@ -20,7 +22,9 @@ export function looksLikeBankStatement(text: string): boolean {
 export function statementTextToCsv(text: string): string {
   const normalized = text.replace(/\u00a0/g, ' ');
   const header = normalized.search(/data\s+descri[cç][aã]o/i);
-  const body = header >= 0 ? normalized.slice(header) : normalized;
+  let body = header >= 0 ? normalized.slice(header) : normalized;
+  const summaryAt = body.search(/\n\s*Saldo da conta\b/i);
+  if (summaryAt >= 0) body = body.slice(0, summaryAt);
   const chunks = body
     .split(/(?=\d{2}\/\d{2}\/\d{4})/)
     .map((chunk) => chunk.replace(/\s+/g, ' ').trim())
@@ -31,7 +35,7 @@ export function statementTextToCsv(text: string): string {
     const match = chunk.match(/^(\d{2}\/\d{2}\/\d{4})\s+(.+)$/);
     if (!match) continue;
     const date = match[1]!;
-    let rest = match[2]!.replace(FOOTER, '').trim();
+    let rest = match[2]!.replace(TRAILING_SUMMARY, '').trim();
     if (SKIP.test(fold(rest))) continue;
     if (/^a\s+\d{2}\/\d{2}\/\d{4}/i.test(rest)) continue;
 
@@ -58,9 +62,8 @@ export function statementTextToCsv(text: string): string {
     if (!Number.isFinite(signed) || signed === 0) continue;
     const abs = Math.abs(signed).toFixed(2).replace('.', ',');
     const tipo = signed < 0 ? 'saida' : 'entrada';
-    const line = `${date};${csvEscape(description)};${signed < 0 ? `-${abs}` : abs};${tipo}`;
-    if (rows.includes(line)) continue;
-    rows.push(line);
+    // Extrato real pode ter dois PIX iguais no mesmo dia — não deduplicar.
+    rows.push(`${date};${csvEscape(description)};${signed < 0 ? `-${abs}` : abs};${tipo}`);
   }
   return rows.length > 1 ? rows.join('\n') : '';
 }

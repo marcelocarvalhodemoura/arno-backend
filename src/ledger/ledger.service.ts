@@ -9,6 +9,15 @@ import { createTransactionBody, patchTransactionBody } from '../shared/http/sche
 import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from '../notifications/notify';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
 import type { BranchId } from '../shared/types';
+import { updatedAudit } from '../shared/audit';
+import {
+  assertNotaFile,
+  buildNotaKey,
+  deleteNotaObject,
+  s3Configured,
+  signedNotaUrl,
+  uploadNotaObject,
+} from '../storage/s3';
 
 const splitBody = z.object({
   parts: z
@@ -46,6 +55,7 @@ export class LedgerService {
       guardian: tx.memberGuardianId
         ? ((db.memberGuardians ?? []).find((item) => item.id === tx.memberGuardianId) ?? null)
         : null,
+      hasNota: Boolean(tx.notaKey),
     }));
   }
 
@@ -78,8 +88,121 @@ export class LedgerService {
   }
 
   async remove(id: string) {
-    const ok = await mutate((db) => deleteTransaction(db, id));
+    const db = await loadDb();
+    const tx = db.transactions.find((item) => item.id === id);
+    const notaKey = tx?.notaKey;
+    const ok = await mutate((store) => deleteTransaction(store, id));
     if (!ok) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
+    if (notaKey && s3Configured()) {
+      try {
+        await deleteNotaObject(notaKey);
+      } catch {
+        // não bloqueia a exclusão do lançamento se o S3 falhar
+      }
+    }
+  }
+
+  async uploadNota(id: string, file: Express.Multer.File | undefined, userId: string) {
+    if (!s3Configured()) fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
+    if (!file) fail('Envie o arquivo da nota no campo file', HttpStatus.BAD_REQUEST);
+    try {
+      assertNotaFile(file);
+    } catch (error) {
+      fail(errorMessage(error, 'Arquivo inválido'), HttpStatus.BAD_REQUEST);
+    }
+
+    const db = await loadDb();
+    const tx = db.transactions.find((item) => item.id === id);
+    if (!tx) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
+
+    const previousKey = tx.notaKey;
+    const fileName = file.originalname?.trim() || 'nota';
+    const contentType = file.mimetype;
+    const key = buildNotaKey(id, fileName, contentType);
+
+    try {
+      await uploadNotaObject({
+        key,
+        body: file.buffer,
+        contentType,
+        fileName,
+      });
+    } catch (error) {
+      fail(errorMessage(error, 'Não foi possível enviar a nota ao armazenamento'), HttpStatus.BAD_GATEWAY);
+    }
+
+    const updated = await mutate((store) => {
+      const current = store.transactions.find((item) => item.id === id);
+      if (!current) return null;
+      current.notaKey = key;
+      current.notaFileName = fileName;
+      current.notaContentType = contentType;
+      Object.assign(current, updatedAudit(userId));
+      return current;
+    });
+    if (!updated) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
+
+    if (previousKey && previousKey !== key) {
+      try {
+        await deleteNotaObject(previousKey);
+      } catch {
+        // ignora falha ao limpar arquivo antigo
+      }
+    }
+
+    return {
+      id: updated.id,
+      notaKey: updated.notaKey,
+      notaFileName: updated.notaFileName,
+      notaContentType: updated.notaContentType,
+      hasNota: true,
+    };
+  }
+
+  async getNota(id: string) {
+    if (!s3Configured()) fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
+    const db = await loadDb();
+    const tx = db.transactions.find((item) => item.id === id);
+    if (!tx) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
+    if (!tx.notaKey) fail('Este lançamento não tem nota anexada', HttpStatus.NOT_FOUND);
+
+    try {
+      const url = await signedNotaUrl(tx.notaKey, tx.notaFileName);
+      return {
+        url,
+        fileName: tx.notaFileName ?? 'nota',
+        contentType: tx.notaContentType ?? 'application/octet-stream',
+        expiresInSeconds: 15 * 60,
+      };
+    } catch (error) {
+      fail(errorMessage(error, 'Não foi possível gerar o link da nota'), HttpStatus.BAD_GATEWAY);
+    }
+  }
+
+  async removeNota(id: string, userId: string) {
+    const db = await loadDb();
+    const tx = db.transactions.find((item) => item.id === id);
+    if (!tx) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
+    if (!tx.notaKey) fail('Este lançamento não tem nota anexada', HttpStatus.NOT_FOUND);
+
+    const key = tx.notaKey;
+    await mutate((store) => {
+      const current = store.transactions.find((item) => item.id === id);
+      if (!current) return false;
+      delete current.notaKey;
+      delete current.notaFileName;
+      delete current.notaContentType;
+      Object.assign(current, updatedAudit(userId));
+      return true;
+    });
+
+    if (s3Configured()) {
+      try {
+        await deleteNotaObject(key);
+      } catch {
+        // metadados já removidos
+      }
+    }
   }
 
   async split(id: string, body: unknown, userId: string) {

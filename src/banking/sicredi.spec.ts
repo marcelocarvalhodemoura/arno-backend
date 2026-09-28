@@ -215,6 +215,65 @@ describe('ingestTransactions', () => {
     expect(db.transactions[0]?.externalId).toBe('FILE-1');
   });
 
+  it('keeps two identical bank PIX from the same statement, but skips them on reimport', () => {
+    const db = emptyDb();
+    db.transactions = [];
+    ensureIdentifyType(db, 'user-1');
+    const identify = db.movementTypes.find((item) => item.name === 'A identificar')!;
+    const row = {
+      date: '2026-09-14',
+      type: 'income' as const,
+      nature: 'variable' as const,
+      movementTypeId: identify.id,
+      description: 'RECEBIMENTO PIX 01498717080 Camilla de Carvalho PIX_CRED',
+      amount: 55,
+      branch: 'grupo' as const,
+      method: 'pix' as const,
+      importSource: 'pdf' as const,
+    };
+    const first = ingestTransactions(db, [row, { ...row }], 'user-1', 'integration');
+    expect(first.created).toHaveLength(2);
+    expect(db.transactions).toHaveLength(2);
+
+    const again = ingestTransactions(db, [row, { ...row }], 'user-1', 'integration');
+    expect(again.created).toHaveLength(0);
+    expect(again.skipped).toHaveLength(2);
+    expect(again.skipped.every((item) => item.reason === 'Lançamento já importado')).toBe(true);
+    expect(db.transactions).toHaveLength(2);
+  });
+
+  it('on reimport only creates movements that were missing from the first pass', () => {
+    const db = emptyDb();
+    db.transactions = [];
+    ensureIdentifyType(db, 'user-1');
+    const identify = db.movementTypes.find((item) => item.name === 'A identificar')!;
+    const camilla = {
+      date: '2026-09-14',
+      type: 'income' as const,
+      nature: 'variable' as const,
+      movementTypeId: identify.id,
+      description: 'RECEBIMENTO PIX 01498717080 Camilla de Carvalho PIX_CRED',
+      amount: 55,
+      branch: 'grupo' as const,
+      method: 'pix' as const,
+      importSource: 'pdf' as const,
+    };
+    const marcelo = {
+      ...camilla,
+      date: '2026-09-28',
+      description: 'RECEBIMENTO PIX 00114577080 Marcelo Carvalho de PIX_CRED',
+      amount: 15,
+    };
+    const partial = ingestTransactions(db, [camilla], 'user-1', 'integration');
+    expect(partial.created).toHaveLength(1);
+
+    const full = ingestTransactions(db, [camilla, camilla, marcelo], 'user-1', 'integration');
+    expect(full.created).toHaveLength(2);
+    expect(full.skipped).toHaveLength(1);
+    expect(full.skipped[0]?.reason).toBe('Lançamento já importado');
+    expect(db.transactions).toHaveLength(3);
+  });
+
   it('links Sicredi Pix to a prior PDF/CSV import with different historico', () => {
     const db = emptyDb();
     db.transactions = [];

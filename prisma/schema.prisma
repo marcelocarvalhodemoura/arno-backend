@@ -234,6 +234,10 @@ model Transaction {
   memberGuardianId String?   @map("member_guardian_id") @db.Uuid
   projectId        String?   @map("project_id") @db.Uuid
   notes            String?
+  /** Chave do arquivo da nota no S3 (bucket AWS_S3_BUCKET). */
+  notaKey          String?   @map("nota_key")
+  notaFileName     String?   @map("nota_file_name")
+  notaContentType  String?   @map("nota_content_type")
   externalId       String?   @unique @map("external_id")
   clubFeeIncluded  Boolean?  @map("club_fee_included")
   splitGroupId     String?   @map("split_group_id") @db.Uuid

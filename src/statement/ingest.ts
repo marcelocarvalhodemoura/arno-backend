@@ -118,18 +118,6 @@ function softContentKey(row: { date: string; type: string; description: string; 
   return `soft:${row.date}|${row.type}|${roundMoney(row.amount)}|${normalizePixDescription(row.description)}`;
 }
 
-function ingestFingerprint(row: {
-  date: string;
-  type: string;
-  description: string;
-  amount: number;
-  memberId?: string;
-  externalId?: string;
-}) {
-  if (row.externalId) return `ext:${row.externalId}`;
-  return contentFingerprint(row);
-}
-
 function effectiveMatchAmount(tx: Transaction): number {
   if (tx.splitTotal != null && Number(tx.splitTotal) > 0) return roundMoney(Number(tx.splitTotal));
   return roundMoney(tx.amount);
@@ -156,9 +144,11 @@ function scoreReusable(tx: Transaction, row: IngestRow): number {
 export function findReusableTransaction(
   db: DatabaseShape,
   row: Pick<IngestRow, 'date' | 'type' | 'description' | 'amount' | 'memberId' | 'externalId'>,
+  claimedIds?: Set<string>,
 ): Transaction | undefined {
   const amount = roundMoney(row.amount);
   const candidates = db.transactions.filter((tx) => {
+    if (claimedIds?.has(tx.id)) return false;
     if (tx.type !== row.type) return false;
     if (!datesOf(tx, db).has(row.date)) return false;
     if (!amountsNear(effectiveMatchAmount(tx), amount) && !amountsNear(tx.amount, amount)) return false;
@@ -175,7 +165,10 @@ export function findReusableTransaction(
     (a, b) => scoreReusable(b, row as IngestRow) - scoreReusable(a, row as IngestRow),
   )[0];
   if (!best?.splitGroupId) return best;
-  return db.transactions.find((item) => item.splitGroupId === best.splitGroupId && item.splitIndex === 1) ?? best;
+  const primary =
+    db.transactions.find((item) => item.splitGroupId === best.splitGroupId && item.splitIndex === 1) ?? best;
+  if (claimedIds?.has(primary.id)) return undefined;
+  return primary;
 }
 
 function attachIncomingIds(tx: Transaction, row: IngestRow, memberGuardianId: string | undefined, userId: string) {
@@ -213,11 +206,17 @@ export function ingestTransactions(
   const paid: string[] = [];
   const unidentified: string[] = [];
   const skipped: { description: string; reason: string }[] = [];
-  const seen = new Set<string>();
+  const seenExt = new Set<string>();
   const byContent = new Map<string, Transaction>();
+  /** Quantos lançamentos iguais (data/tipo/valor/histórico) já existem no caixa. */
+  const softExisting = new Map<string, number>();
+  /** Quantos iguais já foram consumidos nesta importação (match com o que já está no caixa). */
+  const softConsumed = new Map<string, number>();
+  /** Evita que dois PIX iguais do extrato casem com o mesmo lançamento já existente. */
+  const claimedIds = new Set<string>();
 
   for (const tx of db.transactions) {
-    rememberIngest(seen, tx);
+    if (tx.externalId) seenExt.add(`ext:${tx.externalId}`);
     const matchAmount = effectiveMatchAmount(tx);
     for (const date of datesOf(tx, db)) {
       const key = contentFingerprint({
@@ -228,14 +227,13 @@ export function ingestTransactions(
         memberId: tx.memberId,
       });
       if (!byContent.has(key)) byContent.set(key, tx);
-      seen.add(
-        softContentKey({
-          date,
-          type: tx.type,
-          description: tx.description,
-          amount: matchAmount,
-        }),
-      );
+      const soft = softContentKey({
+        date,
+        type: tx.type,
+        description: tx.description,
+        amount: matchAmount,
+      });
+      softExisting.set(soft, (softExisting.get(soft) ?? 0) + 1);
     }
   }
 
@@ -261,21 +259,27 @@ export function ingestTransactions(
       amount,
     });
     const extKey = row.externalId ? `ext:${row.externalId}` : '';
-    if (extKey && seen.has(extKey)) {
+    if (extKey && seenExt.has(extKey)) {
       skipped.push({
         description: row.description,
         reason: 'Pix já conciliado',
       });
       continue;
     }
-    if (seen.has(contentKey) || seen.has(softKey)) {
-      const existing = byContent.get(contentKey) ?? findReusableTransaction(db, { ...row, amount });
+
+    const already = softExisting.get(softKey) ?? 0;
+    const consumed = softConsumed.get(softKey) ?? 0;
+    if (consumed < already) {
+      const fromContent = byContent.get(contentKey);
+      const existing =
+        (fromContent && !claimedIds.has(fromContent.id) ? fromContent : undefined) ??
+        findReusableTransaction(db, { ...row, amount }, claimedIds);
       if (existing) {
         attachIncomingIds(existing, row, memberGuardianId, userId);
-        rememberIngest(seen, existing);
         byContent.set(contentKey, existing);
-        seen.add(softKey);
+        claimedIds.add(existing.id);
       }
+      softConsumed.set(softKey, consumed + 1);
       skipped.push({
         description: row.description,
         reason: 'Lançamento já importado',
@@ -283,12 +287,13 @@ export function ingestTransactions(
       continue;
     }
 
-    const reusable = findReusableTransaction(db, { ...row, amount });
+    const reusable = findReusableTransaction(db, { ...row, amount }, claimedIds);
     if (reusable) {
       attachIncomingIds(reusable, row, memberGuardianId, userId);
-      rememberIngest(seen, reusable);
       byContent.set(contentKey, reusable);
-      seen.add(softKey);
+      claimedIds.add(reusable.id);
+      softConsumed.set(softKey, consumed + 1);
+      softExisting.set(softKey, Math.max(already, consumed + 1));
       skipped.push({
         description: row.description,
         reason: 'Lançamento já importado',
@@ -324,7 +329,11 @@ export function ingestTransactions(
         if (row.importSource && !pending.importSource) pending.importSource = row.importSource;
         Object.assign(pending, updatedAudit(userId));
         paid.push(pending.id);
-        rememberIngest(seen, pending);
+        softConsumed.set(softKey, (softConsumed.get(softKey) ?? 0) + 1);
+        softExisting.set(softKey, (softExisting.get(softKey) ?? 0) + 1);
+        if (pending.externalId) seenExt.add(`ext:${pending.externalId}`);
+        byContent.set(contentKey, pending);
+        claimedIds.add(pending.id);
         continue;
       }
       if (
@@ -347,7 +356,12 @@ export function ingestTransactions(
         );
         if (paidTx && row.externalId && !paidTx.externalId) paidTx.externalId = row.externalId;
         if (paidTx && row.importSource && !paidTx.importSource) paidTx.importSource = row.importSource;
-        if (paidTx) rememberIngest(seen, paidTx);
+        if (paidTx) {
+          softConsumed.set(softKey, (softConsumed.get(softKey) ?? 0) + 1);
+          softExisting.set(softKey, (softExisting.get(softKey) ?? 0) + 1);
+          byContent.set(contentKey, paidTx);
+          claimedIds.add(paidTx.id);
+        }
         skipped.push({
           description: row.description,
           reason: 'Mensalidade já está paga neste período',
@@ -381,28 +395,13 @@ export function ingestTransactions(
     if (!tx.importSource) delete tx.importSource;
     db.transactions.push(tx);
     created.push(tx.id);
-    rememberIngest(seen, { ...row, amount });
     byContent.set(contentKey, tx);
-    seen.add(softKey);
+    claimedIds.add(tx.id);
+    softConsumed.set(softKey, (softConsumed.get(softKey) ?? 0) + 1);
+    softExisting.set(softKey, (softExisting.get(softKey) ?? 0) + 1);
+    if (tx.externalId) seenExt.add(`ext:${tx.externalId}`);
     if (isUnidentifiedName(movement.name)) unidentified.push(tx.id);
   }
 
   return { created, paid, unidentified, skipped };
-}
-
-function rememberIngest(
-  seen: Set<string>,
-  row: {
-    date: string;
-    type: string;
-    description: string;
-    amount: number;
-    memberId?: string;
-    externalId?: string;
-  },
-) {
-  seen.add(ingestFingerprint(row));
-  if (row.externalId) {
-    seen.add(contentFingerprint(row));
-  }
 }

@@ -274,6 +274,10 @@ export interface Transaction {
   memberGuardianId?: string;
   projectId?: string;
   notes?: string;
+  /** Chave do arquivo da nota no S3. */
+  notaKey?: string;
+  notaFileName?: string;
+  notaContentType?: string;
   externalId?: string;
   /** Mensalidade: se a parcela do clube (R$ 20) entra neste mês. */
   clubFeeIncluded?: boolean;

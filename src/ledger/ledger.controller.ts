@@ -1,5 +1,20 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiBody, ApiNoContentResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBody, ApiConsumes, ApiNoContentResponse, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { memoryStorage } from 'multer';
 import { CurrentUser } from '../shared/auth/current-user.decorator';
 import type { AuthPayload } from '../shared/auth/token';
 import { ApiAuth } from '../shared/swagger/api-auth.decorator';
@@ -79,6 +94,53 @@ export class LedgerController {
   @ApiNoContentResponse()
   remove(@Param('id') id: string) {
     return this.ledger.remove(id);
+  }
+
+  @Post('transactions/:id/nota')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Anexar nota ao lançamento',
+    description: 'PDF ou imagem (JPEG, PNG, WebP, GIF), até 10 MB. Substitui a nota anterior.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: {
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  uploadNota(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @CurrentUser() auth: AuthPayload,
+  ) {
+    return this.ledger.uploadNota(id, file, auth.userId);
+  }
+
+  @Get('transactions/:id/nota')
+  @ApiOperation({
+    summary: 'Obter URL ampliada da nota',
+    description: 'Devolve URL assinada (temporária) para visualizar a nota em tela cheia.',
+  })
+  getNota(@Param('id') id: string) {
+    return this.ledger.getNota(id);
+  }
+
+  @Delete('transactions/:id/nota')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Remover nota do lançamento' })
+  @ApiNoContentResponse()
+  removeNota(@Param('id') id: string, @CurrentUser() auth: AuthPayload) {
+    return this.ledger.removeNota(id, auth.userId);
   }
 
   @Post('transactions/:id/split')

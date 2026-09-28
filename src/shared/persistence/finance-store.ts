@@ -230,6 +230,9 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         memberGuardianId: tx.memberGuardianId ?? null,
         projectId: tx.projectId ?? null,
         notes: tx.notes ?? null,
+        notaKey: tx.notaKey ?? null,
+        notaFileName: tx.notaFileName ?? null,
+        notaContentType: tx.notaContentType ?? null,
         externalId: tx.externalId ?? null,
         clubFeeIncluded: tx.clubFeeIncluded ?? null,
         splitGroupId: tx.splitGroupId ?? null,
@@ -598,6 +601,9 @@ function mapTransaction(row: {
   memberGuardianId: string | null;
   projectId: string | null;
   notes: string | null;
+  notaKey: string | null;
+  notaFileName: string | null;
+  notaContentType: string | null;
   externalId: string | null;
   clubFeeIncluded: boolean | null;
   splitGroupId: string | null;
@@ -628,6 +634,9 @@ function mapTransaction(row: {
     memberGuardianId: row.memberGuardianId ?? undefined,
     projectId: row.projectId ?? undefined,
     notes: row.notes ?? undefined,
+    notaKey: row.notaKey ?? undefined,
+    notaFileName: row.notaFileName ?? undefined,
+    notaContentType: row.notaContentType ?? undefined,
     externalId: row.externalId ?? undefined,
     clubFeeIncluded: row.clubFeeIncluded ?? undefined,
     splitGroupId: row.splitGroupId ?? undefined,

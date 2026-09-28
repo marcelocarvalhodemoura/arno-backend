@@ -46,15 +46,28 @@ describe('statementTextToCsv', () => {
     expect(csv).not.toContain('0800');
   });
 
-  it('keeps the movement value instead of the running balance', () => {
-    const csv = statementTextToCsv(
-      `Data Descrição Documento Valor (R$) Saldo (R$)
-12/01/2026 PAGAMENTO PIX TARIFA PACOTE PIX_DEB 12,90 72,87
-`,
-    );
-    expect(csv).toContain('-12,90');
-    expect(csv).toContain('saida');
-    expect(csv).not.toContain('72,87');
+  it('keeps duplicate PIX lines with the same date and amount', () => {
+    const csv = statementTextToCsv(`Data Descrição Documento Valor (R$) Saldo (R$)
+14/09/2026 RECEBIMENTO PIX 01498717080 Camilla de Carvalho PIX_CRED 55,00 17.079,10
+14/09/2026 RECEBIMENTO PIX 01498717080 Camilla de Carvalho PIX_CRED 55,00 17.134,10
+`);
+    const lines = csv.split('\n').filter((line) => line.includes('Camilla'));
+    expect(lines).toHaveLength(2);
+  });
+
+  it('does not let the account summary steal the last movement value', () => {
+    const csv = statementTextToCsv(`Data Descrição Documento Valor (R$) Saldo (R$)
+28/09/2026 RECEBIMENTO PIX 00114577080 Marcelo Carvalho de PIX_CRED 150,00 14.615,90
+28/09/2026 RECEBIMENTO PIX 00114577080 Marcelo Carvalho de PIX_CRED 15,00 14.630,90
+Saldo da conta
+Saldo Atual R$ 14.630,90
+Saldo bloqueado R$ 0,00
+Lançamentos a conferir R$ 0,00
+Sicredi Fone 0800 724 4770
+`);
+    expect(csv).toContain('150,00');
+    expect(csv).toContain(';15,00;');
+    expect(csv).not.toContain(';-0,00;');
   });
 });
 
