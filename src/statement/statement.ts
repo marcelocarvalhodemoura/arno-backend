@@ -90,7 +90,19 @@ const KEYWORDS: { needles: string[]; typeName: string; direction?: TxType }[] = 
     direction: 'expense',
   },
   {
-    needles: ['ifood', 'mercado', 'supermercado', 'padaria', 'lanche', 'restaurante', 'aliment'],
+    needles: [
+      'ifood',
+      'mercado',
+      'supermercado',
+      'atacad',
+      'hortifruti',
+      'acougue',
+      'padaria',
+      'panificadora',
+      'lanche',
+      'restaurante',
+      'aliment',
+    ],
     typeName: 'Alimentação',
     direction: 'expense',
   },
@@ -392,7 +404,7 @@ function inferBankDirection(description: string): TxType | null {
   return null;
 }
 
-function classifyMovement(description: string, direction: TxType, types: StatementCatalog['movementTypes']) {
+export function classifyMovement(description: string, direction: TxType, types: StatementCatalog['movementTypes']) {
   const key = fold(description);
   for (const rule of KEYWORDS) {
     if (rule.direction && rule.direction !== direction) continue;

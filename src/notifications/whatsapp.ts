@@ -13,7 +13,14 @@ export type WhatsAppIncomingMessage = {
   type: string;
   text?: string;
   contactName?: string;
+  /** Imagem ou documento (nota fiscal). */
+  mediaId?: string;
+  mimeType?: string;
+  caption?: string;
+  fileName?: string;
 };
+
+type WhatsAppMedia = { id?: unknown; mime_type?: unknown; caption?: unknown; filename?: unknown };
 
 type WhatsAppWebhookBody = {
   object?: unknown;
@@ -29,6 +36,8 @@ type WhatsAppChangeValue = {
     timestamp?: unknown;
     type?: unknown;
     text?: { body?: unknown };
+    image?: WhatsAppMedia;
+    document?: WhatsAppMedia;
   }>;
 };
 
@@ -103,6 +112,7 @@ export function parseWhatsAppWebhook(body: unknown): WhatsAppIncomingMessage[] {
         const from = asString(item.from);
         const id = asString(item.id);
         if (!from || !id) continue;
+        const media = item.image ?? item.document;
         messages.push({
           phoneNumberId,
           from,
@@ -111,6 +121,10 @@ export function parseWhatsAppWebhook(body: unknown): WhatsAppIncomingMessage[] {
           type: asString(item.type) || 'unknown',
           text: asString(item.text?.body) || undefined,
           contactName: contacts.get(from) || undefined,
+          mediaId: asString(media?.id) || undefined,
+          mimeType: asString(media?.mime_type) || undefined,
+          caption: asString(media?.caption) || undefined,
+          fileName: asString(media?.filename) || undefined,
         });
       }
     }
@@ -123,10 +137,10 @@ export function handleWhatsAppEvents(body: unknown) {
   const messages = parseWhatsAppWebhook(body);
   for (const message of messages) {
     const who = message.contactName ? `${message.contactName} (${message.from})` : message.from;
-    const detail = message.text ? `: ${message.text}` : '';
+    const detail = message.text ? `: ${message.text}` : message.caption ? `: ${message.caption}` : '';
     console.log(`WhatsApp ${message.type} de ${who}${detail}`);
   }
-  return { received: messages.length };
+  return messages;
 }
 
 function firstString(...values: unknown[]) {

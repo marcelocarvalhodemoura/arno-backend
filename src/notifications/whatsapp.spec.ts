@@ -106,7 +106,7 @@ describe('whatsapp webhook', () => {
         contactName: 'Helena Souza',
       },
     ]);
-    expect(handleWhatsAppEvents(body)).toEqual({ received: 1 });
+    expect(handleWhatsAppEvents(body)).toHaveLength(1);
   });
 
   it('reports configuration without exposing secrets', () => {
