@@ -170,4 +170,24 @@ describe('matchMember', () => {
     expect(hit?.member.id).toBe('m-lucas');
     expect(hit?.guardian?.id).toBe('g-joana');
   });
+
+  it('matches a guardian name truncated by the Sicredi statement', () => {
+    const members = [
+      {
+        id: 'm-bia',
+        name: 'Beatriz Gonzaga',
+        branch: 'lobinho' as const,
+        monthlyFee: 89.5,
+        guardians: [{ id: 'g-matheus', name: 'Matheus Prevê Gonzaga' }],
+      },
+    ];
+    const hit = matchMember('RECEBIMENTO PIX 04968597061 MATHEUS PREVE GONZAG PIX_CRED', members);
+    expect(hit?.member.id).toBe('m-bia');
+    expect(hit?.guardian?.id).toBe('g-matheus');
+  });
+
+  it('ignores short payer names that are only a prefix', () => {
+    const members = [{ id: 'm-x', name: 'Ana Souza Martins', branch: 'lobinho' as const, monthlyFee: 89.5 }];
+    expect(matchMember('RECEBIMENTO PIX 04968597061 ANA SOU PIX_CRED', members)).toBeNull();
+  });
 });

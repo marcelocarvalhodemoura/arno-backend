@@ -105,4 +105,30 @@ describe('transactions', () => {
     stampPaidAt(tx as never, 'Mensalidade', 'paid', undefined, '2026-08-10');
     expect(tx.paidAt).toBe('2026-08-02');
   });
+
+  it('learns the Pix payer CPF when the treasurer assigns a member', () => {
+    const db = emptyDb();
+    const tx = createTransaction(
+      db,
+      {
+        date: '2026-09-21',
+        type: 'income',
+        nature: 'variable',
+        movementTypeId: 'mt-doa',
+        description: 'RECEBIMENTO PIX 04968597061 MATHEUS PREVE GONZAG PIX_CRED',
+        amount: 40,
+        branch: 'grupo',
+        method: 'pix',
+      },
+      'u1',
+    );
+    updateTransaction(db, tx.id, { memberId: 'm-bia' }, 'u1');
+    updateTransaction(db, tx.id, { memberId: 'm-bia' }, 'u1');
+    expect(db.memberAccounts).toHaveLength(1);
+    expect(db.memberAccounts[0]).toMatchObject({
+      memberId: 'm-bia',
+      document: '04968597061',
+      holderName: 'MATHEUS PREVE GONZAG',
+    });
+  });
 });

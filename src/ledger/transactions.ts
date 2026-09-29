@@ -5,7 +5,7 @@ import { roundMoney } from '../shared/types';
 import type { CreateTransactionInput, PatchTransactionInput } from '../shared/http/schemas';
 import { resolveGuardianId } from '../members/members';
 import { todayISO } from '../mensalidades/mensalidades';
-import { isMensalidadeName } from '../statement/statement';
+import { isMensalidadeName, sicrediPayer } from '../statement/statement';
 
 export function stampPaidAt(
   tx: Transaction,
@@ -110,6 +110,7 @@ export function updateTransaction(
   else if (memberAccountId) tx.memberAccountId = memberAccountId;
   if (projectId === null) delete tx.projectId;
   else if (projectId) tx.projectId = projectId;
+  if (memberId) learnPayerAccount(db, tx, userId);
   const nextMemberId = memberId === null ? undefined : (memberId ?? tx.memberId);
   if (memberGuardianId === null || !nextMemberId) {
     delete tx.memberGuardianId;
@@ -122,6 +123,32 @@ export function updateTransaction(
     if (!belongs) delete tx.memberGuardianId;
   }
   return { tx, shouldNotify };
+}
+
+/** Guarda o CPF do pagador do Pix no associado para identificar os próximos extratos automaticamente. */
+export function learnPayerAccount(db: DatabaseShape, tx: Transaction, userId: string) {
+  const payer = sicrediPayer(tx.description);
+  if (!payer || !tx.memberId) return;
+  const known = db.memberAccounts.some(
+    (item) => item.memberId === tx.memberId && item.document.replace(/\D/g, '') === payer.document,
+  );
+  if (known) return;
+  db.memberAccounts.push({
+    id: id(),
+    memberId: tx.memberId,
+    holderName: payer.name,
+    holderKind: 'other',
+    relationship: 'Pagador do Pix',
+    pixKey: '',
+    bank: '',
+    agency: '',
+    accountNumber: '',
+    document: payer.document,
+    notes: 'Aprendido na conciliação do extrato',
+    isPrimary: false,
+    active: true,
+    ...createdAudit(userId, 'integration'),
+  });
 }
 
 export function deleteTransaction(db: DatabaseShape, txId: string) {

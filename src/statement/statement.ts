@@ -440,11 +440,15 @@ export function matchMember(text: string, members: StatementCatalog['members']) 
     guardian?: { id: string; name: string };
   } | null = null;
   let ties = 0;
+  const payer = payerName(text);
+  // O Sicredi corta o nome do pagador em ~20 caracteres: aceita o nome cadastrado que começa com ele.
+  const truncatedMatch = (value: string) => payer.length >= 15 && payer.includes(' ') && fold(value).startsWith(payer);
   for (const member of members) {
     let score = 0;
     let guardian: { id: string; name: string } | undefined;
     const name = fold(member.name);
     if (name.length >= 5 && key.includes(name)) score = Math.max(score, 80);
+    if (truncatedMatch(member.name)) score = Math.max(score, 65);
     const parts = name.split(/\s+/).filter((part) => part.length > 2);
     if (parts.length >= 2 && parts.every((part) => key.includes(part))) score = Math.max(score, 70);
     const last = parts.at(-1);
@@ -455,6 +459,7 @@ export function matchMember(text: string, members: StatementCatalog['members']) 
     for (const account of member.accounts ?? []) {
       const holder = fold(account.holderName);
       if (holder.length >= 5 && key.includes(holder)) score = Math.max(score, 75);
+      if (truncatedMatch(account.holderName)) score = Math.max(score, 73);
       const pix = fold(account.pixKey ?? '').replace(/\s+/g, '');
       if (pix.length >= 6 && compact.includes(pix)) score = Math.max(score, 95);
       const document = onlyDigits(account.document ?? '');
@@ -471,6 +476,9 @@ export function matchMember(text: string, members: StatementCatalog['members']) 
       } else if (parts.length >= 2 && parts.every((part) => key.includes(part))) {
         score = Math.max(score, 74);
         guardian = item;
+      } else if (truncatedMatch(item.name) && score < 72) {
+        score = 72;
+        guardian = item;
       }
     }
     if (score === 0) continue;
@@ -483,6 +491,18 @@ export function matchMember(text: string, members: StatementCatalog['members']) 
   }
   if (!best || best.score < 60 || ties > 1) return null;
   return best;
+}
+
+const SICREDI_PIX = /^recebimento pix\s+(\d{11}|\d{14})\s+(.+?)(?:\s+pix_c\w*)?$/i;
+
+/** CPF/CNPJ e nome do pagador num histórico "RECEBIMENTO PIX <CPF> <NOME> PIX_CRED" do Sicredi. */
+export function sicrediPayer(text: string): { document: string; name: string } | null {
+  const match = text.replace(/\s+/g, ' ').trim().match(SICREDI_PIX);
+  return match ? { document: match[1], name: match[2].trim() } : null;
+}
+
+function payerName(text: string) {
+  return fold(sicrediPayer(text)?.name ?? '');
 }
 
 export function matchGuardian(text: string, member: StatementCatalog['members'][number]) {
