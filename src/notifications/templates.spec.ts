@@ -1,4 +1,12 @@
-import { composeNotifyMessage, escapeHtml, FINANCE_WHATSAPP_DISPLAY, firstName, GROUP_CNPJ } from './templates';
+import {
+  composeDueReminderMessage,
+  composeNotifyMessage,
+  escapeHtml,
+  FINANCE_WHATSAPP_DISPLAY,
+  firstName,
+  GROUP_CNPJ,
+  VALORES_CID,
+} from './templates';
 import type { DatabaseShape, Member, Transaction } from '../shared/types';
 
 function member(partial: Partial<Member> & Pick<Member, 'id' | 'name'>): Member {
@@ -127,5 +135,26 @@ describe('receipt email template', () => {
     expect(message.html).toContain('Ana Souza');
     expect(message.html).toContain('Ramo Escoteiro');
     expect(message.html).toMatch(/R\$(\u00a0|&nbsp;|\s*)89,50/);
+  });
+});
+
+describe('due reminder email template', () => {
+  it('reminds guardians that due day is the 10th and embeds the fee poster', () => {
+    const message = composeDueReminderMessage({
+      who: 'Helena Souza',
+      dueDay: 10,
+      month: 10,
+      year: 2026,
+    });
+    expect(message.subject).toContain('vence dia 10');
+    expect(message.subject).toContain('outubro 2026');
+    expect(message.text).toContain('Olá, Helena.');
+    expect(message.text).toContain('vence no dia 10');
+    expect(message.text).toContain(GROUP_CNPJ);
+    expect(message.html).toContain('Lembrete de vencimento');
+    expect(message.html).toContain('Pague até o dia 10');
+    expect(message.html).toContain(`cid:${VALORES_CID}`);
+    expect(message.html).toContain('Tabela de valores');
+    expect(message.html).toContain(FINANCE_WHATSAPP_DISPLAY);
   });
 });

@@ -50,6 +50,26 @@ describe('members', () => {
     ]);
   });
 
+  it('title-cases member and guardian names on create', () => {
+    const db = emptyDb();
+    const member = createMember(
+      db,
+      {
+        name: 'ANA CLARA DOS CASAES',
+        email: 'ana.clara@example.com',
+        phone: '51999990001',
+        branch: 'escoteiro',
+        role: 'jovem',
+        joinedAt: '2026-03-01',
+        clubeLtc: false,
+        guardians: [{ name: 'CRISTINA DOS CASAES CLARO', relationship: 'Mãe' }],
+      },
+      'u1',
+    );
+    expect(member.name).toBe('Ana Clara dos Casaes');
+    expect(db.memberGuardians[0]?.name).toBe('Cristina dos Casaes Claro');
+  });
+
   it('creates a youth with official fee and a guardian', () => {
     const db = emptyDb();
     const member = createMember(
@@ -113,6 +133,10 @@ describe('members', () => {
     expect(member.chiefChild).toBe(true);
     expect(member.feeOverride).toBe(82);
     expect(member.monthlyFee).toBe(82);
+
+    const asMember = updateMember(db, member.id, { clubeLtc: true }, 'u1');
+    expect(asMember?.feeOverride).toBe(67.5);
+    expect(asMember?.monthlyFee).toBe(67.5);
   });
 
   it('links siblings bidirectionally and applies special fee to both', () => {

@@ -309,18 +309,18 @@ describe('mensalidades', () => {
     expect(may?.amount).toBe(89.5);
     setMensalidadeClubFee(db, may!.id, false, 'u1', '2026-03-01');
     expect(may?.clubFeeIncluded).toBe(false);
-    expect(may?.amount).toBe(69.5);
+    expect(may?.amount).toBe(75);
     const updated = setMensalidadeClubFeeBulk(db, { year: 2026, month: 6, clubFeeIncluded: false }, 'u1', '2026-03-01');
     expect(updated).toBe(2);
     expect(
       db.transactions
         .filter((tx) => tx.date.startsWith('2026-06'))
-        .every((tx) => tx.clubFeeIncluded === false && tx.amount === 69.5),
+        .every((tx) => tx.clubFeeIncluded === false && tx.amount === 75),
     ).toBe(true);
     const report = buildMensalidadeReport(db, 2026, '2026-03-01');
     const anaMay = report.rows.find((row) => row.memberId === 'm1')?.cells.find((cell) => cell.month === 5);
     expect(anaMay?.clubFeeIncluded).toBe(false);
-    expect(anaMay?.amount).toBe(69.5);
+    expect(anaMay?.amount).toBe(75);
   });
 
   it('applies a member fee override from maio without late bump', () => {

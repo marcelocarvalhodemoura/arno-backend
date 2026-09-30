@@ -1,4 +1,6 @@
 import { fold } from '../shared/csv';
+import { MENSALIDADE_BRANCH_SHARE } from '../mensalidades/fee-table';
+import { isMensalidadeName } from '../statement/statement';
 import type {
   BranchId,
   BudgetStatus,
@@ -27,6 +29,31 @@ export function isSettled(tx: Transaction): boolean {
   return tx.paymentStatus !== 'pending';
 }
 
+function isMensalidadeIncome(db: DatabaseShape, tx: Transaction): boolean {
+  if (tx.type !== 'income') return false;
+  const movement = db.movementTypes.find((item) => item.id === tx.movementTypeId);
+  return Boolean(movement && isMensalidadeName(movement.name));
+}
+
+/**
+ * Valor do lançamento na visão por ramo.
+ * Mensalidade de jovem: só a caixinha do ramo (R$ 8 do cartaz), não o valor integral.
+ */
+export function amountForBranchView(db: DatabaseShape, tx: Transaction): number {
+  if (tx.branch === 'grupo') return tx.amount;
+  if (!isMensalidadeIncome(db, tx)) return tx.amount;
+  return roundMoney(Math.min(MENSALIDADE_BRANCH_SHARE, Math.abs(tx.amount)));
+}
+
+/** Caixinha do ramo só na síntese/agrupamento por ramo — relatório fiscal permanece integral. */
+function usesBranchMensalidadeShare(query: Pick<CustomReportQuery, 'groupBy'>): boolean {
+  return query.groupBy === 'branch';
+}
+
+function reportAmount(db: DatabaseShape, tx: Transaction, query: Pick<CustomReportQuery, 'groupBy'>): number {
+  return usesBranchMensalidadeShare(query) ? amountForBranchView(db, tx) : tx.amount;
+}
+
 export function cashBalance(db: DatabaseShape, until?: string): number {
   const txs = (until ? db.transactions.filter((t) => t.date <= until) : db.transactions).filter(isSettled);
   const net = sumBy(txs, (t) => (t.type === 'income' ? t.amount : -t.amount));
@@ -50,6 +77,41 @@ function dayBefore(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
   d.setDate(d.getDate() - 1);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function matchesReportFilters(
+  t: Transaction,
+  query: Pick<CustomReportQuery, 'branches' | 'types' | 'natures' | 'movementTypeIds'>,
+): boolean {
+  if (query.branches.length && !query.branches.includes(t.branch)) return false;
+  if (query.types.length && !query.types.includes(t.type)) return false;
+  if (query.natures.length && !query.natures.includes(t.nature)) return false;
+  if (query.movementTypeIds.length && !query.movementTypeIds.includes(t.movementTypeId)) {
+    return false;
+  }
+  return true;
+}
+
+function hasPartitionFilters(
+  query: Pick<CustomReportQuery, 'branches' | 'types' | 'natures' | 'movementTypeIds'>,
+): boolean {
+  return (
+    query.branches.length > 0 || query.types.length > 0 || query.natures.length > 0 || query.movementTypeIds.length > 0
+  );
+}
+
+/** Saldo de abertura do relatório — respeita os mesmos filtros da apuração. */
+export function reportOpeningBalance(db: DatabaseShape, query: CustomReportQuery): number {
+  const until = dayBefore(query.from);
+  const prior = db.transactions.filter((t) => isSettled(t) && t.date <= until && matchesReportFilters(t, query));
+  const net = sumBy(prior, (t) => {
+    const amount = reportAmount(db, t, query);
+    return t.type === 'income' ? amount : -amount;
+  });
+  // Saldo-caixa do grupo só no relatório integral.
+  // Visão por ramo (caixinha) ou com filtro de partição: parte do zero + histórico do recorte.
+  const base = hasPartitionFilters(query) || usesBranchMensalidadeShare(query) ? 0 : db.settings.openingBalance;
+  return roundMoney(base + net);
 }
 
 function typeName(db: DatabaseShape, id: string): string {
@@ -84,7 +146,8 @@ export function cashFlow(
       cat[t.type] = roundMoney(cat[t.type] + t.amount);
       typeMap.set(t.movementTypeId, cat);
       const br = branchMap.get(t.branch) ?? { income: 0, expense: 0 };
-      br[t.type] = roundMoney(br[t.type] + t.amount);
+      const branchAmount = amountForBranchView(db, t);
+      br[t.type] = roundMoney(br[t.type] + branchAmount);
       branchMap.set(t.branch, br);
     }
 
@@ -270,17 +333,7 @@ export function customReport(
   closing: number;
 } {
   const txs = db.transactions
-    .filter((t) => {
-      if (!isSettled(t)) return false;
-      if (!inRange(t.date, query.from, query.to)) return false;
-      if (query.branches.length && !query.branches.includes(t.branch)) return false;
-      if (query.types.length && !query.types.includes(t.type)) return false;
-      if (query.natures.length && !query.natures.includes(t.nature)) return false;
-      if (query.movementTypeIds.length && !query.movementTypeIds.includes(t.movementTypeId)) {
-        return false;
-      }
-      return true;
-    })
+    .filter((t) => isSettled(t) && inRange(t.date, query.from, query.to) && matchesReportFilters(t, query))
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
@@ -301,6 +354,13 @@ export function customReport(
           key: t.nature,
           label: t.nature === 'fixed' ? 'Fixa' : 'Variável',
         };
+      case 'account': {
+        const account = t.memberAccountId ? db.memberAccounts.find((a) => a.id === t.memberAccountId) : undefined;
+        if (account) {
+          return { key: account.id, label: account.holderName };
+        }
+        return { key: 'sem-conta', label: 'Sem conta vinculada' };
+      }
       default:
         return { key: t.id, label: t.description };
     }
@@ -308,6 +368,7 @@ export function customReport(
 
   for (const t of txs) {
     const { key, label } = keyOf(t);
+    const amount = reportAmount(db, t, query);
     const row = buckets.get(key) ?? {
       key,
       label,
@@ -316,8 +377,8 @@ export function customReport(
       net: 0,
       count: 0,
     };
-    if (t.type === 'income') row.income = roundMoney(row.income + t.amount);
-    else row.expense = roundMoney(row.expense + t.amount);
+    if (t.type === 'income') row.income = roundMoney(row.income + amount);
+    else row.expense = roundMoney(row.expense + amount);
     row.net = roundMoney(row.income - row.expense);
     row.count += 1;
     buckets.set(key, row);
@@ -334,11 +395,12 @@ export function customReport(
   };
   totals.net = roundMoney(totals.income - totals.expense);
 
-  const opening = cashBalance(db, dayBefore(query.from));
+  const opening = reportOpeningBalance(db, query);
   let running = opening;
   const ledger: FiscalLedgerLine[] = txs.map((t, index) => {
-    const income = t.type === 'income' ? t.amount : 0;
-    const expense = t.type === 'expense' ? t.amount : 0;
+    const amount = reportAmount(db, t, query);
+    const income = t.type === 'income' ? amount : 0;
+    const expense = t.type === 'expense' ? amount : 0;
     running = roundMoney(running + income - expense);
     const member = t.memberId ? db.members.find((m) => m.id === t.memberId) : undefined;
     const account = t.memberAccountId ? db.memberAccounts.find((a) => a.id === t.memberAccountId) : undefined;
@@ -391,11 +453,11 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
       branch,
       income: sumBy(
         txs.filter((t) => t.type === 'income'),
-        (t) => t.amount,
+        (t) => amountForBranchView(db, t),
       ),
       expense: sumBy(
         txs.filter((t) => t.type === 'expense'),
-        (t) => t.amount,
+        (t) => amountForBranchView(db, t),
       ),
       members: membersInPeriod.filter((m) => m.branch === branch).length,
     };

@@ -39,7 +39,7 @@ export class ReportsController {
   @ApiAdmin()
   @ApiOperation({
     summary: 'Relatório fiscal / customizado',
-    description: 'Livro-caixa numerado. groupBy: none | month | branch | movementType | nature.',
+    description: 'Livro-caixa numerado. groupBy: none | month | branch | movementType | nature | account.',
   })
   @ApiBody({
     schema: {
@@ -53,7 +53,7 @@ export class ReportsController {
         movementTypeIds: { type: 'array', items: { type: 'string' } },
         groupBy: {
           type: 'string',
-          enum: ['none', 'month', 'branch', 'movementType', 'nature'],
+          enum: ['none', 'month', 'branch', 'movementType', 'nature', 'account'],
         },
       },
     },

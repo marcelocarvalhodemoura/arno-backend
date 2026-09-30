@@ -1,4 +1,10 @@
-import { expectedMensalidadeAmount, lateMonthlyFee, matchesMensalidadeAmount, onTimeMonthlyFee } from './fee-table';
+import {
+  expectedMensalidadeAmount,
+  lateMonthlyFee,
+  matchesMensalidadeAmount,
+  onTimeMonthlyFee,
+  specialFamilyFee,
+} from './fee-table';
 
 describe('fee table', () => {
   it('uses the poster amounts for non-members and club members (maio–nov)', () => {
@@ -35,32 +41,49 @@ describe('fee table', () => {
     expect(onTimeMonthlyFee({ branch: 'escoteiro', role: 'jovem', clubeLtc: false })).toBe(89.5);
   });
 
-  it('adds or removes the club share per month only from maio', () => {
+  it('adds or removes the club package down to the group base from maio', () => {
     const profile = { branch: 'escoteiro' as const, clubeLtc: false };
     expect(expectedMensalidadeAmount(profile, '2026-09-10', '2026-09-10', true)).toBe(89.5);
-    expect(expectedMensalidadeAmount(profile, '2026-09-10', '2026-09-10', false)).toBe(69.5);
-    expect(expectedMensalidadeAmount(profile, '2026-09-10', '2026-09-11', false)).toBe(79.5);
-    expect(expectedMensalidadeAmount({ branch: 'pioneiro', clubeLtc: false }, '2026-09-10', '2026-09-10', false)).toBe(
+    expect(expectedMensalidadeAmount(profile, '2026-09-10', '2026-09-10', false)).toBe(75);
+    expect(expectedMensalidadeAmount(profile, '2026-09-10', '2026-09-11', true)).toBe(99.5);
+    expect(expectedMensalidadeAmount(profile, '2026-09-10', '2026-09-11', false)).toBe(75);
+    expect(expectedMensalidadeAmount({ branch: 'pioneiro', clubeLtc: false }, '2026-09-10', '2026-09-10', true)).toBe(
       39.5,
+    );
+    expect(expectedMensalidadeAmount({ branch: 'pioneiro', clubeLtc: false }, '2026-09-10', '2026-09-10', false)).toBe(
+      25,
     );
     expect(expectedMensalidadeAmount({ branch: 'escoteiro', clubeLtc: true }, '2026-09-10', '2026-09-10', false)).toBe(
       75,
     );
     expect(expectedMensalidadeAmount({ branch: 'escoteiro', clubeLtc: true }, '2026-09-10', '2026-09-10', true)).toBe(
-      95,
+      89.5,
+    );
+    expect(expectedMensalidadeAmount({ branch: 'escoteiro', clubeLtc: true }, '2026-09-10', '2026-09-11', true)).toBe(
+      99.5,
     );
     expect(expectedMensalidadeAmount(profile, '2026-04-10', '2026-04-01', false)).toBe(60);
-    expect(matchesMensalidadeAmount(profile, 69.5)).toBe(true);
+    expect(matchesMensalidadeAmount(profile, 75)).toBe(true);
     expect(matchesMensalidadeAmount(profile, 60)).toBe(true);
   });
 
-  it('uses a fixed fee override from maio (filho de chefe / irmão)', () => {
-    const profile = { branch: 'escoteiro' as const, clubeLtc: false, feeOverride: 82 };
-    expect(onTimeMonthlyFee(profile)).toBe(82);
-    expect(lateMonthlyFee(profile)).toBe(82);
-    expect(onTimeMonthlyFee(profile, 3)).toBe(60);
-    expect(expectedMensalidadeAmount(profile, '2026-05-10', '2026-05-20', true)).toBe(82);
-    expect(expectedMensalidadeAmount(profile, '2026-05-10', '2026-05-20', false)).toBe(82);
-    expect(matchesMensalidadeAmount(profile, 82)).toBe(true);
+  it('uses fixed special-family fees (82 não sócio / 67,50 sócio)', () => {
+    expect(specialFamilyFee(false)).toBe(82);
+    expect(specialFamilyFee(true)).toBe(67.5);
+
+    const nonMember = { branch: 'escoteiro' as const, clubeLtc: false, feeOverride: 82 };
+    expect(onTimeMonthlyFee(nonMember)).toBe(82);
+    expect(lateMonthlyFee(nonMember)).toBe(82);
+    expect(onTimeMonthlyFee(nonMember, 3)).toBe(60);
+    expect(expectedMensalidadeAmount(nonMember, '2026-05-10', '2026-05-20', true)).toBe(82);
+    expect(expectedMensalidadeAmount(nonMember, '2026-05-10', '2026-05-20', false)).toBe(82);
+    expect(matchesMensalidadeAmount(nonMember, 82)).toBe(true);
+
+    const member = { branch: 'escoteiro' as const, clubeLtc: true, feeOverride: 82 };
+    expect(onTimeMonthlyFee(member)).toBe(67.5);
+    expect(lateMonthlyFee(member)).toBe(67.5);
+    expect(expectedMensalidadeAmount(member, '2026-05-10', '2026-05-20', true)).toBe(67.5);
+    expect(expectedMensalidadeAmount(member, '2026-05-10', '2026-05-20', false)).toBe(67.5);
+    expect(matchesMensalidadeAmount(member, 67.5)).toBe(true);
   });
 });

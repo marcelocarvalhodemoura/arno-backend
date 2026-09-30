@@ -1,12 +1,24 @@
 import { existsSync } from 'node:fs';
 import type { Transporter } from 'nodemailer';
-import { logoFilePath, LOGO_CID } from './templates';
+import { logoFilePath, LOGO_CID, valoresFilePath, VALORES_CID } from './templates';
 
 export type MailSendResult = {
   ok: boolean;
   skipped: boolean;
   error?: string;
 };
+
+function mailAttachments(html?: string) {
+  if (!html?.trim()) return undefined;
+  const attachments: { filename: string; path: string; cid: string }[] = [];
+  if (html.includes(`cid:${LOGO_CID}`) && existsSync(logoFilePath())) {
+    attachments.push({ filename: 'arno_logo.png', path: logoFilePath(), cid: LOGO_CID });
+  }
+  if (html.includes(`cid:${VALORES_CID}`) && existsSync(valoresFilePath())) {
+    attachments.push({ filename: 'mensalidade_valores.jpg', path: valoresFilePath(), cid: VALORES_CID });
+  }
+  return attachments.length ? attachments : undefined;
+}
 
 let transporter: Transporter | null = null;
 
@@ -69,17 +81,13 @@ export async function sendMail(to: string, subject: string, text: string, html?:
   }
   try {
     const mailer = await getTransporter();
-    const logoPath = logoFilePath();
     await mailer.sendMail({
       from: mailFrom(),
       to,
       subject,
       text,
       ...(html?.trim() ? { html } : {}),
-      attachments:
-        html?.trim() && existsSync(logoPath)
-          ? [{ filename: 'arno_logo.png', path: logoPath, cid: LOGO_CID }]
-          : undefined,
+      attachments: mailAttachments(html),
     });
     return { ok: true, skipped: false };
   } catch (error) {

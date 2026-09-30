@@ -8,6 +8,9 @@ import { LedgerModule } from './ledger/ledger.module';
 import { ReportsModule } from './reports/reports.module';
 import { ProjectsModule } from './projects/projects.module';
 import { MensalidadesModule } from './mensalidades/mensalidades.module';
+import { ClubRemittanceModule } from './club-remittance/club-remittance.module';
+import { SnackFundModule } from './snack-fund/snack-fund.module';
+import { ArrearsModule } from './arrears/arrears.module';
 import { StatementModule } from './statement/statement.module';
 import { BankingModule } from './banking/banking.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -23,6 +26,9 @@ import { NotificationsModule } from './notifications/notifications.module';
     ReportsModule,
     ProjectsModule,
     MensalidadesModule,
+    ClubRemittanceModule,
+    SnackFundModule,
+    ArrearsModule,
     StatementModule,
     BankingModule,
     NotificationsModule,

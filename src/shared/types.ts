@@ -23,7 +23,7 @@ export type GuardianRelationship =
   | 'Irmão'
   | 'Responsável legal'
   | 'Outro';
-export type ReportGroupBy = 'none' | 'month' | 'branch' | 'movementType' | 'nature';
+export type ReportGroupBy = 'none' | 'month' | 'branch' | 'movementType' | 'nature' | 'account';
 export type UserRole = 'admin' | 'tesoureiro';
 export type RecordOrigin = 'manual' | 'integration' | 'sicredi';
 
@@ -200,7 +200,7 @@ export interface Member {
   branch: YouthBranchId;
   role: MemberRole;
   monthlyFee: number;
-  /** Valor fixo opcional (ex.: R$ 82 filho de chefe / irmão). Null = tabela oficial. */
+  /** Valor fixo opcional (ex.: R$ 82 / R$ 67,50 filho de chefe ou irmão). Null = tabela oficial. */
   feeOverride?: number | null;
   /** Filho de chefe — XOR com irmãos; aplica feeOverride especial. */
   chiefChild?: boolean;
@@ -289,6 +289,10 @@ export interface Transaction {
   splitIndex?: number;
   /** Rateio: quantidade de partes. */
   splitCount?: number;
+  /** Acordo de dívida (modo separate). */
+  arrearsId?: string;
+  /** Competência YYYY-MM da parcela do acordo. */
+  arrearsYearMonth?: string;
   /** csv | pdf | sicredi — preenchido nas importações novas. */
   importSource?: ImportSource;
   createdBy?: string;
@@ -296,6 +300,45 @@ export interface Transaction {
   updatedAt?: string;
   updatedBy?: string;
   origin: RecordOrigin;
+}
+
+export type ArrearsChargeMode = 'embed' | 'separate';
+export type ArrearsStatus = 'active' | 'settled' | 'cancelled';
+export type ArrearsPaymentSource = 'manual' | 'mensalidade' | 'separate';
+
+/** Registro de pagamento aplicado ao saldo do acordo. */
+export interface ArrearsPayment {
+  id: string;
+  amount: number;
+  paidAt: string;
+  method: PaymentMethod;
+  source: ArrearsPaymentSource;
+  transactionId?: string;
+  yearMonth?: string;
+  note?: string;
+  createdAt: string;
+  createdBy?: string;
+}
+
+export interface MemberArrears {
+  id: string;
+  memberId: string;
+  originalAmount: number;
+  balance: number;
+  installmentAmount: number;
+  totalCount: number;
+  remainingCount: number;
+  startYearMonth: string;
+  chargeMode: ArrearsChargeMode;
+  note: string;
+  status: ArrearsStatus;
+  /** Histórico de baixas (manual, mensalidade embutida ou lançamento à parte). */
+  payments?: ArrearsPayment[];
+  origin: RecordOrigin;
+  createdAt: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface BankMovement {
@@ -359,6 +402,9 @@ export interface MensalidadeCell {
   lateAmount: number;
   /** Se a parcela do clube está incluída neste mês. */
   clubFeeIncluded: boolean;
+  /** Parcela de dívida embutida (modo embed), se houver. */
+  arrearsInstallment?: number;
+  arrearsPlanId?: string;
 }
 
 export interface MensalidadeRow {
@@ -398,6 +444,7 @@ export interface DatabaseShape {
   memberGuardians: MemberGuardian[];
   memberSiblings: MemberSibling[];
   memberAccounts: MemberAccount[];
+  memberArrears?: MemberArrears[];
   movementTypes: MovementType[];
   fees: Fee[];
   transactions: Transaction[];

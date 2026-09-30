@@ -1,6 +1,7 @@
 import { fold } from '../shared/csv';
 import { createdAudit, updatedAudit } from '../shared/audit';
 import { id } from '../shared/id';
+import { titleCaseName } from '../shared/name';
 import type {
   DatabaseShape,
   Member,
@@ -17,7 +18,12 @@ import {
   type MemberImportRow,
   type PatchMemberInput,
 } from '../shared/http/schemas';
-import { paysMensalidade, resolveFeeOverride, SPECIAL_FAMILY_FEE } from '../mensalidades/fee-table';
+import {
+  isSpecialFamilyFeeAmount,
+  paysMensalidade,
+  resolveFeeOverride,
+  specialFamilyFee,
+} from '../mensalidades/fee-table';
 import {
   assignOfficialFee,
   cancelSubsequentMensalidades,
@@ -25,8 +31,8 @@ import {
   refreshPendingMensalidadeSchedule,
 } from '../mensalidades/mensalidades';
 
-function normalizeFeeOverride(value: number | null | undefined): number | null {
-  return resolveFeeOverride({ feeOverride: value == null ? null : value });
+function normalizeFeeOverride(value: number | null | undefined, clubeLtc?: boolean): number | null {
+  return resolveFeeOverride({ feeOverride: value == null ? null : value, clubeLtc });
 }
 
 export function siblingIdsOf(db: DatabaseShape, memberId: string): string[] {
@@ -43,16 +49,16 @@ function refreshFamilyFee(db: DatabaseShape, memberId: string) {
   const member = db.members.find((item) => item.id === memberId);
   if (!member) return;
   if (member.chiefChild) {
-    member.feeOverride = SPECIAL_FAMILY_FEE;
+    member.feeOverride = specialFamilyFee(member.clubeLtc);
     assignOfficialFee(member);
     return;
   }
   if (siblingIdsOf(db, memberId).length > 0) {
-    member.feeOverride = SPECIAL_FAMILY_FEE;
+    member.feeOverride = specialFamilyFee(member.clubeLtc);
     assignOfficialFee(member);
     return;
   }
-  if (member.feeOverride === SPECIAL_FAMILY_FEE) {
+  if (member.feeOverride != null && isSpecialFamilyFeeAmount(member.feeOverride)) {
     member.feeOverride = null;
   }
   assignOfficialFee(member);
@@ -117,7 +123,7 @@ export function replaceSiblings(db: DatabaseShape, memberId: string, siblingIds:
 }
 
 /**
- * Aplica filho de chefe XOR irmãos e sincroniza feeOverride = R$ 82.
+ * Aplica filho de chefe XOR irmãos e sincroniza feeOverride (R$ 82 ou R$ 67,50 sócio).
  * Se nenhum dos campos de família vier no payload, preserva feeOverride manual.
  */
 export function applyFamilyDiscount(
@@ -129,7 +135,10 @@ export function applyFamilyDiscount(
   const touchesFamily = input.chiefChild !== undefined || input.siblingIds !== undefined;
   if (!touchesFamily) {
     if (input.feeOverride !== undefined) {
-      member.feeOverride = input.feeOverride === null ? null : normalizeFeeOverride(input.feeOverride);
+      member.feeOverride = input.feeOverride === null ? null : normalizeFeeOverride(input.feeOverride, member.clubeLtc);
+    } else if (member.chiefChild || siblingIdsOf(db, member.id).length > 0) {
+      // Sócio Lindóia alterado: recalcula 82 ↔ 67,50.
+      member.feeOverride = specialFamilyFee(member.clubeLtc);
     }
     return;
   }
@@ -153,9 +162,9 @@ export function applyFamilyDiscount(
   replaceSiblings(db, member.id, chiefChild ? [] : siblingIds, userId);
 
   if (chiefChild) {
-    member.feeOverride = SPECIAL_FAMILY_FEE;
+    member.feeOverride = specialFamilyFee(member.clubeLtc);
   } else if (siblingIdsOf(db, member.id).length > 0) {
-    member.feeOverride = SPECIAL_FAMILY_FEE;
+    member.feeOverride = specialFamilyFee(member.clubeLtc);
   } else {
     member.feeOverride = null;
   }
@@ -165,7 +174,7 @@ export function cleanedGuardians(list: GuardianInput[]) {
   return list
     .map((item) => ({
       id: item.id,
-      name: item.name.trim(),
+      name: titleCaseName(item.name),
       relationship: item.relationship.trim(),
       phone: (item.phone ?? '').trim(),
       email: optionalContactEmail(item.email),
@@ -262,6 +271,7 @@ export function createMember(db: DatabaseShape, input: CreateMemberInput, userId
     id: id(),
     status: 'active',
     ...data,
+    name: titleCaseName(data.name),
     chiefChild: false,
     feeOverride: null,
     monthlyFee: 0,
@@ -280,7 +290,7 @@ export function createMember(db: DatabaseShape, input: CreateMemberInput, userId
       userId,
     );
   } else {
-    created.feeOverride = normalizeFeeOverride(feeOverrideInput);
+    created.feeOverride = normalizeFeeOverride(feeOverrideInput, created.clubeLtc);
   }
   assignOfficialFee(created);
   return created;
@@ -320,6 +330,7 @@ export function updateMember(
   }
   const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
   Object.assign(member, data);
+  if (data.name !== undefined) member.name = titleCaseName(data.name);
   applyFamilyDiscount(
     db,
     member,
@@ -364,6 +375,7 @@ export function addMemberAccount(
     memberId: member.id,
     active: true,
     ...input,
+    holderName: titleCaseName(input.holderName),
     ...createdAudit(userId),
   };
   db.memberAccounts.push(account);
@@ -379,6 +391,7 @@ export function updateMemberAccount(
   const account = db.memberAccounts.find((item) => item.id === accountId);
   if (!account) return null;
   Object.assign(account, input, updatedAudit(userId));
+  if (input.holderName !== undefined) account.holderName = titleCaseName(input.holderName);
   if (input.isPrimary) {
     for (const other of db.memberAccounts) {
       if (other.memberId === account.memberId && other.id !== account.id) {
@@ -393,6 +406,35 @@ export function removeMemberAccount(db: DatabaseShape, accountId: string) {
   const before = db.memberAccounts.length;
   db.memberAccounts = db.memberAccounts.filter((item) => item.id !== accountId);
   return db.memberAccounts.length < before;
+}
+
+/** Normaliza nomes já gravados (associados, responsáveis e titulares de conta). */
+export function normalizeStoredMemberNames(db: DatabaseShape) {
+  let members = 0;
+  let guardians = 0;
+  let accounts = 0;
+  for (const member of db.members) {
+    const next = titleCaseName(member.name);
+    if (next !== member.name) {
+      member.name = next;
+      members += 1;
+    }
+  }
+  for (const guardian of db.memberGuardians ?? []) {
+    const next = titleCaseName(guardian.name);
+    if (next !== guardian.name) {
+      guardian.name = next;
+      guardians += 1;
+    }
+  }
+  for (const account of db.memberAccounts) {
+    const next = titleCaseName(account.holderName);
+    if (next !== account.holderName) {
+      account.holderName = next;
+      accounts += 1;
+    }
+  }
+  return { members, guardians, accounts };
 }
 
 export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId: string) {
@@ -418,6 +460,7 @@ export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId
       id: id(),
       status: 'active',
       ...data,
+      name: titleCaseName(data.name),
       chiefChild: false,
       monthlyFee: 0,
       ...createdAudit(userId, 'integration'),

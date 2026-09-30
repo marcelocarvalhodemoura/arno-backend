@@ -138,7 +138,7 @@ describe('API integration', () => {
       clubeLtc: false,
     });
     expect(patchedMember.status).toBe(200);
-    expect(patchedMember.body.name).toBe('Associado LTC Alterado');
+    expect(patchedMember.body.name).toBe('Associado Ltc Alterado');
     expect(patchedMember.body.phone).toBe('(51) 98888-0000');
     expect(patchedMember.body.monthlyFee).toBe(89.5);
     expect(patchedMember.body.branch).toBe('senior');

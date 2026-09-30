@@ -9,6 +9,7 @@ import type {
   FinancialProject,
   Member,
   MemberAccount,
+  MemberArrears,
   MemberGuardian,
   MovementType,
   RecordOrigin,
@@ -67,7 +68,7 @@ function asTimestamp(value: string | null | undefined): Date | null {
 
 async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
   await client.$executeRawUnsafe(
-    'TRUNCATE transactions, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE',
+    'TRUNCATE transactions, member_arrears, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE',
   );
 
   if (db.movementTypes.length) {
@@ -183,6 +184,29 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
     });
   }
 
+  if (db.memberArrears?.length) {
+    await client.memberArrears.createMany({
+      data: db.memberArrears.map((plan) => ({
+        id: plan.id,
+        memberId: plan.memberId,
+        originalAmount: plan.originalAmount,
+        balance: plan.balance,
+        installmentAmount: plan.installmentAmount,
+        totalCount: plan.totalCount,
+        remainingCount: plan.remainingCount,
+        startYearMonth: plan.startYearMonth,
+        chargeMode: plan.chargeMode,
+        note: plan.note ?? '',
+        status: plan.status,
+        origin: storedOrigin(plan.origin),
+        createdAt: new Date(plan.createdAt),
+        createdById: plan.createdBy ?? null,
+        updatedAt: asTimestamp(plan.updatedAt),
+        updatedById: plan.updatedBy ?? null,
+      })),
+    });
+  }
+
   if (db.projects.length) {
     await client.project.createMany({
       data: db.projects.map((project) => ({
@@ -239,6 +263,8 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         splitTotal: tx.splitTotal ?? null,
         splitIndex: tx.splitIndex ?? null,
         splitCount: tx.splitCount ?? null,
+        arrearsId: tx.arrearsId ?? null,
+        arrearsYearMonth: tx.arrearsYearMonth ?? null,
         createdById: tx.createdBy ?? null,
         createdAt: tx.createdAt ? new Date(tx.createdAt) : new Date(),
         updatedAt: asTimestamp(tx.updatedAt),
@@ -337,6 +363,7 @@ function emptyFinance(): DatabaseShape {
     memberGuardians: [],
     memberSiblings: [],
     memberAccounts: [],
+    memberArrears: [],
     movementTypes: [],
     fees: [],
     projects: [],
@@ -350,12 +377,13 @@ function emptyFinance(): DatabaseShape {
 }
 
 async function readFinance(sql: Db): Promise<DatabaseShape> {
-  const [members, guardians, siblings, accounts, types, fees, projects, items, transactions, settings] =
+  const [members, guardians, siblings, accounts, arrears, types, fees, projects, items, transactions, settings] =
     await Promise.all([
       sql.member.findMany({ orderBy: { name: 'asc' } }),
       sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
       sql.memberSibling.findMany(),
       sql.memberAccount.findMany({ orderBy: { holderName: 'asc' } }),
+      sql.memberArrears.findMany({ orderBy: { createdAt: 'desc' } }),
       sql.movementType.findMany({ orderBy: { name: 'asc' } }),
       sql.fee.findMany({ orderBy: { name: 'asc' } }),
       sql.project.findMany({ orderBy: [{ year: 'asc' }, { branch: 'asc' }] }),
@@ -388,6 +416,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     memberGuardians: guardians.map(mapGuardian),
     memberSiblings: siblings.map(mapSibling),
     memberAccounts: accounts.map(mapAccount),
+    memberArrears: arrears.map(mapArrears),
     movementTypes: types.map(mapMovementType),
     fees: fees.map(mapFee),
     projects: projects.map((row) => ({
@@ -584,6 +613,40 @@ function mapFee(row: {
   };
 }
 
+function mapArrears(row: {
+  id: string;
+  memberId: string;
+  originalAmount: Prisma.Decimal;
+  balance: Prisma.Decimal;
+  installmentAmount: Prisma.Decimal;
+  totalCount: number;
+  remainingCount: number;
+  startYearMonth: string;
+  chargeMode: string;
+  note: string;
+  status: string;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): MemberArrears {
+  return {
+    id: row.id,
+    memberId: row.memberId,
+    originalAmount: Number(row.originalAmount),
+    balance: Number(row.balance),
+    installmentAmount: Number(row.installmentAmount),
+    totalCount: row.totalCount,
+    remainingCount: row.remainingCount,
+    startYearMonth: row.startYearMonth,
+    chargeMode: row.chargeMode === 'separate' ? 'separate' : 'embed',
+    note: row.note ?? '',
+    status: row.status === 'settled' ? 'settled' : row.status === 'cancelled' ? 'cancelled' : 'active',
+    ...mapAudit(row),
+  };
+}
+
 function mapTransaction(row: {
   id: string;
   date: Date;
@@ -610,6 +673,8 @@ function mapTransaction(row: {
   splitTotal: Prisma.Decimal | null;
   splitIndex: number | null;
   splitCount: number | null;
+  arrearsId: string | null;
+  arrearsYearMonth: string | null;
   origin: string;
   importSource: string | null;
   createdAt: Date;
@@ -643,6 +708,8 @@ function mapTransaction(row: {
     splitTotal: row.splitTotal != null ? Number(row.splitTotal) : undefined,
     splitIndex: row.splitIndex ?? undefined,
     splitCount: row.splitCount ?? undefined,
+    arrearsId: row.arrearsId ?? undefined,
+    arrearsYearMonth: row.arrearsYearMonth ?? undefined,
     importSource:
       row.importSource === 'csv' || row.importSource === 'pdf' || row.importSource === 'sicredi'
         ? row.importSource

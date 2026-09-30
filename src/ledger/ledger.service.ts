@@ -10,6 +10,7 @@ import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from
 import { loadDb, mutate } from '../shared/persistence/finance-store';
 import type { BranchId } from '../shared/types';
 import { updatedAudit } from '../shared/audit';
+import { resolveArrearsTxMarker } from '../arrears/arrears';
 import {
   assertNotaFile,
   buildNotaKey,
@@ -56,6 +57,7 @@ export class LedgerService {
         ? ((db.memberGuardians ?? []).find((item) => item.id === tx.memberGuardianId) ?? null)
         : null,
       hasNota: Boolean(tx.notaKey),
+      arrearsMarker: resolveArrearsTxMarker(db, tx),
     }));
   }
 

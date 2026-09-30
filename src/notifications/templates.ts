@@ -43,14 +43,26 @@ export const GROUP_CNPJ = '08.415.677/0001-00';
 export const FINANCE_WHATSAPP_DISPLAY = '(51) 98055-3559';
 export const FINANCE_WHATSAPP_LINK = 'https://wa.me/5551980553559';
 export const LOGO_CID = 'arno-logo';
+export const VALORES_CID = 'arno-mensalidade-valores';
+
+function firstExistingPath(candidates: string[]) {
+  return candidates.find((path) => existsSync(path)) ?? candidates[0]!;
+}
 
 export function logoFilePath() {
-  const candidates = [
+  return firstExistingPath([
     join(process.cwd(), 'assets/arno_logo.png'),
     join(__dirname, '../../assets/arno_logo.png'),
     join(__dirname, '../../../assets/arno_logo.png'),
-  ];
-  return candidates.find((path) => existsSync(path)) ?? candidates[0]!;
+  ]);
+}
+
+export function valoresFilePath() {
+  return firstExistingPath([
+    join(process.cwd(), 'assets/mensalidade_valores.jpg'),
+    join(__dirname, '../../assets/mensalidade_valores.jpg'),
+    join(__dirname, '../../../assets/mensalidade_valores.jpg'),
+  ]);
 }
 
 export function groupPixKey() {
@@ -87,6 +99,11 @@ export function firstName(fullName: string) {
 function logoImg(size: number, alt: string) {
   if (!existsSync(logoFilePath())) return '';
   return `<img src="cid:${LOGO_CID}" width="${size}" height="${size}" alt="${escapeHtml(alt)}" style="display:block;width:${size}px;height:${size}px;border:0;outline:none;text-decoration:none;" />`;
+}
+
+function valoresImg(alt: string) {
+  if (!existsSync(valoresFilePath())) return '';
+  return `<img src="cid:${VALORES_CID}" width="544" alt="${escapeHtml(alt)}" style="display:block;width:100%;max-width:544px;height:auto;border:0;outline:none;text-decoration:none;margin:0 auto;" />`;
 }
 
 function branchLabel(member?: Member) {
@@ -349,6 +366,108 @@ function receiptHtml(input: {
     `,
     `Tesouraria · 43/RS. Este é um recibo interno do ${escapeHtml(input.group)}. Dúvidas: responda este e-mail.`,
   );
+}
+
+function dueReminderHtml(input: { group: string; who: string; dueDay: number; monthLabel: string; year: string }) {
+  const greeting = escapeHtml(firstName(input.who));
+  const valores = valoresImg(`Tabela de valores da mensalidade — ${input.group}`);
+  const footerNote = `Tesouraria · 43/RS. Lembrete amigável: o vencimento é todo dia ${input.dueDay}. Dúvidas: responda este e-mail ou fale no WhatsApp ${FINANCE_WHATSAPP_DISPLAY}.`;
+
+  return wrapEmail(
+    input.group,
+    `
+      <p style="margin:0 0 6px;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:${GOLD};">
+        Lembrete de vencimento
+      </p>
+      <h1 style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-size:28px;line-height:1.2;color:${FOREST};font-weight:400;">
+        Olá, ${greeting}.
+      </h1>
+      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:${INK};">
+        Passando para lembrar: a mensalidade do
+        <strong>${escapeHtml(input.monthLabel)} de ${escapeHtml(input.year)}</strong>
+        vence no dia <strong>${input.dueDay}</strong>.
+        Quem paga até essa data garante o valor com pontualidade.
+      </p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px;border-left:4px solid ${GOLD};background:${CREAM};">
+        <tr>
+          <td style="padding:16px 20px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:${INK};">
+            <strong style="color:${FOREST};">Pague até o dia ${input.dueDay}</strong>
+            e garanta o desconto de pontualidade. Depois dessa data, o valor sobe conforme a tabela abaixo.
+          </td>
+        </tr>
+      </table>
+      ${
+        valores
+          ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 22px;border:1px solid ${LINE};">
+               <tr>
+                 <td bgcolor="${FOREST}" style="background:${FOREST};padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:${GOLD};">
+                   Tabela de valores
+                 </td>
+               </tr>
+               <tr>
+                 <td style="padding:12px;background:${PAPER};text-align:center;">
+                   ${valores}
+                 </td>
+               </tr>
+             </table>`
+          : ''
+      }
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;">
+        <tr>
+          <td bgcolor="${FOREST}" style="background:${FOREST};padding:16px 20px;text-align:center;font-family:Arial,Helvetica,sans-serif;font-size:14px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${GOLD};">
+            Pagar por Pix
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 20px 8px;border:1px solid ${LINE};border-top:0;">
+            <p style="margin:0 0 8px;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:${MUTED};">Chave Pix do grupo (CNPJ)</p>
+            <p style="margin:0 0 8px;font-family:Consolas,Menlo,monospace;font-size:18px;letter-spacing:0.03em;color:${FOREST_DEEP};">${escapeHtml(GROUP_CNPJ)}</p>
+            <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.55;color:${INK};">
+              Na descrição do Pix, use o nome do associado. Já pagou? Envie o comprovante no WhatsApp
+              <a href="${FINANCE_WHATSAPP_LINK}" style="color:${FOREST};font-weight:700;text-decoration:none;">${FINANCE_WHATSAPP_DISPLAY}</a>.
+            </p>
+          </td>
+        </tr>
+      </table>
+      <p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.55;color:${MUTED};">
+        Este é um lembrete geral para as famílias. A contribuição em dia mantém sede, acampamentos e o programa do grupo.
+      </p>
+    `,
+    footerNote,
+  );
+}
+
+/** Lembrete aos responsáveis: vencimento no dia 10 (ou dueDay das configurações) + cartaz de valores. */
+export function composeDueReminderMessage(input?: {
+  group?: string;
+  who?: string;
+  dueDay?: number;
+  month?: number;
+  year?: number;
+}): NotifyMessage {
+  const now = new Date();
+  const month = input?.month ?? now.getMonth() + 1;
+  const year = String(input?.year ?? now.getFullYear());
+  const monthLabel = MONTH_NAMES[month] ?? String(month);
+  const dueDay = input?.dueDay ?? 10;
+  const group = input?.group?.trim() || 'Grupo Escoteiro Arno Friedrich';
+  const who = input?.who?.trim() || 'família';
+
+  const subject = `Lembrete · Mensalidade vence dia ${dueDay} · ${monthLabel} ${year} · ${group}`;
+  const text =
+    `Olá, ${firstName(who)}.\n\n` +
+    `Lembrete: a mensalidade de ${monthLabel} de ${year} vence no dia ${dueDay}.\n` +
+    `Pague até o dia ${dueDay} e garanta o valor com pontualidade. Depois dessa data, o valor sobe conforme a tabela oficial do grupo.\n\n` +
+    `Chave Pix (CNPJ): ${GROUP_CNPJ}\n` +
+    `Na descrição do Pix, use o nome do associado.\n` +
+    `Já pagou? Envie o comprovante no WhatsApp ${FINANCE_WHATSAPP_DISPLAY}.\n\n` +
+    `Tesouraria · ${group}`;
+
+  return {
+    subject,
+    text,
+    html: dueReminderHtml({ group, who, dueDay, monthLabel, year }),
+  };
 }
 
 export function composeNotifyMessage(db: DatabaseShape, tx: Transaction, kind: NotifyKind, who: string): NotifyMessage {

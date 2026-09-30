@@ -265,4 +265,152 @@ describe('finance helpers', () => {
     expect(report.totals.expense).toBe(50);
     expect(report.ledger[0]?.description).toBe('Aluguel');
   });
+
+  it('filters by branch and opens with that branch balance only', () => {
+    const fixture: DatabaseShape = {
+      ...db,
+      transactions: [
+        ...db.transactions,
+        tx({
+          id: 't-lob-prior',
+          date: '2026-07-15',
+          type: 'income',
+          amount: 40,
+          branch: 'lobinho',
+          description: 'Doação lobinho',
+        }),
+        tx({
+          id: 't-lob-period',
+          date: '2026-08-12',
+          type: 'income',
+          amount: 30,
+          branch: 'lobinho',
+          description: 'Doação lobinho ago',
+        }),
+      ],
+    };
+
+    const report = customReport(fixture, {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      branches: ['lobinho'],
+      types: [],
+      natures: [],
+      movementTypeIds: [],
+      groupBy: 'branch',
+    });
+
+    expect(report.transactions).toHaveLength(1);
+    expect(report.rows).toEqual([expect.objectContaining({ key: 'lobinho', income: 30, count: 1 })]);
+    expect(report.opening).toBe(40);
+    expect(report.closing).toBe(70);
+    expect(report.ledger.every((line) => line.branch === 'lobinho')).toBe(true);
+  });
+
+  it('attributes only the ramo caixinha (R$ 8) from mensalidades in branch views', () => {
+    const fixture: DatabaseShape = {
+      ...db,
+      movementTypes: [...db.movementTypes, movement({ id: 'mt-mens', name: 'Mensalidade', direction: 'income' })],
+      transactions: [
+        ...db.transactions,
+        tx({
+          id: 't-mens-lob',
+          date: '2026-08-10',
+          type: 'income',
+          amount: 89.5,
+          branch: 'lobinho',
+          movementTypeId: 'mt-mens',
+          description: 'Mensalidade agosto — Ana',
+        }),
+        tx({
+          id: 't-doacao-lob',
+          date: '2026-08-11',
+          type: 'income',
+          amount: 50,
+          branch: 'lobinho',
+          description: 'Doação campanha',
+        }),
+      ],
+    };
+
+    const byBranch = customReport(fixture, {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      branches: [],
+      types: [],
+      natures: [],
+      movementTypeIds: [],
+      groupBy: 'branch',
+    });
+    const lobinho = byBranch.rows.find((row) => row.key === 'lobinho');
+    expect(lobinho?.income).toBe(58); // 8 caixinha + 50 doação
+    expect(lobinho?.count).toBe(2);
+    // Visão por ramo não mistura saldo-caixa do grupo no saldo inicial.
+    expect(byBranch.opening).toBe(0);
+
+    const fiscal = customReport(fixture, {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      branches: [],
+      types: [],
+      natures: [],
+      movementTypeIds: [],
+      groupBy: 'movementType',
+    });
+    const mensalidade = fiscal.rows.find((row) => row.key === 'mt-mens');
+    expect(mensalidade?.income).toBe(89.5);
+    expect(fiscal.opening).toBe(1000);
+
+    // Comissão fiscal com filtro de ramo mantém valor integral da mensalidade.
+    const fiscalLob = customReport(fixture, {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      branches: ['lobinho'],
+      types: [],
+      natures: [],
+      movementTypeIds: [],
+      groupBy: 'movementType',
+    });
+    expect(fiscalLob.totals.income).toBe(139.5);
+    expect(fiscalLob.ledger.find((line) => line.id === 't-mens-lob')?.income).toBe(89.5);
+  });
+
+  it('groups a custom report by account holder', () => {
+    const fixture: DatabaseShape = {
+      ...db,
+      memberAccounts: [
+        {
+          id: 'acc-1',
+          memberId: 'm1',
+          holderName: 'Conta Teste',
+          holderKind: 'other',
+          relationship: 'titular',
+          pixKey: '',
+          bank: '',
+          agency: '',
+          accountNumber: '',
+          document: '',
+          isPrimary: true,
+          active: true,
+          origin: 'manual',
+          createdAt: '2026-01-01T00:00:00.000Z',
+        },
+      ],
+      transactions: db.transactions.map((t) => (t.id === 't2' ? { ...t, memberAccountId: 'acc-1' } : { ...t })),
+    };
+
+    const report = customReport(fixture, {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      branches: [],
+      types: [],
+      natures: [],
+      movementTypeIds: [],
+      groupBy: 'account',
+    });
+
+    const labeled = report.rows.map((row) => row.label).sort();
+    expect(labeled).toEqual(['Conta Teste', 'Sem conta vinculada']);
+    expect(report.rows.find((row) => row.label === 'Conta Teste')?.expense).toBe(50);
+  });
 });

@@ -6,6 +6,7 @@ import type { CreateTransactionInput, PatchTransactionInput } from '../shared/ht
 import { resolveGuardianId } from '../members/members';
 import { todayISO } from '../mensalidades/mensalidades';
 import { isMensalidadeName, sicrediPayer } from '../statement/statement';
+import { registerArrearsInstallmentPaid, dissolveMensalidadeArrearsSplitIfSeparate } from '../arrears/arrears';
 
 export function stampPaidAt(
   tx: Transaction,
@@ -88,6 +89,7 @@ export function updateTransaction(
     ...rest
   } = input;
   const shouldNotify = Boolean(notifyReceipt) && paymentStatus === 'paid' && tx.paymentStatus !== 'paid';
+  const becamePaid = paymentStatus === 'paid' && tx.paymentStatus !== 'paid';
   const nextType = type ?? tx.type;
   const nextMovementId = movementTypeId ?? tx.movementTypeId;
   const movement = db.movementTypes.find((item) => item.id === nextMovementId);
@@ -103,6 +105,18 @@ export function updateTransaction(
   if (amount !== undefined) tx.amount = roundMoney(amount);
   if (paymentStatus !== undefined || paidAt !== undefined) {
     stampPaidAt(tx, movement.name, paymentStatus ?? tx.paymentStatus, paidAt === undefined ? tx.paidAt : paidAt);
+  }
+  if (becamePaid && tx.arrearsId && tx.arrearsYearMonth) {
+    registerArrearsInstallmentPaid(db, tx.arrearsId, tx.arrearsYearMonth, userId, {
+      source: 'separate',
+      transactionId: tx.id,
+      method: tx.method,
+      paidAt: tx.paidAt ?? tx.date,
+    });
+  }
+  // Mensalidade + acordo: se uma parte foi paga e a outra não (ou em datas diferentes), vira lançamentos únicos.
+  if (paymentStatus !== undefined || paidAt !== undefined) {
+    dissolveMensalidadeArrearsSplitIfSeparate(db, tx, userId);
   }
   if (memberId === null) delete tx.memberId;
   else if (memberId) tx.memberId = memberId;

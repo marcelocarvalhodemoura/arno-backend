@@ -106,6 +106,53 @@ describe('transactions', () => {
     expect(tx.paidAt).toBe('2026-08-02');
   });
 
+  it('updates paidAt when the treasurer changes the payment date', () => {
+    const db = emptyDb();
+    const created = createTransaction(
+      db,
+      {
+        date: '2026-08-10',
+        type: 'income',
+        nature: 'variable',
+        movementTypeId: 'mt-doa',
+        description: 'Doação Pix',
+        amount: 50,
+        branch: 'grupo',
+        method: 'pix',
+        paymentStatus: 'paid',
+        paidAt: '2026-08-10',
+      },
+      'u1',
+    );
+    expect(created.paidAt).toBe('2026-08-10');
+    const updated = updateTransaction(db, created.id, { paidAt: '2026-08-18', paymentStatus: 'paid' }, 'u1');
+    expect(updated?.tx.paidAt).toBe('2026-08-18');
+    expect(updated?.tx.paymentStatus).toBe('paid');
+  });
+
+  it('clears paidAt when marking as pending', () => {
+    const db = emptyDb();
+    const created = createTransaction(
+      db,
+      {
+        date: '2026-08-10',
+        type: 'income',
+        nature: 'variable',
+        movementTypeId: 'mt-doa',
+        description: 'Doação Pix',
+        amount: 50,
+        branch: 'grupo',
+        method: 'pix',
+        paymentStatus: 'paid',
+        paidAt: '2026-08-12',
+      },
+      'u1',
+    );
+    const updated = updateTransaction(db, created.id, { paymentStatus: 'pending', paidAt: null }, 'u1');
+    expect(updated?.tx.paymentStatus).toBe('pending');
+    expect(updated?.tx.paidAt).toBeUndefined();
+  });
+
   it('learns the Pix payer CPF when the treasurer assigns a member', () => {
     const db = emptyDb();
     const tx = createTransaction(

@@ -23,6 +23,13 @@ import type {
   Transaction,
 } from '../shared/types';
 import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
+import {
+  embedMetaForCell,
+  registerArrearsInstallmentPaid,
+  stampMensalidadeEmbedLink,
+  syncMensalidadeArrearsEmbed,
+  yearMonthKey,
+} from '../arrears/arrears';
 import { stampPaidAt } from '../ledger/transactions';
 
 export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
@@ -118,6 +125,17 @@ function isMensalidadeTx(db: DatabaseShape, tx: Transaction) {
   return Boolean(movement && isMensalidadeName(movement.name));
 }
 
+function syncPendingMensalidadeEmbedLink(
+  db: DatabaseShape,
+  tx: Transaction,
+  _member: Member,
+  _dueDate: string,
+  userId = 'system',
+  today = todayISO(),
+) {
+  syncMensalidadeArrearsEmbed(db, tx.id, userId, today, { recalculateBase: true });
+}
+
 export function mensalidadeForMonth(
   db: DatabaseShape,
   memberId: string,
@@ -133,24 +151,39 @@ export function mensalidadeForMonth(
 
 export function cancelSubsequentMensalidades(db: DatabaseShape, memberId: string, today = todayISO()): number {
   const cutoff = nextMonthStart(today);
+  const drop = new Set<string>();
+  for (const tx of db.transactions) {
+    if (tx.memberId !== memberId) continue;
+    if (tx.paymentStatus === 'paid') continue;
+    if (!isMensalidadeTx(db, tx)) continue;
+    if (tx.date < cutoff) continue;
+    drop.add(tx.id);
+    if (tx.splitGroupId) {
+      for (const peer of db.transactions) {
+        if (peer.splitGroupId === tx.splitGroupId) drop.add(peer.id);
+      }
+    }
+  }
   const before = db.transactions.length;
-  db.transactions = db.transactions.filter((tx) => {
-    if (tx.memberId !== memberId) return true;
-    if (tx.paymentStatus === 'paid') return true;
-    if (!isMensalidadeTx(db, tx)) return true;
-    return tx.date < cutoff;
-  });
+  db.transactions = db.transactions.filter((tx) => !drop.has(tx.id));
   return before - db.transactions.length;
 }
 
 export function cancelUnpaidMensalidades(db: DatabaseShape, memberId: string): number {
+  const drop = new Set<string>();
+  for (const tx of db.transactions) {
+    if (tx.memberId !== memberId) continue;
+    if (tx.paymentStatus === 'paid') continue;
+    if (!isMensalidadeTx(db, tx)) continue;
+    drop.add(tx.id);
+    if (tx.splitGroupId) {
+      for (const peer of db.transactions) {
+        if (peer.splitGroupId === tx.splitGroupId) drop.add(peer.id);
+      }
+    }
+  }
   const before = db.transactions.length;
-  db.transactions = db.transactions.filter((tx) => {
-    if (tx.memberId !== memberId) return true;
-    if (tx.paymentStatus === 'paid') return true;
-    if (!isMensalidadeTx(db, tx)) return true;
-    return false;
-  });
+  db.transactions = db.transactions.filter((tx) => !drop.has(tx.id));
   return before - db.transactions.length;
 }
 
@@ -177,7 +210,8 @@ export function refreshPendingMensalidadeSchedule(db: DatabaseShape, today = tod
   }
   const dueDay = dueDayOf(db);
   let updated = 0;
-  for (const tx of db.transactions) {
+  const actor = userId ?? 'system';
+  for (const tx of [...db.transactions]) {
     if (tx.paymentStatus === 'paid') continue;
     if (!isMensalidadeTx(db, tx)) continue;
     const year = Number(tx.date.slice(0, 4));
@@ -186,22 +220,20 @@ export function refreshPendingMensalidadeSchedule(db: DatabaseShape, today = tod
     const nextDate = dueDateForMonth(year, month, dueDay);
     const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
     const included = member ? effectiveClubFeeIncluded(member, tx.clubFeeIncluded) : true;
-    const nextAmount = member
-      ? roundMoney(expectedMensalidadeAmount(member, nextDate, today, included))
-      : roundMoney(tx.amount);
-    if (tx.date === nextDate && roundMoney(tx.amount) === nextAmount) {
-      if (member && tx.clubFeeIncluded === undefined) {
-        tx.clubFeeIncluded = included;
-        if (userId) Object.assign(tx, updatedAudit(userId));
-        updated += 1;
-      }
-      continue;
-    }
-    tx.date = nextDate;
-    tx.amount = nextAmount;
     if (member && tx.clubFeeIncluded === undefined) tx.clubFeeIncluded = included;
-    if (userId) Object.assign(tx, updatedAudit(userId));
-    updated += 1;
+    if (tx.date !== nextDate) {
+      tx.date = nextDate;
+      if (tx.splitGroupId) {
+        for (const peer of db.transactions) {
+          if (peer.splitGroupId === tx.splitGroupId) peer.date = nextDate;
+        }
+      }
+      updated += 1;
+    }
+    if (member) {
+      syncPendingMensalidadeEmbedLink(db, tx, member, nextDate, actor, today);
+      updated += 1;
+    }
   }
   return updated;
 }
@@ -246,21 +278,24 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
       if (mensalidadeForMonth(db, member.id, year, month)) continue;
       const dueDate = dueDateForMonth(year, month, dueDay);
       const clubFeeIncluded = defaultClubFeeIncluded(member);
-      db.transactions.push({
+      const baseAmount = roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded));
+      const createdTx: Transaction = {
         id: id(),
         date: dueDate,
         type: 'income',
         nature: 'fixed',
         movementTypeId: movement.id,
         description: `Mensalidade ${MONTH_NAMES[month]} ${year} — ${member.name}`,
-        amount: roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded)),
+        amount: baseAmount,
         branch: member.branch,
         method: 'pix',
         paymentStatus: 'pending',
         memberId: member.id,
         clubFeeIncluded,
         ...createdAudit(userId),
-      });
+      };
+      db.transactions.push(createdTx);
+      syncPendingMensalidadeEmbedLink(db, createdTx, member, dueDate, userId, today);
       created += 1;
     }
   }
@@ -307,8 +342,8 @@ export function setMensalidadeClubFee(
   const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
   if (!member) throw new Error('Mensalidade sem associado');
   tx.clubFeeIncluded = clubFeeIncluded;
-  tx.amount = roundMoney(expectedMensalidadeAmount(member, tx.date.slice(0, 10), today, clubFeeIncluded));
   Object.assign(tx, updatedAudit(userId));
+  syncPendingMensalidadeEmbedLink(db, tx, member, tx.date.slice(0, 10), userId, today);
   return tx;
 }
 
@@ -329,13 +364,12 @@ export function setMensalidadeClubFeeBulk(
     if (input.month && month !== input.month) continue;
     const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
     if (!member || !paysMensalidade(member)) continue;
-    const nextAmount = roundMoney(
-      expectedMensalidadeAmount(member, tx.date.slice(0, 10), today, input.clubFeeIncluded),
-    );
-    if (tx.clubFeeIncluded === input.clubFeeIncluded && roundMoney(tx.amount) === nextAmount) continue;
+    if (tx.clubFeeIncluded === input.clubFeeIncluded) {
+      // ainda assim pode precisar re-sincronizar rateio
+    }
     tx.clubFeeIncluded = input.clubFeeIncluded;
-    tx.amount = nextAmount;
     Object.assign(tx, updatedAudit(userId));
+    syncPendingMensalidadeEmbedLink(db, tx, member, tx.date.slice(0, 10), userId, today);
     updated += 1;
   }
   return updated;
@@ -363,13 +397,45 @@ export function settleMensalidade(
   if (!member) throw new Error('Mensalidade sem associado');
   const dueDate = tx.date.slice(0, 10);
   const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
-  const amount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing);
+  const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing);
+  const ym = yearMonthKey(Number(dueDate.slice(0, 4)), Number(dueDate.slice(5, 7)));
+  const embed = embedMetaForCell(db, member.id, Number(dueDate.slice(0, 4)), Number(dueDate.slice(5, 7)), 'pending');
   const shouldNotify = input.notifyReceipt !== false;
   const movement = db.movementTypes.find((item) => item.id === tx.movementTypeId);
-  tx.amount = amount;
+  const paidAt = input.paidAt ?? today;
+
+  const peers = tx.splitGroupId ? db.transactions.filter((item) => item.splitGroupId === tx.splitGroupId) : [tx];
+  const arrearsPart = peers.find((item) => item.arrearsId && item.arrearsYearMonth && item.id !== tx.id);
+
+  tx.amount = base;
   tx.clubFeeIncluded = clubFeeIncluded;
-  stampPaidAt(tx, movement?.name ?? 'Mensalidade', 'paid', input.paidAt ?? today, today);
+  stampPaidAt(tx, movement?.name ?? 'Mensalidade', 'paid', paidAt, today);
   Object.assign(tx, updatedAudit(userId));
+
+  if (arrearsPart && arrearsPart.paymentStatus !== 'paid') {
+    const arrearsMovement = db.movementTypes.find((item) => item.id === arrearsPart.movementTypeId);
+    stampPaidAt(arrearsPart, arrearsMovement?.name ?? 'Acordo', 'paid', paidAt, today);
+    Object.assign(arrearsPart, updatedAudit(userId));
+    if (arrearsPart.arrearsId && arrearsPart.arrearsYearMonth) {
+      registerArrearsInstallmentPaid(db, arrearsPart.arrearsId, arrearsPart.arrearsYearMonth, userId, {
+        source: 'mensalidade',
+        transactionId: arrearsPart.id,
+        method: arrearsPart.method,
+        paidAt: arrearsPart.paidAt ?? paidAt,
+      });
+    }
+  } else if (embed.arrearsPlanId && embed.extra > 0) {
+    // Legado: mensalidade plana com parcela embutida (sem rateio).
+    tx.amount = roundMoney(base + embed.extra);
+    stampMensalidadeEmbedLink(tx, embed.arrearsPlanId);
+    registerArrearsInstallmentPaid(db, embed.arrearsPlanId, ym, userId, {
+      source: 'mensalidade',
+      transactionId: tx.id,
+      method: tx.method,
+      paidAt: tx.paidAt ?? paidAt,
+    });
+  }
+
   return { tx, shouldNotify };
 }
 
@@ -442,15 +508,20 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         const clubFeeIncluded = effectiveClubFeeIncluded(member, tx?.clubFeeIncluded);
         const onTimeAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time');
         const lateAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late');
+        const status = cellStatus(tx?.paymentStatus, dueDate, today);
+        const embed = embedMetaForCell(db, member.id, year, month, status);
+        const baseOpen = expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded);
         return {
           month,
           dueDate,
-          status: cellStatus(tx?.paymentStatus, dueDate, today),
+          status,
           transactionId: tx?.id,
-          amount: tx?.amount ?? expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded),
-          onTimeAmount,
-          lateAmount,
+          amount: tx?.amount ?? roundMoney(baseOpen + embed.extra),
+          onTimeAmount: roundMoney(onTimeAmount + embed.extra),
+          lateAmount: roundMoney(lateAmount + embed.extra),
           clubFeeIncluded,
+          arrearsInstallment: embed.arrearsInstallment,
+          arrearsPlanId: embed.arrearsPlanId,
         };
       });
       return {
