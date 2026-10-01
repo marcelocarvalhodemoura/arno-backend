@@ -44,6 +44,60 @@ export class MensalidadesController {
     return this.mensalidades.settle(body, auth.userId);
   }
 
+  @Post('mensalidades/allocate-preview')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Prévia do rateio de mensalidades a partir de um Pix',
+    description: 'Calcula o valor de cada competência (pontual ou atraso). A soma deve bater com o crédito do extrato.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['memberId', 'timing', 'yearMonths'],
+      properties: {
+        memberId: { type: 'string' },
+        timing: { type: 'string', enum: ['on_time', 'late'] },
+        yearMonths: {
+          type: 'array',
+          items: { type: 'string', example: '2026-03' },
+          minItems: 2,
+        },
+      },
+    },
+  })
+  allocatePreview(@Body() body: unknown) {
+    return this.mensalidades.allocatePreview(body);
+  }
+
+  @Post('mensalidades/allocate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Ratear Pix pago em várias mensalidades',
+    description:
+      'Converte um crédito já pago do extrato em partes de mensalidade por competência. O usuário escolhe pontual ou atraso; paidAt é a data do Pix.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['transactionId', 'memberId', 'timing', 'yearMonths'],
+      properties: {
+        transactionId: { type: 'string' },
+        memberId: { type: 'string' },
+        timing: { type: 'string', enum: ['on_time', 'late'] },
+        yearMonths: {
+          type: 'array',
+          items: { type: 'string', example: '2026-03' },
+          minItems: 2,
+        },
+        paidAt: { type: 'string', example: '2026-01-11', nullable: true },
+        notifyReceipt: { type: 'boolean', example: true },
+      },
+    },
+  })
+  allocate(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.mensalidades.allocate(body, auth.userId);
+  }
+
   @Patch('mensalidades/club-fee')
   @ApiOperation({
     summary: 'Incluir ou remover a taxa do clube em uma mensalidade',

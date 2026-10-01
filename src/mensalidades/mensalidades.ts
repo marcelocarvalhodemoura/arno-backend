@@ -12,7 +12,7 @@ import {
 } from './fee-table';
 import { id } from '../shared/id';
 import { siblingIdsOf } from '../members/members';
-import { isMensalidadeName } from '../statement/statement';
+import { isMensalidadeName, isUnidentifiedName } from '../statement/statement';
 import type {
   DatabaseShape,
   MensalidadeCell,
@@ -31,6 +31,7 @@ import {
   yearMonthKey,
 } from '../arrears/arrears';
 import { stampPaidAt } from '../ledger/transactions';
+import { splitTransaction } from '../ledger/split';
 
 export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
 
@@ -575,5 +576,177 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
       openAmount: roundMoney(summary.openAmount),
       paidAmount: roundMoney(summary.paidAmount),
     },
+  };
+}
+
+export type AllocateMensalidadeMonth = { year: number; month: number };
+
+function parseAllocateMonths(yearMonths: string[]): AllocateMensalidadeMonth[] {
+  const parsed: AllocateMensalidadeMonth[] = [];
+  const seen = new Set<string>();
+  for (const raw of yearMonths) {
+    const match = /^(\d{4})-(\d{2})$/.exec(raw.trim());
+    if (!match) throw new Error(`Competência inválida: ${raw}`);
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (!MENSALIDADE_MONTHS.includes(month)) {
+      throw new Error(`Mensalidade só cobre março a novembro (${raw})`);
+    }
+    const key = `${year}-${String(month).padStart(2, '0')}`;
+    if (seen.has(key)) throw new Error(`Competência repetida: ${key}`);
+    seen.add(key);
+    parsed.push({ year, month });
+  }
+  parsed.sort((a, b) => a.year - b.year || a.month - b.month);
+  return parsed;
+}
+
+/** Prévia dos valores por mês (pontual ou atraso) para bater com o Pix. */
+export function previewAllocateMensalidades(
+  db: DatabaseShape,
+  input: {
+    memberId: string;
+    timing: MensalidadeSettleTiming;
+    yearMonths: string[];
+  },
+) {
+  const member = db.members.find((item) => item.id === input.memberId);
+  if (!member || !paysMensalidade(member)) throw new Error('Associado inválido para mensalidade');
+  const months = parseAllocateMonths(input.yearMonths);
+  if (months.length < 2) throw new Error('Selecione ao menos dois meses para o rateio');
+  const dueDay = dueDayOf(db);
+  const items = months.map(({ year, month }) => {
+    const dueDate = dueDateForMonth(year, month, dueDay);
+    const existing = mensalidadeForMonth(db, member.id, year, month);
+    if (existing?.paymentStatus === 'paid') {
+      throw new Error(`Mensalidade de ${MONTH_NAMES[month]} ${year} já está paga`);
+    }
+    const clubFeeIncluded = effectiveClubFeeIncluded(member, existing?.clubFeeIncluded);
+    const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing);
+    const embed = embedMetaForCell(db, member.id, year, month, 'pending');
+    const amount = roundMoney(base + embed.extra);
+    return {
+      yearMonth: yearMonthKey(year, month),
+      year,
+      month,
+      dueDate,
+      amount,
+      onTimeAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time') + embed.extra),
+      lateAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late') + embed.extra),
+      clubFeeIncluded,
+      arrearsInstallment: embed.arrearsInstallment,
+      arrearsPlanId: embed.arrearsPlanId,
+      pendingTransactionId: existing?.id,
+    };
+  });
+  return {
+    memberId: member.id,
+    memberName: member.name,
+    timing: input.timing,
+    items,
+    total: roundMoney(items.reduce((sum, item) => sum + item.amount, 0)),
+  };
+}
+
+/**
+ * Rateia um crédito já pago (extrato) em mensalidades de competências escolhidas.
+ * O usuário define pontual vs atraso; a data do Pix fica em paidAt.
+ */
+export function allocateBankCreditToMensalidades(
+  db: DatabaseShape,
+  input: {
+    transactionId: string;
+    memberId: string;
+    timing: MensalidadeSettleTiming;
+    yearMonths: string[];
+    paidAt?: string | null;
+    notifyReceipt?: boolean;
+  },
+  userId: string,
+): { items: Transaction[]; amount: number; shouldNotify: boolean } {
+  const credit = db.transactions.find((item) => item.id === input.transactionId);
+  if (!credit) throw new Error('Lançamento não encontrado');
+  if (credit.type !== 'income') throw new Error('Só entradas podem baixar mensalidades');
+  if ((credit.paymentStatus ?? 'paid') !== 'paid') {
+    throw new Error('O lançamento do extrato precisa estar pago');
+  }
+  if (credit.splitGroupId) {
+    throw new Error('Este lançamento já foi rateado; exclua o rateio antes de baixar mensalidades');
+  }
+  const creditType = db.movementTypes.find((item) => item.id === credit.movementTypeId);
+  if (creditType && !isMensalidadeName(creditType.name) && !isUnidentifiedName(creditType.name)) {
+    throw new Error('Só créditos de mensalidade (ou ainda não identificados) podem ser rateados em mensalidades');
+  }
+
+  const preview = previewAllocateMensalidades(db, {
+    memberId: input.memberId,
+    timing: input.timing,
+    yearMonths: input.yearMonths,
+  });
+  const creditAmount = roundMoney(credit.amount);
+  if (preview.total !== creditAmount) {
+    throw new Error(
+      `A soma das mensalidades (${preview.total.toFixed(2)}) precisa ser igual ao Pix (${creditAmount.toFixed(2)})`,
+    );
+  }
+
+  const member = db.members.find((item) => item.id === input.memberId)!;
+  const movement = ensureMensalidadeType(db, userId);
+  const paidAt = (input.paidAt?.trim() || credit.paidAt || credit.date).slice(0, 10);
+
+  // Remove pendências (e rateio embutido de acordo) que este Pix substitui.
+  const drop = new Set<string>();
+  for (const item of preview.items) {
+    if (!item.pendingTransactionId) continue;
+    const pending = db.transactions.find((tx) => tx.id === item.pendingTransactionId);
+    if (!pending || pending.id === credit.id) continue;
+    if (pending.splitGroupId) {
+      for (const peer of db.transactions) {
+        if (peer.splitGroupId === pending.splitGroupId) drop.add(peer.id);
+      }
+    } else {
+      drop.add(pending.id);
+    }
+  }
+  if (drop.size) {
+    db.transactions = db.transactions.filter((tx) => !drop.has(tx.id));
+  }
+
+  const parts = preview.items.map((item) => ({
+    amount: item.amount,
+    movementTypeId: movement.id,
+    description: `Mensalidade ${MONTH_NAMES[item.month]} ${item.year} — ${member.name}`,
+    memberId: member.id,
+    date: item.dueDate,
+    paidAt,
+    paymentStatus: 'paid' as const,
+    clubFeeIncluded: item.clubFeeIncluded,
+    branch: member.branch,
+    nature: 'fixed' as const,
+  }));
+
+  const created = splitTransaction(db, credit.id, parts, userId);
+
+  for (const [index, tx] of created.entries()) {
+    const meta = preview.items[index];
+    if (!meta) continue;
+    stampPaidAt(tx, movement.name, 'paid', paidAt);
+    tx.method = credit.method ?? tx.method ?? 'pix';
+    if (meta.arrearsPlanId && meta.arrearsInstallment) {
+      stampMensalidadeEmbedLink(tx, meta.arrearsPlanId);
+      registerArrearsInstallmentPaid(db, meta.arrearsPlanId, meta.yearMonth, userId, {
+        source: 'mensalidade',
+        transactionId: tx.id,
+        method: tx.method,
+        paidAt,
+      });
+    }
+    Object.assign(tx, updatedAudit(userId));
+  }
+
+  return {
+    items: created,
+    amount: preview.total,
+    shouldNotify: input.notifyReceipt !== false,
   };
 }

@@ -1,7 +1,9 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
+  allocateBankCreditToMensalidades,
   buildMensalidadeReport,
+  previewAllocateMensalidades,
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
   settleMensalidade,
@@ -52,6 +54,25 @@ const settleBody = z
   .refine((data) => Boolean(data.transactionId) || Boolean(data.transactionIds?.length), {
     message: 'Informe transactionId ou transactionIds',
   });
+
+const allocateBody = z.object({
+  transactionId: z.string().min(1),
+  memberId: z.string().min(1),
+  timing: z.enum(['on_time', 'late']),
+  yearMonths: z.array(z.string().regex(/^\d{4}-\d{2}$/)).min(2),
+  paidAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  notifyReceipt: z.boolean().optional(),
+});
+
+const allocatePreviewBody = z.object({
+  memberId: z.string().min(1),
+  timing: z.enum(['on_time', 'late']),
+  yearMonths: z.array(z.string().regex(/^\d{4}-\d{2}$/)).min(2),
+});
 
 function roundMoneySum(amounts: number[]) {
   return roundMoney(amounts.reduce((sum, amount) => sum + amount, 0));
@@ -186,6 +207,88 @@ export class MensalidadesService {
     } catch (err) {
       if (err && typeof err === 'object' && 'status' in err) throw err;
       fail(err instanceof Error ? err.message : 'Não foi possível registrar o pagamento', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async allocatePreview(body: unknown) {
+    const parsed = allocatePreviewBody.safeParse(body);
+    if (!parsed.success) {
+      fail('Informe o associado, pontual/atraso e ao menos dois meses (AAAA-MM)', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      return await mutate((store) => {
+        for (const ym of parsed.data.yearMonths) {
+          const year = Number(ym.slice(0, 4));
+          if (Number.isInteger(year)) syncMensalidades(store, year, 'system');
+        }
+        return previewAllocateMensalidades(store, parsed.data);
+      });
+    } catch (err) {
+      if (err && typeof err === 'object' && 'status' in err) throw err;
+      fail(err instanceof Error ? err.message : 'Não foi possível calcular o rateio', HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async allocate(body: unknown, userId: string) {
+    const parsed = allocateBody.safeParse(body);
+    if (!parsed.success) {
+      fail('Informe o lançamento, o associado, pontual/atraso e ao menos dois meses (AAAA-MM)', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      const allocated = await mutate((db) => {
+        for (const ym of parsed.data.yearMonths) {
+          const year = Number(ym.slice(0, 4));
+          if (Number.isInteger(year)) syncMensalidades(db, year, userId);
+        }
+        return allocateBankCreditToMensalidades(
+          db,
+          {
+            transactionId: parsed.data.transactionId,
+            memberId: parsed.data.memberId,
+            timing: parsed.data.timing,
+            yearMonths: parsed.data.yearMonths,
+            paidAt: parsed.data.paidAt,
+            notifyReceipt: parsed.data.notifyReceipt !== false,
+          },
+          userId,
+        );
+      });
+
+      let notifySummary = {
+        queued: 0,
+        sent: 0,
+        failed: 0,
+        skipped: 0,
+        total: 0,
+        note: undefined as string | undefined,
+      };
+      if (allocated.shouldNotify) {
+        const channels = configuredNotifyChannels();
+        if (!channels.length) {
+          notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
+        } else {
+          const db = await loadDb();
+          for (const tx of allocated.items) {
+            if (!tx.memberId) continue;
+            const notify = summarizeDeliveries(await notifyTransaction(db, tx, 'receipt', channels, userId));
+            notifySummary.queued += notify.queued;
+            notifySummary.sent += notify.sent;
+            notifySummary.failed += notify.failed;
+            notifySummary.skipped += notify.skipped;
+            notifySummary.total += notify.total;
+          }
+        }
+      }
+
+      return {
+        settled: allocated.items.length,
+        amount: allocated.amount,
+        items: allocated.items,
+        notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
+      };
+    } catch (err) {
+      if (err && typeof err === 'object' && 'status' in err) throw err;
+      fail(err instanceof Error ? err.message : 'Não foi possível ratear as mensalidades', HttpStatus.BAD_REQUEST);
     }
   }
 

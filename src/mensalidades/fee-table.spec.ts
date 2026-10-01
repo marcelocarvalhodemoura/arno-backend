@@ -23,13 +23,21 @@ describe('fee table', () => {
     expect(lateMonthlyFee({ branch: 'escoteiro', clubeLtc: false }, 3)).toBe(60);
     expect(onTimeMonthlyFee({ branch: 'escoteiro', clubeLtc: true }, 4)).toBe(60);
     expect(onTimeMonthlyFee({ branch: 'pioneiro', clubeLtc: false }, 3)).toBe(15);
-    expect(lateMonthlyFee({ branch: 'pioneiro', clubeLtc: true }, 4)).toBe(15);
+    expect(lateMonthlyFee({ branch: 'pioneiro', clubeLtc: false }, 3)).toBe(20);
+    expect(lateMonthlyFee({ branch: 'pioneiro', clubeLtc: true }, 4)).toBe(20);
     expect(expectedMensalidadeAmount({ branch: 'escoteiro', clubeLtc: false }, '2026-03-10', '2026-03-20', true)).toBe(
       60,
     );
     expect(expectedMensalidadeAmount({ branch: 'pioneiro', clubeLtc: false }, '2026-04-10', '2026-04-01', true)).toBe(
       15,
     );
+    expect(expectedMensalidadeAmount({ branch: 'pioneiro', clubeLtc: false }, '2026-03-10', '2026-03-20', true)).toBe(
+      20,
+    );
+    expect(expectedMensalidadeAmount({ branch: 'pioneiro', clubeLtc: false }, '2026-04-10', '2026-04-15', false)).toBe(
+      20,
+    );
+    expect(matchesMensalidadeAmount({ branch: 'pioneiro', clubeLtc: false }, 20)).toBe(true);
   });
 
   it('does not charge dirigentes, escotistas or Clube da Flor de Lis', () => {

@@ -9,6 +9,13 @@ export type SplitPart = {
   description: string;
   projectId?: string | null;
   memberId?: string | null;
+  /** Competência / vencimento da parte (YYYY-MM-DD). */
+  date?: string;
+  paidAt?: string | null;
+  paymentStatus?: Transaction['paymentStatus'];
+  clubFeeIncluded?: boolean;
+  branch?: Transaction['branch'];
+  nature?: Transaction['nature'];
 };
 
 /**
@@ -77,6 +84,15 @@ export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPa
       tx.splitTotal = originalAmount;
       tx.splitIndex = splitIndex;
       tx.splitCount = splitCount;
+      if (part.date) tx.date = part.date;
+      if (part.paymentStatus) tx.paymentStatus = part.paymentStatus;
+      if (part.paidAt !== undefined) {
+        if (part.paidAt) tx.paidAt = part.paidAt;
+        else delete tx.paidAt;
+      }
+      if (part.clubFeeIncluded !== undefined) tx.clubFeeIncluded = part.clubFeeIncluded;
+      if (part.branch) tx.branch = part.branch;
+      if (part.nature) tx.nature = part.nature;
       if (part.projectId === null) delete tx.projectId;
       else if (part.projectId) tx.projectId = part.projectId;
       if (part.memberId === null) delete tx.memberId;
@@ -103,6 +119,15 @@ export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPa
     delete copy.notaKey;
     delete copy.notaFileName;
     delete copy.notaContentType;
+    if (part.date) copy.date = part.date;
+    if (part.paymentStatus) copy.paymentStatus = part.paymentStatus;
+    if (part.paidAt !== undefined) {
+      if (part.paidAt) copy.paidAt = part.paidAt;
+      else delete copy.paidAt;
+    }
+    if (part.clubFeeIncluded !== undefined) copy.clubFeeIncluded = part.clubFeeIncluded;
+    if (part.branch) copy.branch = part.branch;
+    if (part.nature) copy.nature = part.nature;
     if (part.projectId === null) delete copy.projectId;
     else if (part.projectId) copy.projectId = part.projectId;
     if (part.memberId === null) delete copy.memberId;

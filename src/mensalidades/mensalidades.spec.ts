@@ -1,4 +1,5 @@
 import {
+  allocateBankCreditToMensalidades,
   applyMensalidadeFee,
   buildMensalidadeReport,
   cancelSubsequentMensalidades,
@@ -7,12 +8,14 @@ import {
   firstOwedMonth,
   mensalidadeAmountForTiming,
   nextMonthStart,
+  previewAllocateMensalidades,
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
   settleMensalidade,
   syncMensalidades,
 } from './mensalidades';
 import type { DatabaseShape, Member, MovementType, Transaction } from '../shared/types';
+import { createdAudit } from '../shared/audit';
 
 function member(partial: Partial<Member> & Pick<Member, 'id' | 'name' | 'joinedAt'>): Member {
   return {
@@ -372,5 +375,84 @@ describe('mensalidades', () => {
     const mayCell = buildMensalidadeReport(db, 2026, '2026-09-20').rows[0].cells.find((cell) => cell.month === 5);
     expect(mayCell?.onTimeAmount).toBe(89.5);
     expect(mayCell?.lateAmount).toBe(99.5);
+  });
+
+  it('allocates a paid bank credit across pioneer março/abril at the late amount', () => {
+    const db = emptyDb({
+      members: [
+        member({
+          id: 'm-pio',
+          name: 'Pedro Jesus',
+          branch: 'pioneiro',
+          joinedAt: '2026-03-01',
+          monthlyFee: 15,
+        }),
+      ],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-03-01');
+    const credit: Transaction = {
+      id: 'pix-40',
+      date: '2026-01-11',
+      type: 'income',
+      nature: 'variable',
+      movementTypeId: 'unidentified',
+      description: 'RECEBIMENTO PIX Pedro Augusto Silva',
+      amount: 40,
+      branch: 'grupo',
+      method: 'pix',
+      paymentStatus: 'paid',
+      paidAt: '2026-01-11',
+      ...createdAudit('u1', 'integration'),
+    };
+    db.movementTypes.push({
+      id: 'unidentified',
+      name: 'A identificar',
+      direction: 'both',
+      description: '',
+      pixKey: '',
+      branch: 'grupo',
+      active: true,
+      ...createdAudit('u1'),
+    });
+    db.transactions.push(credit);
+
+    const preview = previewAllocateMensalidades(db, {
+      memberId: 'm-pio',
+      timing: 'late',
+      yearMonths: ['2026-03', '2026-04'],
+    });
+    expect(preview.total).toBe(40);
+    expect(preview.items.map((item) => item.amount)).toEqual([20, 20]);
+
+    const result = allocateBankCreditToMensalidades(
+      db,
+      {
+        transactionId: 'pix-40',
+        memberId: 'm-pio',
+        timing: 'late',
+        yearMonths: ['2026-03', '2026-04'],
+        paidAt: '2026-01-11',
+      },
+      'u1',
+    );
+    expect(result.amount).toBe(40);
+    expect(result.items).toHaveLength(2);
+    expect(result.items.every((tx) => tx.paymentStatus === 'paid' && tx.paidAt === '2026-01-11')).toBe(true);
+    expect(result.items.map((tx) => tx.date).sort()).toEqual(['2026-03-10', '2026-04-10']);
+    expect(result.items.map((tx) => tx.amount).sort((a, b) => a - b)).toEqual([20, 20]);
+    expect(result.items.every((tx) => tx.memberId === 'm-pio')).toBe(true);
+    expect(
+      db.transactions.filter(
+        (tx) =>
+          tx.memberId === 'm-pio' &&
+          tx.paymentStatus === 'pending' &&
+          (tx.date.startsWith('2026-03') || tx.date.startsWith('2026-04')),
+      ),
+    ).toHaveLength(0);
+
+    const report = buildMensalidadeReport(db, 2026, '2026-05-01');
+    const row = report.rows.find((item) => item.memberId === 'm-pio')!;
+    expect(row.cells.find((cell) => cell.month === 3)?.status).toBe('paid');
+    expect(row.cells.find((cell) => cell.month === 4)?.status).toBe('paid');
   });
 });
