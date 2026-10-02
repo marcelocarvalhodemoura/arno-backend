@@ -42,7 +42,7 @@ describe('members', () => {
     ).toEqual([
       {
         id: undefined,
-        name: 'Helena Souza',
+        name: 'HELENA SOUZA',
         relationship: 'Mãe',
         phone: '51',
         email: '',
@@ -50,24 +50,24 @@ describe('members', () => {
     ]);
   });
 
-  it('title-cases member and guardian names on create', () => {
+  it('upper-cases member and guardian names on create', () => {
     const db = emptyDb();
     const member = createMember(
       db,
       {
-        name: 'ANA CLARA DOS CASAES',
+        name: 'Ana Clara dos  Casaes',
         email: 'ana.clara@example.com',
         phone: '51999990001',
         branch: 'escoteiro',
         role: 'jovem',
         joinedAt: '2026-03-01',
         clubeLtc: false,
-        guardians: [{ name: 'CRISTINA DOS CASAES CLARO', relationship: 'Mãe' }],
+        guardians: [{ name: 'Cristina dos Casaes Claro', relationship: 'Mãe' }],
       },
       'u1',
     );
-    expect(member.name).toBe('Ana Clara dos Casaes');
-    expect(db.memberGuardians[0]?.name).toBe('Cristina dos Casaes Claro');
+    expect(member.name).toBe('ANA CLARA DOS CASAES');
+    expect(db.memberGuardians[0]?.name).toBe('CRISTINA DOS CASAES CLARO');
   });
 
   it('creates a youth with official fee and a guardian', () => {

@@ -1,5 +1,5 @@
 /**
- * Normaliza nomes de associados/responsáveis/titulares para "Primeira Maiúscula".
+ * Normaliza nomes de associados/responsáveis/titulares para MAIÚSCULAS.
  *
  * Uso (na pasta arno-backend):
  *   node --env-file=.env -r ts-node/register/transpile-only scripts/normalize-member-names.ts

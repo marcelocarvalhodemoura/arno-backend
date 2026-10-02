@@ -112,7 +112,7 @@ describe('API integration', () => {
     const listedAfterCreate = await request(server).get('/api/members').set(auth);
     const saved = listedAfterCreate.body.find((item: { id: string }) => item.id === createdMember.body.id);
     expect(saved.guardians).toHaveLength(1);
-    expect(saved.guardians[0].name).toBe('Maria Teste');
+    expect(saved.guardians[0].name).toBe('MARIA TESTE');
     expect(saved.guardians[0].relationship).toBe('Mãe');
 
     const withoutGuardian = await request(server)
@@ -138,7 +138,7 @@ describe('API integration', () => {
       clubeLtc: false,
     });
     expect(patchedMember.status).toBe(200);
-    expect(patchedMember.body.name).toBe('Associado Ltc Alterado');
+    expect(patchedMember.body.name).toBe('ASSOCIADO LTC ALTERADO');
     expect(patchedMember.body.phone).toBe('(51) 98888-0000');
     expect(patchedMember.body.monthlyFee).toBe(89.5);
     expect(patchedMember.body.branch).toBe('senior');
@@ -150,7 +150,7 @@ describe('API integration', () => {
     const listedAfterPatch = await request(server).get('/api/members').set(auth);
     const savedAfterPatch = listedAfterPatch.body.find((item: { id: string }) => item.id === createdMember.body.id);
     expect(savedAfterPatch.guardians).toHaveLength(1);
-    expect(savedAfterPatch.guardians[0].name).toBe('Maria Teste');
+    expect(savedAfterPatch.guardians[0].name).toBe('MARIA TESTE');
 
     const renamedGuardian = await request(server)
       .patch(`/api/members/${createdMember.body.id}`)
@@ -171,7 +171,7 @@ describe('API integration', () => {
     const savedAfterRename = listedAfterRename.body.find((item: { id: string }) => item.id === createdMember.body.id);
     expect(savedAfterRename.guardians).toHaveLength(1);
     expect(savedAfterRename.guardians[0].id).toBe(savedAfterPatch.guardians[0].id);
-    expect(savedAfterRename.guardians[0].name).toBe('Maria Teste Alterada');
+    expect(savedAfterRename.guardians[0].name).toBe('MARIA TESTE ALTERADA');
 
     const duplicate = await request(server).post('/api/members').set(auth).send({
       name: 'Outro associado',
@@ -391,7 +391,7 @@ describe('API integration', () => {
     await ensureType(auth, 'Utilidades', 'expense');
 
     const members = await request(server).get('/api/members').set(auth);
-    const ana = members.body.find((item: { name: string }) => item.name === 'Ana Souza');
+    const ana = members.body.find((item: { name: string }) => item.name === 'ANA SOUZA');
     if (!ana) {
       const created = await request(server)
         .post('/api/members')
@@ -432,7 +432,7 @@ describe('API integration', () => {
     expect(res.body.rows).toHaveLength(2);
     const fee = res.body.rows.find((row: { amount: number }) => row.amount === 89.5);
     expect(fee.movementTypeName).toBe('Mensalidade');
-    expect(fee.memberName).toBe('Ana Souza');
+    expect(fee.memberName).toBe('ANA SOUZA');
     expect(fee.type).toBe('income');
     const bill = res.body.rows.find((row: { amount: number }) => row.amount === 90);
     expect(bill.type).toBe('expense');
@@ -448,7 +448,7 @@ describe('API integration', () => {
 
     const listedMember = await request(server).get('/api/members').set(auth);
     const existing = listedMember.body.find((item: { guardians?: { name: string }[] }) =>
-      item.guardians?.some((guardian) => guardian.name === 'Joana Exemplo'),
+      item.guardians?.some((guardian) => guardian.name === 'JOANA EXEMPLO'),
     );
     let memberId = existing?.id as string | undefined;
     if (!memberId) {
@@ -482,7 +482,7 @@ describe('API integration', () => {
     for (const extra of savedLookup.body) {
       if (
         extra.id !== memberId &&
-        extra.guardians?.some((guardian: { name: string }) => guardian.name === 'Joana Exemplo') &&
+        extra.guardians?.some((guardian: { name: string }) => guardian.name === 'JOANA EXEMPLO') &&
         extra.status !== 'inactive'
       ) {
         await request(server).patch(`/api/members/${extra.id}`).set(auth).send({ status: 'inactive' });
@@ -770,7 +770,7 @@ describe('API integration', () => {
     await ensureType(auth, 'Doação', 'income');
 
     const listedMember = await request(server).get('/api/members').set(auth);
-    const existing = listedMember.body.find((item: { name: string }) => item.name === 'Ana Souza');
+    const existing = listedMember.body.find((item: { name: string }) => item.name === 'ANA SOUZA');
     let memberId = existing?.id as string | undefined;
     if (!memberId) {
       const created = await request(server)

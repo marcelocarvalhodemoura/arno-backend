@@ -1,7 +1,7 @@
 import { fold } from '../shared/csv';
 import { createdAudit, updatedAudit } from '../shared/audit';
 import { id } from '../shared/id';
-import { titleCaseName } from '../shared/name';
+import { upperCaseName } from '../shared/name';
 import type {
   DatabaseShape,
   Member,
@@ -174,7 +174,7 @@ export function cleanedGuardians(list: GuardianInput[]) {
   return list
     .map((item) => ({
       id: item.id,
-      name: titleCaseName(item.name),
+      name: upperCaseName(item.name),
       relationship: item.relationship.trim(),
       phone: (item.phone ?? '').trim(),
       email: optionalContactEmail(item.email),
@@ -271,7 +271,7 @@ export function createMember(db: DatabaseShape, input: CreateMemberInput, userId
     id: id(),
     status: 'active',
     ...data,
-    name: titleCaseName(data.name),
+    name: upperCaseName(data.name),
     chiefChild: false,
     feeOverride: null,
     monthlyFee: 0,
@@ -330,7 +330,7 @@ export function updateMember(
   }
   const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
   Object.assign(member, data);
-  if (data.name !== undefined) member.name = titleCaseName(data.name);
+  if (data.name !== undefined) member.name = upperCaseName(data.name);
   applyFamilyDiscount(
     db,
     member,
@@ -375,7 +375,7 @@ export function addMemberAccount(
     memberId: member.id,
     active: true,
     ...input,
-    holderName: titleCaseName(input.holderName),
+    holderName: upperCaseName(input.holderName),
     ...createdAudit(userId),
   };
   db.memberAccounts.push(account);
@@ -391,7 +391,7 @@ export function updateMemberAccount(
   const account = db.memberAccounts.find((item) => item.id === accountId);
   if (!account) return null;
   Object.assign(account, input, updatedAudit(userId));
-  if (input.holderName !== undefined) account.holderName = titleCaseName(input.holderName);
+  if (input.holderName !== undefined) account.holderName = upperCaseName(input.holderName);
   if (input.isPrimary) {
     for (const other of db.memberAccounts) {
       if (other.memberId === account.memberId && other.id !== account.id) {
@@ -414,21 +414,21 @@ export function normalizeStoredMemberNames(db: DatabaseShape) {
   let guardians = 0;
   let accounts = 0;
   for (const member of db.members) {
-    const next = titleCaseName(member.name);
+    const next = upperCaseName(member.name);
     if (next !== member.name) {
       member.name = next;
       members += 1;
     }
   }
   for (const guardian of db.memberGuardians ?? []) {
-    const next = titleCaseName(guardian.name);
+    const next = upperCaseName(guardian.name);
     if (next !== guardian.name) {
       guardian.name = next;
       guardians += 1;
     }
   }
   for (const account of db.memberAccounts) {
-    const next = titleCaseName(account.holderName);
+    const next = upperCaseName(account.holderName);
     if (next !== account.holderName) {
       account.holderName = next;
       accounts += 1;
@@ -460,7 +460,7 @@ export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId
       id: id(),
       status: 'active',
       ...data,
-      name: titleCaseName(data.name),
+      name: upperCaseName(data.name),
       chiefChild: false,
       monthlyFee: 0,
       ...createdAudit(userId, 'integration'),

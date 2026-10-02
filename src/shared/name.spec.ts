@@ -1,26 +1,21 @@
-import { titleCaseName } from './name';
+import { upperCaseName } from './name';
 
-describe('titleCaseName', () => {
-  it('normalizes all-caps Portuguese names', () => {
-    expect(titleCaseName('ALANA DA SILVA RAMOS')).toBe('Alana da Silva Ramos');
-    expect(titleCaseName('ANDRÉS MIGUEL DE FIGUEIREDO MAGNUS')).toBe('Andrés Miguel de Figueiredo Magnus');
-    expect(titleCaseName('ANA CLARA DOS CASAES CABRAL')).toBe('Ana Clara dos Casaes Cabral');
+describe('upperCaseName', () => {
+  it('converte para maiúsculas, inclusive acentos', () => {
+    expect(upperCaseName('Alana da Silva Ramos')).toBe('ALANA DA SILVA RAMOS');
+    expect(upperCaseName('Andrés Miguel de Figueiredo Magnus')).toBe('ANDRÉS MIGUEL DE FIGUEIREDO MAGNUS');
+    expect(upperCaseName('joão açaí')).toBe('JOÃO AÇAÍ');
   });
 
-  it('keeps already-normalized names stable', () => {
-    expect(titleCaseName('Aleksander Jean Furlin')).toBe('Aleksander Jean Furlin');
-    expect(titleCaseName('Cristina da Silva Pereira')).toBe('Cristina da Silva Pereira');
+  it('mantém nomes já em maiúsculas', () => {
+    expect(upperCaseName('ANA CLARA DOS CASAES CABRAL')).toBe('ANA CLARA DOS CASAES CABRAL');
   });
 
-  it('trims and collapses spaces', () => {
-    expect(titleCaseName('  maria   de  SOUZA  ')).toBe('Maria de Souza');
+  it('remove espaços extras', () => {
+    expect(upperCaseName('  maria   de  SOUZA  ')).toBe('MARIA DE SOUZA');
   });
 
-  it('capitalizes hyphenated parts', () => {
-    expect(titleCaseName('MARIA-CLARA DE OLIVEIRA')).toBe('Maria-Clara de Oliveira');
-  });
-
-  it('capitalizes particle when it is the first word', () => {
-    expect(titleCaseName('DA SILVA')).toBe('Da Silva');
+  it('preserva hífen', () => {
+    expect(upperCaseName('Maria-Clara de Oliveira')).toBe('MARIA-CLARA DE OLIVEIRA');
   });
 });
