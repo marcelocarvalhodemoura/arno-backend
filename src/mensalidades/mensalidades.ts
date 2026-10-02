@@ -31,7 +31,7 @@ import {
   yearMonthKey,
 } from '../arrears/arrears';
 import { stampPaidAt } from '../ledger/transactions';
-import { splitTransaction } from '../ledger/split';
+import { splitTransaction, type SplitPart } from '../ledger/split';
 
 export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
 
@@ -618,7 +618,8 @@ export function previewAllocateMensalidades(
   const items = months.map(({ year, month }) => {
     const dueDate = dueDateForMonth(year, month, dueDay);
     const existing = mensalidadeForMonth(db, member.id, year, month);
-    if (existing?.paymentStatus === 'paid') {
+    if (!existing) throw new Error(`Não há mensalidade em aberto de ${MONTH_NAMES[month]} ${year}`);
+    if (existing.paymentStatus === 'paid') {
       throw new Error(`Mensalidade de ${MONTH_NAMES[month]} ${year} já está paga`);
     }
     const clubFeeIncluded = effectiveClubFeeIncluded(member, existing?.clubFeeIncluded);
@@ -749,4 +750,177 @@ export function allocateBankCreditToMensalidades(
     amount: preview.total,
     shouldNotify: input.notifyReceipt !== false,
   };
+}
+
+export type MensalidadeSplitPart = SplitPart & {
+  /** Competência AAAA-MM que a parte de Mensalidade quita. */
+  competence?: string | null;
+};
+
+/**
+ * Rateio genérico com partes de Mensalidade: cada uma informa a competência (mês) que quita,
+ * independente da data do PIX. A parte vai para o vencimento daquele mês, a pendência é substituída
+ * e, se o crédito já está pago, a parte entra paga com a data do PIX.
+ */
+export function splitTransactionWithMensalidades(
+  db: DatabaseShape,
+  txId: string,
+  parts: MensalidadeSplitPart[],
+  userId: string,
+): Transaction[] {
+  const credit = db.transactions.find((item) => item.id === txId);
+  if (!credit) throw new Error('Lançamento não encontrado');
+  const groupPeers = credit.splitGroupId
+    ? db.transactions.filter((item) => item.splitGroupId === credit.splitGroupId)
+    : [credit];
+  const primary = groupPeers.find((item) => item.splitIndex === 1) ?? credit;
+  const ownIds = new Set(groupPeers.map((item) => item.id));
+  const paid = (primary.paymentStatus ?? 'paid') === 'paid';
+  const primaryWasMensalidade = Boolean(credit.splitGroupId) && isMensalidadeTx(db, primary);
+  // Partes de mensalidade mudam a data para a competência; a data do PIX fica em paidAt.
+  const sourceDate = (primaryWasMensalidade ? (primary.paidAt ?? primary.date) : primary.date).slice(0, 10);
+  const paidAt = (primary.paidAt ?? sourceDate).slice(0, 10);
+  const dueDay = dueDayOf(db);
+
+  const seen = new Set<string>();
+  const drop = new Set<string>();
+  const mensalidadeParts = new Map<number, { yearMonth: string; dueDate: string }>();
+  const prepared: SplitPart[] = parts.map((part, index) => {
+    const { competence, ...base } = part;
+    const movement = db.movementTypes.find((item) => item.id === part.movementTypeId);
+    if (!movement || !isMensalidadeName(movement.name)) {
+      // As cópias partem da 1ª parte, que pode ter ido para a competência: fixa os dados do PIX.
+      return { ...base, date: sourceDate, branch: primary.branch, nature: primary.nature };
+    }
+    const label = `Parte ${index + 1}`;
+    if (!part.memberId) throw new Error(`${label}: informe o associado da mensalidade`);
+    const member = db.members.find((item) => item.id === part.memberId);
+    if (!member) throw new Error(`${label}: associado inválido`);
+    const match = /^(\d{4})-(\d{2})$/.exec(competence?.trim() ?? '');
+    if (!match) throw new Error(`${label}: informe o mês (competência) que a mensalidade quita`);
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    if (!MENSALIDADE_MONTHS.includes(month)) {
+      throw new Error(`${label}: mensalidade só cobre março a novembro`);
+    }
+    const key = `${member.id}:${yearMonth(year, month)}`;
+    if (seen.has(key)) {
+      throw new Error(`${label}: ${MONTH_NAMES[month]} ${year} de ${member.name} já está em outra parte`);
+    }
+    seen.add(key);
+
+    const existing = db.transactions.filter(
+      (tx) =>
+        !ownIds.has(tx.id) &&
+        tx.memberId === member.id &&
+        tx.date.startsWith(yearMonth(year, month)) &&
+        isMensalidadeTx(db, tx),
+    );
+    if (existing.some((tx) => tx.paymentStatus === 'paid')) {
+      throw new Error(`${label}: mensalidade de ${MONTH_NAMES[month]} ${year} de ${member.name} já está paga`);
+    }
+    // Só quita cobrança que já existe; ao alterar o rateio, o mês da própria parte também vale.
+    const ownMonth = groupPeers.some(
+      (tx) => tx.memberId === member.id && tx.date.startsWith(yearMonth(year, month)) && isMensalidadeTx(db, tx),
+    );
+    if (!existing.length && !ownMonth) {
+      throw new Error(`${label}: não há mensalidade em aberto de ${MONTH_NAMES[month]} ${year} para ${member.name}`);
+    }
+    for (const pending of existing) {
+      if (pending.splitGroupId) {
+        for (const peer of db.transactions) {
+          if (peer.splitGroupId === pending.splitGroupId) drop.add(peer.id);
+        }
+      } else {
+        drop.add(pending.id);
+      }
+    }
+
+    const dueDate = dueDateForMonth(year, month, dueDay);
+    mensalidadeParts.set(index, { yearMonth: yearMonthKey(year, month), dueDate });
+    return {
+      ...base,
+      date: dueDate,
+      clubFeeIncluded: effectiveClubFeeIncluded(member, existing[0]?.clubFeeIncluded),
+      branch: member.branch,
+      nature: 'fixed' as const,
+      ...(paid ? { paymentStatus: 'paid' as const, paidAt } : {}),
+    };
+  });
+
+  // Embutido de acordo calculado antes de remover as pendências.
+  const embeds = new Map<number, ReturnType<typeof embedMetaForCell>>();
+  for (const [index, meta] of mensalidadeParts) {
+    const memberId = prepared[index].memberId!;
+    embeds.set(
+      index,
+      embedMetaForCell(db, memberId, Number(meta.yearMonth.slice(0, 4)), Number(meta.yearMonth.slice(5, 7)), 'pending'),
+    );
+  }
+  if (drop.size) db.transactions = db.transactions.filter((tx) => !drop.has(tx.id));
+
+  const created = splitTransaction(db, txId, prepared, userId);
+
+  for (const [index, meta] of mensalidadeParts) {
+    const tx = created[index];
+    if (!tx) continue;
+    const movement = db.movementTypes.find((item) => item.id === tx.movementTypeId);
+    if (paid) stampPaidAt(tx, movement?.name ?? 'Mensalidade', 'paid', paidAt);
+    const embed = embeds.get(index);
+    if (paid && embed?.arrearsPlanId && embed.extra > 0) {
+      const member = db.members.find((item) => item.id === tx.memberId)!;
+      const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
+      const withEmbed = (['on_time', 'late'] as const).map((timing) =>
+        roundMoney(mensalidadeAmountForTiming(member, meta.dueDate, clubFeeIncluded, timing) + embed.extra),
+      );
+      // Só baixa a parcela do acordo se a parte cobre mensalidade + parcela.
+      if (withEmbed.some((amount) => Math.abs(amount - tx.amount) < 0.01)) {
+        stampMensalidadeEmbedLink(tx, embed.arrearsPlanId);
+        registerArrearsInstallmentPaid(db, embed.arrearsPlanId, meta.yearMonth, userId, {
+          source: 'mensalidade',
+          transactionId: tx.id,
+          method: tx.method,
+          paidAt,
+        });
+      }
+    }
+    Object.assign(tx, updatedAudit(userId));
+  }
+
+  return created;
+}
+
+/**
+ * Mensalidades em aberto que já existem no caixa para o associado (qualquer ano).
+ * Somente leitura: não gera cobranças, ao contrário da grade.
+ */
+export function listOpenMensalidades(db: DatabaseShape, memberId: string, today = todayISO()) {
+  const member = db.members.find((item) => item.id === memberId);
+  if (!member) throw new Error('Associado não encontrado');
+  return db.transactions
+    .filter(
+      (tx) =>
+        tx.memberId === memberId &&
+        tx.paymentStatus !== 'paid' &&
+        isMensalidadeTx(db, tx) &&
+        MENSALIDADE_MONTHS.includes(Number(tx.date.slice(5, 7))),
+    )
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((tx) => {
+      const dueDate = tx.date.slice(0, 10);
+      const year = Number(dueDate.slice(0, 4));
+      const month = Number(dueDate.slice(5, 7));
+      const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
+      const embed = embedMetaForCell(db, member.id, year, month, 'pending');
+      return {
+        transactionId: tx.id,
+        yearMonth: yearMonthKey(year, month),
+        year,
+        month,
+        dueDate,
+        status: dueDate < today ? ('overdue' as const) : ('pending' as const),
+        onTimeAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time') + embed.extra),
+        lateAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late') + embed.extra),
+      };
+    });
 }

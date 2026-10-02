@@ -21,6 +21,17 @@ export class MensalidadesController {
     return this.mensalidades.report(year, auth.userId);
   }
 
+  @Get('mensalidades/open')
+  @ApiOperation({
+    summary: 'Mensalidades em aberto do associado',
+    description:
+      'Lista as cobranças pendentes ou vencidas que já existem (qualquer ano). Somente leitura: não gera a grade do ano.',
+  })
+  @ApiQuery({ name: 'memberId', required: true })
+  open(@Query('memberId') memberId: string | undefined) {
+    return this.mensalidades.open(memberId);
+  }
+
   @Patch('mensalidades/settle')
   @ApiOperation({
     summary: 'Registrar pagamento de mensalidade',

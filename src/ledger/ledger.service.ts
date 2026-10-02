@@ -1,7 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { createTransaction, deleteTransaction, listTransactions, updateTransaction } from './transactions';
-import { splitTransaction } from './split';
 import { fail, parseDto } from '../shared/http/api';
 import { errorMessage } from '../shared/http/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
@@ -11,6 +10,7 @@ import { loadDb, mutate } from '../shared/persistence/finance-store';
 import type { BranchId } from '../shared/types';
 import { updatedAudit } from '../shared/audit';
 import { resolveArrearsTxMarker } from '../arrears/arrears';
+import { splitTransactionWithMensalidades } from '../mensalidades/mensalidades';
 import {
   assertNotaFile,
   buildNotaKey,
@@ -29,6 +29,12 @@ const splitBody = z.object({
         description: z.string().min(2),
         projectId: z.string().nullable().optional(),
         memberId: z.string().nullable().optional(),
+        /** Competência AAAA-MM — obrigatória em partes do tipo Mensalidade. */
+        competence: z
+          .string()
+          .regex(/^\d{4}-\d{2}$/)
+          .nullable()
+          .optional(),
       }),
     )
     .min(2),
@@ -213,7 +219,7 @@ export class LedgerService {
       fail('Informe pelo menos duas partes com valor, tipo e descrição', HttpStatus.BAD_REQUEST);
     }
     try {
-      return await mutate((db) => splitTransaction(db, id, parsed.data.parts, userId));
+      return await mutate((db) => splitTransactionWithMensalidades(db, id, parsed.data.parts, userId));
     } catch (error) {
       fail(errorMessage(error, 'Não foi possível ratear o lançamento'), HttpStatus.BAD_REQUEST);
     }

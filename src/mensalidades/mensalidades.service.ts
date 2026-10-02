@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   allocateBankCreditToMensalidades,
   buildMensalidadeReport,
+  listOpenMensalidades,
   previewAllocateMensalidades,
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
@@ -89,6 +90,15 @@ export class MensalidadesService {
       syncMensalidades(db, year, userId);
       return buildMensalidadeReport(db, year);
     });
+  }
+
+  async open(memberId: string | undefined) {
+    if (!memberId) fail('Informe o associado', HttpStatus.BAD_REQUEST);
+    try {
+      return listOpenMensalidades(await loadDb(), memberId);
+    } catch (err) {
+      fail(err instanceof Error ? err.message : 'Associado não encontrado', HttpStatus.NOT_FOUND);
+    }
   }
 
   async setClubFee(body: unknown, userId: string) {
@@ -216,13 +226,7 @@ export class MensalidadesService {
       fail('Informe o associado, pontual/atraso e ao menos dois meses (AAAA-MM)', HttpStatus.BAD_REQUEST);
     }
     try {
-      return await mutate((store) => {
-        for (const ym of parsed.data.yearMonths) {
-          const year = Number(ym.slice(0, 4));
-          if (Number.isInteger(year)) syncMensalidades(store, year, 'system');
-        }
-        return previewAllocateMensalidades(store, parsed.data);
-      });
+      return previewAllocateMensalidades(await loadDb(), parsed.data);
     } catch (err) {
       if (err && typeof err === 'object' && 'status' in err) throw err;
       fail(err instanceof Error ? err.message : 'Não foi possível calcular o rateio', HttpStatus.BAD_REQUEST);
@@ -235,12 +239,8 @@ export class MensalidadesService {
       fail('Informe o lançamento, o associado, pontual/atraso e ao menos dois meses (AAAA-MM)', HttpStatus.BAD_REQUEST);
     }
     try {
-      const allocated = await mutate((db) => {
-        for (const ym of parsed.data.yearMonths) {
-          const year = Number(ym.slice(0, 4));
-          if (Number.isInteger(year)) syncMensalidades(db, year, userId);
-        }
-        return allocateBankCreditToMensalidades(
+      const allocated = await mutate((db) =>
+        allocateBankCreditToMensalidades(
           db,
           {
             transactionId: parsed.data.transactionId,
@@ -251,8 +251,8 @@ export class MensalidadesService {
             notifyReceipt: parsed.data.notifyReceipt !== false,
           },
           userId,
-        );
-      });
+        ),
+      );
 
       let notifySummary = {
         queued: 0,

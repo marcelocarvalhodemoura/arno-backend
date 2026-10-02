@@ -6,12 +6,14 @@ import {
   cellStatus,
   dueDateForMonth,
   firstOwedMonth,
+  listOpenMensalidades,
   mensalidadeAmountForTiming,
   nextMonthStart,
   previewAllocateMensalidades,
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
   settleMensalidade,
+  splitTransactionWithMensalidades,
   syncMensalidades,
 } from './mensalidades';
 import type { DatabaseShape, Member, MovementType, Transaction } from '../shared/types';
@@ -454,5 +456,127 @@ describe('mensalidades', () => {
     const row = report.rows.find((item) => item.memberId === 'm-pio')!;
     expect(row.cells.find((cell) => cell.month === 3)?.status).toBe('paid');
     expect(row.cells.find((cell) => cell.month === 4)?.status).toBe('paid');
+  });
+
+  it('requires the month on mensalidade parts of a manual split and settles that month', () => {
+    const db = emptyDb({
+      members: [
+        member({ id: 'm-pio', name: 'Pedro Jesus', branch: 'pioneiro', joinedAt: '2026-03-01', monthlyFee: 15 }),
+      ],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-03-01');
+    const mensalidadeType = db.movementTypes.find((item) => item.name === 'Mensalidade')!;
+    db.movementTypes.push({
+      id: 'cantina',
+      name: 'Cantina',
+      direction: 'income',
+      description: '',
+      pixKey: '',
+      branch: 'grupo',
+      active: true,
+      ...createdAudit('u1'),
+    });
+    db.transactions.push({
+      id: 'pix-50',
+      date: '2026-01-11',
+      type: 'income',
+      nature: 'variable',
+      movementTypeId: 'cantina',
+      description: 'RECEBIMENTO PIX Pedro',
+      amount: 50,
+      branch: 'grupo',
+      method: 'pix',
+      paymentStatus: 'paid',
+      paidAt: '2026-01-11',
+      ...createdAudit('u1', 'integration'),
+    });
+
+    expect(() =>
+      splitTransactionWithMensalidades(
+        db,
+        'pix-50',
+        [
+          { amount: 20, movementTypeId: mensalidadeType.id, description: 'Mensalidade', memberId: 'm-pio' },
+          { amount: 30, movementTypeId: 'cantina', description: 'Cantina' },
+        ],
+        'u1',
+      ),
+    ).toThrow(/competência/);
+
+    const created = splitTransactionWithMensalidades(
+      db,
+      'pix-50',
+      [
+        {
+          amount: 20,
+          movementTypeId: mensalidadeType.id,
+          description: 'Mensalidade março',
+          memberId: 'm-pio',
+          competence: '2026-03',
+        },
+        {
+          amount: 20,
+          movementTypeId: mensalidadeType.id,
+          description: 'Mensalidade abril',
+          memberId: 'm-pio',
+          competence: '2026-04',
+        },
+        { amount: 10, movementTypeId: 'cantina', description: 'Cantina' },
+      ],
+      'u1',
+    );
+    const before = db.transactions.length;
+    expect(() =>
+      splitTransactionWithMensalidades(
+        db,
+        'pix-50',
+        [
+          {
+            amount: 20,
+            movementTypeId: mensalidadeType.id,
+            description: 'Mensalidade março 2025',
+            memberId: 'm-pio',
+            competence: '2025-03',
+          },
+          { amount: 30, movementTypeId: 'cantina', description: 'Cantina' },
+        ],
+        'u1',
+      ),
+    ).toThrow(/não há mensalidade em aberto/);
+    expect(db.transactions).toHaveLength(before);
+    expect(
+      listOpenMensalidades(db, 'm-pio', '2026-05-01')
+        .slice(0, 2)
+        .map((item) => item.yearMonth),
+    ).toEqual(['2026-05', '2026-06']);
+    expect(db.transactions).toHaveLength(before);
+
+    expect(created.map((tx) => tx.date)).toEqual(['2026-03-10', '2026-04-10', '2026-01-11']);
+    expect(listOpenMensalidades(db, 'm-pio', '2026-05-01').map((item) => item.yearMonth)).not.toContain('2026-03');
+    expect(created.slice(0, 2).every((tx) => tx.paymentStatus === 'paid' && tx.paidAt === '2026-01-11')).toBe(true);
+
+    const report = buildMensalidadeReport(db, 2026, '2026-05-01');
+    const row = report.rows.find((item) => item.memberId === 'm-pio')!;
+    expect(row.cells.find((cell) => cell.month === 3)?.status).toBe('paid');
+    expect(row.cells.find((cell) => cell.month === 4)?.status).toBe('paid');
+    expect(row.cells.find((cell) => cell.month === 5)?.status).not.toBe('paid');
+
+    // Editar o rateio: a parte que não é mensalidade volta para a data do PIX.
+    const again = splitTransactionWithMensalidades(
+      db,
+      created[0].id,
+      [
+        {
+          amount: 20,
+          movementTypeId: mensalidadeType.id,
+          description: 'Mensalidade março',
+          memberId: 'm-pio',
+          competence: '2026-03',
+        },
+        { amount: 30, movementTypeId: 'cantina', description: 'Cantina' },
+      ],
+      'u1',
+    );
+    expect(again.map((tx) => tx.date)).toEqual(['2026-03-10', '2026-01-11']);
   });
 });
