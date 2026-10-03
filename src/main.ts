@@ -5,8 +5,7 @@ import './shared/env';
 import { waitForDb } from './shared/db';
 import { migrate } from './shared/database/migrate';
 import { seedIfEmpty } from './shared/persistence/finance-store';
-import { cleanupDuplicateTransactions } from './statement/cleanup-duplicates';
-import { rehashLegacySeedUsers } from './identity/users';
+import { promoteConfiguredSuperadmins, rehashLegacySeedUsers } from './identity/users';
 import { startOutboxWorker } from './notifications/outbox';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { setupSwagger } from './shared/swagger/setup-swagger';
@@ -15,10 +14,8 @@ async function bootstrap() {
   await waitForDb();
   await migrate();
   await seedIfEmpty();
-  const cleaned = await cleanupDuplicateTransactions();
-  if (cleaned.deleted > 0) {
-    console.log(`Higienização: ${cleaned.deleted} lançamento(s) duplicado(s) removido(s)`);
-  }
+  const promoted = await promoteConfiguredSuperadmins();
+  if (promoted.length) console.log(`Super admin: ${promoted.join(', ')} (entrar de novo para valer)`);
   const upgraded = await rehashLegacySeedUsers();
   if (upgraded > 0) {
     console.log(`Senhas de ${upgraded} usuário(s) inicial(is) regravadas em bcrypt`);

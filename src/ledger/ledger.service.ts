@@ -1,12 +1,22 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { createTransaction, deleteTransaction, listTransactions, updateTransaction } from './transactions';
+import { createTransaction, listTransactions, updateTransaction } from './transactions';
+import { closeMonth, monthLabel, purgeTrash, reopenMonth, restoreTransaction, trashTransaction } from './governance';
 import { fail, parseDto } from '../shared/http/api';
 import { errorMessage } from '../shared/http/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
 import { createTransactionBody, patchTransactionBody } from '../shared/http/schemas';
 import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from '../notifications/notify';
-import { loadDb, mutate } from '../shared/persistence/finance-store';
+import {
+  dismissReview,
+  loadDb,
+  mutate,
+  readDismissals,
+  readTransactionHistory,
+} from '../shared/persistence/finance-store';
+import { prisma } from '../shared/db';
+import { duplicateKey, findDuplicateGroups, resolveDuplicate } from './duplicates';
+import { authorOf } from '../shared/http/presenters';
 import type { BranchId } from '../shared/types';
 import { updatedAudit } from '../shared/audit';
 import { resolveArrearsTxMarker } from '../arrears/arrears';
@@ -95,19 +105,114 @@ export class LedgerService {
     }
   }
 
-  async remove(id: string) {
+  /** Excluir manda para a lixeira (30 dias). A nota no S3 fica até a lixeira ser esvaziada. */
+  async remove(id: string, userId: string) {
+    try {
+      const entry = await mutate((store) => trashTransaction(store, id, userId));
+      if (!entry) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
+      return { trashId: entry.id };
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error) throw error;
+      fail(errorMessage(error, 'Não foi possível excluir o lançamento'), HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async listTrash() {
     const db = await loadDb();
-    const tx = db.transactions.find((item) => item.id === id);
-    const notaKey = tx?.notaKey;
-    const ok = await mutate((store) => deleteTransaction(store, id));
-    if (!ok) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
-    if (notaKey && s3Configured()) {
-      try {
-        await deleteNotaObject(notaKey);
-      } catch {
-        // não bloqueia a exclusão do lançamento se o S3 falhar
+    const users = await usersById();
+    return (db.trash ?? []).map((entry) => ({
+      id: entry.id,
+      deletedAt: entry.deletedAt,
+      deletedBy: authorOf(users, entry.deletedBy),
+      transaction: {
+        ...entry.transaction,
+        movementTypeName: db.movementTypes.find((item) => item.id === entry.transaction.movementTypeId)?.name ?? null,
+        memberName: db.members.find((item) => item.id === entry.transaction.memberId)?.name ?? null,
+      },
+    }));
+  }
+
+  async restore(trashId: string) {
+    const db = await loadDb();
+    const entry = (db.trash ?? []).find((item) => item.id === trashId);
+    if (!entry) fail('Item não encontrado na lixeira', HttpStatus.NOT_FOUND);
+    try {
+      return await mutate((store) => restoreTransaction(store, trashId), {
+        restoredIds: new Set([entry.transaction.id]),
+      });
+    } catch (error) {
+      fail(errorMessage(error, 'Não foi possível restaurar'), HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  /** Esvazia a lixeira (admin) e apaga as notas anexadas no S3. */
+  async emptyTrash() {
+    const purged = await mutate((store) => purgeTrash(store, new Date(), 0));
+    if (s3Configured()) {
+      for (const key of purged.map((item) => item.transaction.notaKey).filter(Boolean) as string[]) {
+        try {
+          await deleteNotaObject(key);
+        } catch {
+          // objeto já removido ou S3 indisponível: o registro sai da lixeira mesmo assim
+        }
       }
     }
+    return { removed: purged.length };
+  }
+
+  async duplicates() {
+    return findDuplicateGroups(await loadDb(), await readDismissals('dup:'));
+  }
+
+  async dismissDuplicate(body: unknown, userId: string) {
+    const parsed = z.object({ ids: z.array(z.string().min(1)).min(2) }).safeParse(body);
+    if (!parsed.success) fail('Informe os lançamentos do grupo', HttpStatus.BAD_REQUEST);
+    await dismissReview(duplicateKey(parsed.data.ids), userId);
+    return { dismissed: true };
+  }
+
+  async resolveDuplicate(body: unknown, userId: string) {
+    const parsed = z.object({ keepId: z.string().min(1), dropIds: z.array(z.string().min(1)).min(1) }).safeParse(body);
+    if (!parsed.success) fail('Informe o lançamento mantido e as cópias', HttpStatus.BAD_REQUEST);
+    try {
+      const trashed = await mutate((store) => resolveDuplicate(store, parsed.data.keepId, parsed.data.dropIds, userId));
+      // Linhas do extrato que apontavam para a cópia passam a apontar para o lançamento mantido.
+      await prisma.bankMovement.updateMany({
+        where: { transactionId: { in: parsed.data.dropIds } },
+        data: { transactionId: parsed.data.keepId },
+      });
+      return { trashed: trashed.map((item) => item.id) };
+    } catch (error) {
+      fail(errorMessage(error, 'Não foi possível resolver o duplicado'), HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async history(id: string) {
+    const users = await usersById();
+    const rows = await readTransactionHistory(id);
+    return rows.map((row) => ({ ...row, by: row.byId ? authorOf(users, row.byId) : null }));
+  }
+
+  async listClosings() {
+    const db = await loadDb();
+    const users = await usersById();
+    return (db.monthClosings ?? []).map((item) => ({ ...item, closedByUser: authorOf(users, item.closedBy) }));
+  }
+
+  async closeMonth(body: unknown, userId: string) {
+    const parsed = z.object({ yearMonth: z.string().regex(/^\d{4}-\d{2}$/) }).safeParse(body);
+    if (!parsed.success) fail('Informe o mês (AAAA-MM)', HttpStatus.BAD_REQUEST);
+    try {
+      return await mutate((store) => closeMonth(store, parsed.data.yearMonth, userId));
+    } catch (error) {
+      fail(errorMessage(error, 'Não foi possível fechar o mês'), HttpStatus.BAD_REQUEST);
+    }
+  }
+
+  async reopenMonth(yearMonth: string) {
+    const ok = await mutate((store) => reopenMonth(store, yearMonth));
+    if (!ok) fail(`${monthLabel(yearMonth)} não está fechado`, HttpStatus.NOT_FOUND);
+    return { reopened: yearMonth };
   }
 
   async uploadNota(id: string, file: Express.Multer.File | undefined, userId: string) {

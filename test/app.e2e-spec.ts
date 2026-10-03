@@ -141,7 +141,8 @@ describe('Tesoureiro journey (e2e)', () => {
     expect(grid.body.rows.some((row: { memberId: string }) => row.memberId === member.body.id)).toBe(true);
 
     const removed = await request(server).delete(`/api/transactions/${tx.body.id}`).set(auth);
-    expect(removed.status).toBe(204);
+    expect(removed.status).toBe(200);
+    expect(removed.body.trashId).toEqual(expect.any(String));
 
     const users = await request(server).get('/api/users').set(auth);
     expect(users.status).toBe(403);

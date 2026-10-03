@@ -47,6 +47,11 @@ describe('fee table', () => {
     expect(onTimeMonthlyFee({ branch: 'flor-de-lis', role: 'jovem', clubeLtc: false })).toBe(0);
     expect(lateMonthlyFee({ branch: 'flor-de-lis', role: 'jovem', clubeLtc: true })).toBe(0);
     expect(onTimeMonthlyFee({ branch: 'escoteiro', role: 'jovem', clubeLtc: false })).toBe(89.5);
+    // Nenhum valor conta como mensalidade de quem não paga (nem o monthlyFee antigo do cadastro).
+    expect(matchesMensalidadeAmount({ branch: 'lobinho', role: 'escotista', monthlyFee: 60 }, 60)).toBe(false);
+    expect(matchesMensalidadeAmount({ branch: 'escoteiro', role: 'dirigente' }, 89.5)).toBe(false);
+    expect(matchesMensalidadeAmount({ branch: 'flor-de-lis', role: 'jovem' }, 60)).toBe(false);
+    expect(matchesMensalidadeAmount({ branch: 'lobinho', role: 'clube' }, 60)).toBe(false);
   });
 
   it('adds or removes the club package down to the group base from maio', () => {

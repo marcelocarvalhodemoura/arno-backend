@@ -18,6 +18,7 @@ import { memoryStorage } from 'multer';
 import { CurrentUser } from '../shared/auth/current-user.decorator';
 import type { AuthPayload } from '../shared/auth/token';
 import { ApiAuth } from '../shared/swagger/api-auth.decorator';
+import { Roles } from '../shared/auth/roles.decorator';
 import { LedgerService } from './ledger.service';
 
 @ApiTags('Fluxo de caixa')
@@ -89,11 +90,91 @@ export class LedgerController {
   }
 
   @Delete('transactions/:id')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Excluir lançamento' })
-  @ApiNoContentResponse()
-  remove(@Param('id') id: string) {
-    return this.ledger.remove(id);
+  @ApiOperation({
+    summary: 'Excluir lançamento',
+    description: 'Envia o lançamento para a lixeira; pode ser restaurado por 30 dias.',
+  })
+  remove(@Param('id') id: string, @CurrentUser() auth: AuthPayload) {
+    return this.ledger.remove(id, auth.userId);
+  }
+
+  @Get('transactions/:id/history')
+  @ApiOperation({ summary: 'Histórico de alterações do lançamento' })
+  history(@Param('id') id: string) {
+    return this.ledger.history(id);
+  }
+
+  @Get('duplicates')
+  @ApiOperation({
+    summary: 'Possíveis duplicados para revisar',
+    description: 'Só sugere; nada é apagado sem confirmação.',
+  })
+  duplicates() {
+    return this.ledger.duplicates();
+  }
+
+  @Post('duplicates/dismiss')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Marcar grupo como lançamentos diferentes' })
+  dismissDuplicate(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.ledger.dismissDuplicate(body, auth.userId);
+  }
+
+  @Post('duplicates/resolve')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Mandar as cópias para a lixeira' })
+  resolveDuplicate(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.ledger.resolveDuplicate(body, auth.userId);
+  }
+
+  @Get('trash')
+  @ApiOperation({ summary: 'Lançamentos na lixeira (30 dias)' })
+  listTrash() {
+    return this.ledger.listTrash();
+  }
+
+  @Post('trash/:id/restore')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Restaurar lançamento da lixeira' })
+  restore(@Param('id') id: string) {
+    return this.ledger.restore(id);
+  }
+
+  @Delete('trash')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Esvaziar a lixeira (admin)' })
+  emptyTrash() {
+    return this.ledger.emptyTrash();
+  }
+
+  @Get('month-closings')
+  @ApiOperation({ summary: 'Meses fechados' })
+  listClosings() {
+    return this.ledger.listClosings();
+  }
+
+  @Post('month-closings')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Fechar o mês',
+    description: 'Lançamentos pagos com vencimento no mês ficam só leitura até o admin reabrir.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['yearMonth'],
+      properties: { yearMonth: { type: 'string', example: '2026-08' } },
+    },
+  })
+  closeMonth(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.ledger.closeMonth(body, auth.userId);
+  }
+
+  @Delete('month-closings/:yearMonth')
+  @Roles('admin')
+  @ApiOperation({ summary: 'Reabrir o mês (admin)' })
+  reopenMonth(@Param('yearMonth') yearMonth: string) {
+    return this.ledger.reopenMonth(yearMonth);
   }
 
   @Post('transactions/:id/nota')

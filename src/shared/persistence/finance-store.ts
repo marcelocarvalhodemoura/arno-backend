@@ -17,6 +17,7 @@ import type {
   Transaction,
 } from '../types';
 import { countUsers } from '../../identity/users';
+import { assertClosedMonthsUntouched, diffTransactions, purgeTrash, type HistoryEntry } from '../../ledger/governance';
 import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types';
 
 let cache: DatabaseShape | null = null;
@@ -68,7 +69,7 @@ function asTimestamp(value: string | null | undefined): Date | null {
 
 async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
   await client.$executeRawUnsafe(
-    'TRUNCATE transactions, member_arrears, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings RESTART IDENTITY CASCADE',
+    'TRUNCATE transactions, member_arrears, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings, transaction_trash, month_closings RESTART IDENTITY',
   );
 
   if (db.movementTypes.length) {
@@ -275,6 +276,31 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
     });
   }
 
+  if (db.trash?.length) {
+    await client.transactionTrash.createMany({
+      data: db.trash.map((entry) => ({
+        id: entry.id,
+        transactionId: entry.transaction.id,
+        payload: entry.transaction as unknown as Prisma.InputJsonValue,
+        deletedAt: new Date(entry.deletedAt),
+        deletedById: entry.deletedBy ?? null,
+      })),
+    });
+  }
+
+  if (db.monthClosings?.length) {
+    await client.monthClosing.createMany({
+      data: db.monthClosings.map((item) => ({
+        yearMonth: item.yearMonth,
+        closedAt: new Date(item.closedAt),
+        closedById: item.closedBy ?? null,
+        income: item.income,
+        expense: item.expense,
+        balance: item.balance,
+      })),
+    });
+  }
+
   await client.settings.create({
     data: {
       openingBalance: db.settings.openingBalance,
@@ -284,19 +310,60 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
   });
 }
 
-export async function mutate<T>(fn: (db: DatabaseShape) => T): Promise<T> {
+/**
+ * Lê o financeiro, aplica `fn` e regrava tudo numa transação.
+ * Antes de gravar: protege meses fechados e tira da lixeira o que passou de 30 dias.
+ * Depois: registra o histórico de cada lançamento alterado.
+ */
+export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restoredIds?: Set<string> } = {}): Promise<T> {
   const result = await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
       const db = await readFinance(tx);
+      const before = new Map(db.transactions.map((item) => [item.id, structuredClone(item)]));
       const value = fn(db);
+      assertClosedMonthsUntouched(before, db);
+      purgeTrash(db);
       await writeFinance(tx, db);
+      await recordHistory(tx, diffTransactions(before, db, options.restoredIds));
       return { db, value };
     },
     { timeout: WRITE_TIMEOUT_MS },
   );
   cache = result.db;
   return result.value;
+}
+
+async function recordHistory(client: Db, entries: HistoryEntry[]) {
+  if (!entries.length) return;
+  await client.transactionHistory.createMany({
+    data: entries.map((entry) => ({
+      transactionId: entry.transactionId,
+      kind: entry.kind,
+      byId: entry.byId,
+      changes: entry.changes as unknown as Prisma.InputJsonValue,
+    })),
+  });
+}
+
+export async function readTransactionHistory(transactionId: string) {
+  const rows = await prisma.transactionHistory.findMany({ where: { transactionId }, orderBy: { at: 'desc' } });
+  return rows.map((row) => ({
+    id: row.id,
+    at: row.at.toISOString(),
+    byId: row.byId,
+    kind: row.kind,
+    changes: row.changes as unknown as HistoryEntry['changes'],
+  }));
+}
+
+export async function readDismissals(prefix: string): Promise<Set<string>> {
+  const rows = await prisma.reviewDismissal.findMany({ where: { key: { startsWith: prefix } }, select: { key: true } });
+  return new Set(rows.map((row) => row.key));
+}
+
+export async function dismissReview(key: string, userId: string) {
+  await prisma.reviewDismissal.upsert({ where: { key }, create: { key, byId: userId }, update: {} });
 }
 
 export async function resetDb(): Promise<DatabaseShape> {
@@ -368,6 +435,8 @@ function emptyFinance(): DatabaseShape {
     fees: [],
     projects: [],
     transactions: [],
+    trash: [],
+    monthClosings: [],
     settings: {
       openingBalance: 0,
       groupName: 'Grupo Escoteiro Arno Friedrich',
@@ -377,20 +446,35 @@ function emptyFinance(): DatabaseShape {
 }
 
 async function readFinance(sql: Db): Promise<DatabaseShape> {
-  const [members, guardians, siblings, accounts, arrears, types, fees, projects, items, transactions, settings] =
-    await Promise.all([
-      sql.member.findMany({ orderBy: { name: 'asc' } }),
-      sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
-      sql.memberSibling.findMany(),
-      sql.memberAccount.findMany({ orderBy: { holderName: 'asc' } }),
-      sql.memberArrears.findMany({ orderBy: { createdAt: 'desc' } }),
-      sql.movementType.findMany({ orderBy: { name: 'asc' } }),
-      sql.fee.findMany({ orderBy: { name: 'asc' } }),
-      sql.project.findMany({ orderBy: [{ year: 'asc' }, { branch: 'asc' }] }),
-      sql.projectItem.findMany(),
-      sql.transaction.findMany({ orderBy: [{ date: 'desc' }, { createdAt: 'desc' }] }),
-      sql.settings.findFirst(),
-    ]);
+  const [
+    members,
+    guardians,
+    siblings,
+    accounts,
+    arrears,
+    types,
+    fees,
+    projects,
+    items,
+    transactions,
+    settings,
+    trash,
+    closings,
+  ] = await Promise.all([
+    sql.member.findMany({ orderBy: { name: 'asc' } }),
+    sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
+    sql.memberSibling.findMany(),
+    sql.memberAccount.findMany({ orderBy: { holderName: 'asc' } }),
+    sql.memberArrears.findMany({ orderBy: { createdAt: 'desc' } }),
+    sql.movementType.findMany({ orderBy: { name: 'asc' } }),
+    sql.fee.findMany({ orderBy: { name: 'asc' } }),
+    sql.project.findMany({ orderBy: [{ year: 'asc' }, { branch: 'asc' }] }),
+    sql.projectItem.findMany(),
+    sql.transaction.findMany({ orderBy: [{ date: 'desc' }, { createdAt: 'desc' }] }),
+    sql.settings.findFirst(),
+    sql.transactionTrash.findMany({ orderBy: { deletedAt: 'desc' } }),
+    sql.monthClosing.findMany({ orderBy: { yearMonth: 'asc' } }),
+  ]);
 
   const itemsByProject = new Map<string, FinancialProject['items']>();
   for (const row of items) {
@@ -429,6 +513,20 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
       ...mapAudit(row),
     })),
     transactions: transactions.map(mapTransaction),
+    trash: trash.map((row) => ({
+      id: row.id,
+      transaction: row.payload as unknown as Transaction,
+      deletedAt: row.deletedAt.toISOString(),
+      deletedBy: row.deletedById ?? undefined,
+    })),
+    monthClosings: closings.map((row) => ({
+      yearMonth: row.yearMonth,
+      closedAt: row.closedAt.toISOString(),
+      closedBy: row.closedById ?? undefined,
+      income: Number(row.income),
+      expense: Number(row.expense),
+      balance: Number(row.balance),
+    })),
     settings: settings
       ? {
           openingBalance: Number(settings.openingBalance),

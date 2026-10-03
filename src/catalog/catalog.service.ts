@@ -1,3 +1,4 @@
+import { isAdminRole } from '../shared/types';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
@@ -62,7 +63,7 @@ export class CatalogService {
 
   async updateSettings(body: unknown, auth: AuthPayload) {
     const data = parseDto(settingsBody, body);
-    if (auth.role !== 'admin' && (data.openingBalance !== undefined || data.groupName !== undefined)) {
+    if (!isAdminRole(auth.role) && (data.openingBalance !== undefined || data.groupName !== undefined)) {
       fail('Só a administração altera o nome do grupo e o saldo inicial', HttpStatus.FORBIDDEN);
     }
     const settings = await mutate((db) => patchSettings(db, data, auth.userId));

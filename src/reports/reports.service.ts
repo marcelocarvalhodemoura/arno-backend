@@ -13,7 +13,7 @@ const customReportBody = z.object({
   types: z.array(txType).default([]),
   natures: z.array(nature).default([]),
   movementTypeIds: z.array(z.string()).default([]),
-  groupBy: z.enum(['none', 'month', 'branch', 'movementType', 'nature', 'account']),
+  groupBy: z.enum(['none', 'month', 'branch', 'movementType', 'nature', 'account', 'member', 'method']),
 });
 
 @Injectable()

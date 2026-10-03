@@ -255,6 +255,17 @@ export function cancelOutOfSeasonMensalidades(db: DatabaseShape): number {
   return before - db.transactions.length;
 }
 
+/** O ano já tem cobranças de mensalidade (qualquer situação)? */
+export function isMensalidadeYearGenerated(db: DatabaseShape, year: number): boolean {
+  const prefix = `${year}-`;
+  return db.transactions.some((tx) => tx.date.startsWith(prefix) && isMensalidadeTx(db, tx));
+}
+
+/** Quantas cobranças seriam criadas ao gerar o ano, sem gravar nada. */
+export function previewGenerateMensalidades(db: DatabaseShape, year: number, today = todayISO()): number {
+  return syncMensalidades(structuredClone(db), year, 'system', today);
+}
+
 export function syncMensalidades(db: DatabaseShape, year: number, userId: string, today = todayISO()): number {
   const dueDay = dueDayOf(db);
   ensureOfficialMensalidadeFees(db, userId);

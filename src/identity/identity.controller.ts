@@ -77,7 +77,7 @@ export class IdentityController {
     },
   })
   create(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
-    return this.identity.create(body, auth.userId);
+    return this.identity.create(body, auth.userId, auth.role);
   }
 
   @Roles('admin')
@@ -104,7 +104,7 @@ export class IdentityController {
     },
   })
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() auth: AuthPayload) {
-    return this.identity.update(id, body, auth.userId);
+    return this.identity.update(id, body, auth.userId, auth.role);
   }
 
   @Roles('admin')

@@ -1,3 +1,4 @@
+import { recordAuditEvent } from '../audit/audit-store';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { hashPassword, isLegacyHash, verifyPassword } from '../shared/auth/password';
@@ -58,6 +59,7 @@ export class IdentityService {
       await replacePasswordHash(found.id, await hashPassword(password));
     }
     const db = await loadDb();
+    recordAuditEvent({ userId: found.id, kind: 'login', path: '/login' });
     return {
       token: issueToken(found.username, found.id, found.role),
       user: found.username,
@@ -76,8 +78,11 @@ export class IdentityService {
     return (await listUsers()).map((user) => withAuthors(user, users));
   }
 
-  async create(body: unknown, createdBy: string) {
+  async create(body: unknown, createdBy: string, actorRole?: UserRole) {
     const data = parseDto(createUserBody, body);
+    if (data.role === 'superadmin' && actorRole !== 'superadmin') {
+      fail('Só um super admin pode criar outro super admin', HttpStatus.FORBIDDEN);
+    }
     try {
       const { passwordConfirm: _passwordConfirm, ...input } = data;
       return await createUser({
@@ -91,8 +96,14 @@ export class IdentityService {
     }
   }
 
-  async update(id: string, body: unknown, actorId: string) {
+  async update(id: string, body: unknown, actorId: string, actorRole?: UserRole) {
     const data = parseDto(patchUserBody, body);
+    if (actorRole !== 'superadmin') {
+      const target = (await listUsers()).find((item) => item.id === id);
+      if (data.role === 'superadmin' || target?.role === 'superadmin') {
+        fail('Só um super admin pode alterar um super admin', HttpStatus.FORBIDDEN);
+      }
+    }
     if (!(await verifyUserPassword(actorId, data.currentPassword))) {
       fail('Senha de confirmação inválida', HttpStatus.FORBIDDEN);
     }

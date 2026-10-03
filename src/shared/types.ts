@@ -23,8 +23,13 @@ export type GuardianRelationship =
   | 'Irmão'
   | 'Responsável legal'
   | 'Outro';
-export type ReportGroupBy = 'none' | 'month' | 'branch' | 'movementType' | 'nature' | 'account';
-export type UserRole = 'admin' | 'tesoureiro';
+export type ReportGroupBy = 'none' | 'month' | 'branch' | 'movementType' | 'nature' | 'account' | 'member' | 'method';
+/** superadmin: tudo do admin + auditoria e gestão de outros super admins. */
+export type UserRole = 'superadmin' | 'admin' | 'tesoureiro';
+
+export function isAdminRole(role: UserRole | string | undefined | null): boolean {
+  return role === 'admin' || role === 'superadmin';
+}
 export type RecordOrigin = 'manual' | 'integration' | 'sicredi';
 
 /** Formato da integração que originou o lançamento (CSV/PDF do extrato ou Pix Sicredi). */
@@ -439,7 +444,27 @@ export interface MensalidadeReport {
   };
 }
 
+/** Lançamento excluído: fica 30 dias na lixeira para restaurar. */
+export interface TrashedTransaction {
+  id: string;
+  transaction: Transaction;
+  deletedAt: string;
+  deletedBy?: string;
+}
+
+/** Mês conferido pela tesouraria; guarda os totais do momento do fechamento. */
+export interface MonthClosing {
+  yearMonth: string;
+  closedAt: string;
+  closedBy?: string;
+  income: number;
+  expense: number;
+  balance: number;
+}
+
 export interface DatabaseShape {
+  trash?: TrashedTransaction[];
+  monthClosings?: MonthClosing[];
   members: Member[];
   memberGuardians: MemberGuardian[];
   memberSiblings: MemberSibling[];

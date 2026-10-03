@@ -131,6 +131,49 @@ describe('interpretStatement', () => {
     expect(result.rows[0]?.confidence).toBe('high');
   });
 
+  it('does not classify a Pix from an escotista or Flor de Lis member as mensalidade', () => {
+    const withLeaders = {
+      ...catalog,
+      fees: [
+        ...catalog.fees,
+        { name: 'Mensalidade março/abril — não pioneiro', amount: 60 },
+        { name: 'Mensalidade março/abril — pioneiro (pontual)', amount: 15 },
+      ],
+      members: [
+        ...catalog.members,
+        {
+          id: 'm-esc',
+          name: 'Rafael Chefe',
+          branch: 'lobinho' as const,
+          role: 'escotista',
+          monthlyFee: 60,
+          accounts: [],
+        },
+        {
+          id: 'm-fdl',
+          name: 'Marta Clube',
+          branch: 'flor-de-lis' as const,
+          role: 'dirigente',
+          monthlyFee: 15,
+          accounts: [],
+        },
+      ],
+    };
+    const result = interpretStatement(
+      `Data;Histórico;Valor
+13/04/2026;PIX RECEBIDO RAFAEL CHEFE;60,00
+20/03/2026;PIX RECEBIDO MARTA CLUBE;15,00
+14/04/2026;PIX RECEBIDO ANA SOUZA MENSALIDADE;55,00
+`,
+      withLeaders,
+    );
+    const leader = result.rows.find((row) => row.memberId === 'm-esc');
+    const club = result.rows.find((row) => row.memberId === 'm-fdl');
+    expect(leader?.movementTypeName).not.toBe('Mensalidade');
+    expect(club?.movementTypeName).not.toBe('Mensalidade');
+    expect(result.rows.find((row) => row.memberId === 'm-ana')?.movementTypeName).toBe('Mensalidade');
+  });
+
   it('still imports unidentified bank lines for later classification', () => {
     const result = interpretStatement(
       `Data;Histórico;Valor

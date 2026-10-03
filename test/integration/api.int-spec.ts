@@ -975,4 +975,168 @@ describe('API integration', () => {
     expect(status.status).toBe(200);
     expect(typeof status.body.queued).toBe('number');
   });
+
+  it('keeps the outbox, trash, history, month closing and on-demand grade working together', async () => {
+    const auth = await tesoureiroAuth();
+    const admin = { Authorization: `Bearer ${await login(TEST_ADMIN_USER, TEST_PASSWORD)}` };
+    const type = await ensureType(auth, 'Loja Governança', 'both');
+    const created = await request(server).post('/api/transactions').set(auth).send({
+      date: '2025-06-14',
+      type: 'income',
+      nature: 'variable',
+      movementTypeId: type.id,
+      description: 'Venda de lenços',
+      branch: 'grupo',
+      method: 'pix',
+      paymentStatus: 'paid',
+      paidAt: '2025-06-14',
+      amount: 50,
+    });
+    expect(created.status).toBe(201);
+    const txId = created.body.id as string;
+
+    // A fila de mensagens sobrevive à regravação do financeiro.
+    await prisma.messageOutbox.create({
+      data: { kind: 'receipt', channel: 'email', status: 'sent', toAddress: 'a@b.c', body: 'ok', transactionId: txId },
+    });
+    const patched = await request(server).patch(`/api/transactions/${txId}`).set(auth).send({ amount: 55 });
+    expect(patched.status).toBe(200);
+    expect(await prisma.messageOutbox.count({ where: { transactionId: txId } })).toBe(1);
+
+    const history = await request(server).get(`/api/transactions/${txId}/history`).set(auth);
+    expect(history.status).toBe(200);
+    expect(history.body[0].kind).toBe('updated');
+    expect(history.body[0].changes).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Valor', from: '50.00', to: '55.00' })]),
+    );
+
+    const closed = await request(server).post('/api/month-closings').set(auth).send({ yearMonth: '2025-06' });
+    expect(closed.status).toBe(200);
+    const blocked = await request(server).patch(`/api/transactions/${txId}`).set(auth).send({ amount: 60 });
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.error).toMatch(/fechado/);
+    expect((await request(server).delete('/api/month-closings/2025-06').set(auth)).status).toBe(403);
+    expect((await request(server).delete('/api/month-closings/2025-06').set(admin)).status).toBe(200);
+
+    const removed = await request(server).delete(`/api/transactions/${txId}`).set(auth);
+    expect(removed.status).toBe(200);
+    const trash = await request(server).get('/api/trash').set(auth);
+    expect(trash.body.some((item: { id: string }) => item.id === removed.body.trashId)).toBe(true);
+    const restored = await request(server).post(`/api/trash/${removed.body.trashId}/restore`).set(auth);
+    expect(restored.status).toBe(200);
+    const listed = await request(server).get('/api/transactions?from=2025-06-01&to=2025-06-30').set(auth);
+    expect(listed.body.some((item: { id: string }) => item.id === txId)).toBe(true);
+
+    // Ver a grade de um ano sem cobranças não cria nada; gerar é explícito.
+    await prisma.transaction.deleteMany({
+      where: { date: { gte: new Date('2031-01-01'), lt: new Date('2032-01-01') } },
+    });
+    invalidateCache();
+    const preview = await request(server).get('/api/mensalidades?year=2031').set(auth);
+    expect(preview.status).toBe(200);
+    expect(preview.body.generated).toBe(false);
+    expect(await prisma.transaction.count({ where: { date: { gte: new Date('2031-01-01') } } })).toBe(0);
+    const generated = await request(server).post('/api/mensalidades/generate').set(auth).send({ year: 2031 });
+    expect(generated.status).toBe(200);
+    expect(generated.body.created).toBe(preview.body.toGenerate);
+    await prisma.transaction.deleteMany({
+      where: { date: { gte: new Date('2031-01-01'), lt: new Date('2032-01-01') } },
+    });
+    await prisma.messageOutbox.deleteMany({ where: { transactionId: txId } });
+    invalidateCache();
+  });
+
+  it('serves next steps, member profile, assembly report, duplicates and reconciliation', async () => {
+    const auth = await tesoureiroAuth();
+    const admin = { Authorization: `Bearer ${await login(TEST_ADMIN_USER, TEST_PASSWORD)}` };
+
+    const steps = await request(server).get('/api/next-steps').set(auth);
+    expect(steps.status).toBe(200);
+    expect(steps.body).toEqual(
+      expect.objectContaining({
+        overdue: expect.objectContaining({ count: expect.any(Number) }),
+        closing: expect.objectContaining({ yearMonth: expect.stringMatching(/^\d{4}-\d{2}$/) }),
+      }),
+    );
+
+    const members = await request(server).get('/api/members').set(auth);
+    const someone = members.body[0];
+    const profile = await request(server).get(`/api/members/${someone.id}/profile`).set(auth);
+    expect(profile.status).toBe(200);
+    expect(profile.body.member.name).toBe(someone.name);
+    expect(Array.isArray(profile.body.open)).toBe(true);
+
+    expect((await request(server).get('/api/reports/assembly?from=2026-01-01&to=2026-06-30').set(auth)).status).toBe(
+      403,
+    );
+    const assembly = await request(server).get('/api/reports/assembly?from=2026-01-01&to=2026-06-30').set(admin);
+    expect(assembly.status).toBe(200);
+    expect(assembly.body.result).toBeCloseTo(assembly.body.income - assembly.body.expense, 2);
+
+    expect((await request(server).get('/api/duplicates').set(auth)).status).toBe(200);
+    const recon = await request(server).get('/api/reconciliation?from=2026-01-01&to=2026-12-31').set(auth);
+    expect(recon.status).toBe(200);
+    expect(Array.isArray(recon.body)).toBe(true);
+  });
+
+  it('gives the superadmin the audit overview and keeps admins from creating superadmins', async () => {
+    const admin = { Authorization: `Bearer ${await login(TEST_ADMIN_USER, TEST_PASSWORD)}` };
+    const stamp = Date.now();
+    const user = {
+      username: `super.${stamp}`,
+      name: 'Super Teste',
+      email: `super.${stamp}@arnofriedrich.org.br`,
+      password: 'abcdef',
+      passwordConfirm: 'abcdef',
+    };
+    const denied = await request(server)
+      .post('/api/users')
+      .set(admin)
+      .send({ ...user, role: 'superadmin' });
+    expect(denied.status).toBe(403);
+
+    const created = await request(server)
+      .post('/api/users')
+      .set(admin)
+      .send({ ...user, role: 'admin' });
+    expect(created.status).toBe(201);
+    await prisma.user.update({ where: { username: user.username }, data: { role: 'superadmin' } });
+    const superAuth = { Authorization: `Bearer ${await login(user.username, 'abcdef')}` };
+
+    expect((await request(server).get('/api/audit/overview').set(admin)).status).toBe(403);
+    // O super admin também passa nas telas de admin.
+    expect((await request(server).get('/api/users').set(superAuth)).status).toBe(200);
+
+    expect((await request(server).post('/api/audit/page').set(superAuth).send({ path: '/fluxo' })).status).toBe(200);
+    const report = await request(server).post('/api/reports/custom').set(superAuth).send({
+      from: '2026-01-01',
+      to: '2026-12-31',
+      branches: [],
+      types: [],
+      natures: [],
+      movementTypeIds: [],
+      groupBy: 'member',
+    });
+    expect(report.status).toBe(200);
+    expect(report.body.totals.net).toBeCloseTo(report.body.totals.income - report.body.totals.expense, 2);
+
+    const delinquency = await request(server)
+      .get('/api/reports/delinquency?from=2026-01-01&to=2026-12-31')
+      .set(superAuth);
+    expect(delinquency.status).toBe(200);
+    expect(delinquency.body.totals).toEqual(expect.objectContaining({ members: expect.any(Number) }));
+
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const overview = await request(server).get('/api/audit/overview?days=7').set(superAuth);
+    expect(overview.status).toBe(200);
+    const me = overview.body.users.find((row: { username: string }) => row.username === user.username);
+    expect(me).toEqual(expect.objectContaining({ pages: 1, logins: 1 }));
+    expect(me.actions).toBeGreaterThanOrEqual(1);
+    expect(overview.body.screens).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Fluxo de caixa' })]),
+    );
+    expect(overview.body.actions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Relatório gerado' })]),
+    );
+  });
 });

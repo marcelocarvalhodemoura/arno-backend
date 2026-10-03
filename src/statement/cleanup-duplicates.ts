@@ -1,5 +1,3 @@
-import { prisma } from '../shared/db';
-
 type TxRow = {
   id: string;
   date: Date;
@@ -120,58 +118,4 @@ export function planDuplicateRemovals(txs: TxRow[], identifyIds: Set<string>): {
   }
 
   return plan;
-}
-
-const CLEANUP_LOCK = 4_202_609_24;
-
-/**
- * Remove duplicatas no caixa (avulso vs rateio / reimportação).
- * Idempotente; usa advisory lock para não concorrer entre instâncias.
- */
-export async function cleanupDuplicateTransactions(): Promise<{ deleted: number }> {
-  const locked = await prisma.$queryRaw<Array<{ locked: boolean }>>`
-    SELECT pg_try_advisory_lock(CAST(${CLEANUP_LOCK} AS bigint)) AS locked
-  `;
-  if (!locked[0]?.locked) {
-    return { deleted: 0 };
-  }
-
-  try {
-    const types = await prisma.movementType.findMany({ select: { id: true, name: true } });
-    const identifyIds = new Set(types.filter((item) => /identificar/i.test(item.name)).map((item) => item.id));
-
-    const txs = (await prisma.transaction.findMany({
-      select: {
-        id: true,
-        date: true,
-        type: true,
-        description: true,
-        amount: true,
-        origin: true,
-        memberId: true,
-        externalId: true,
-        splitGroupId: true,
-        splitIndex: true,
-        splitTotal: true,
-        movementTypeId: true,
-        createdAt: true,
-      },
-    })) as TxRow[];
-
-    const dropIds = [...new Set(planDuplicateRemovals(txs, identifyIds).flatMap((item) => item.dropIds))];
-    if (!dropIds.length) return { deleted: 0 };
-
-    const deleted = await prisma.$transaction(async (tx) => {
-      await tx.messageOutbox.deleteMany({ where: { transactionId: { in: dropIds } } });
-      await tx.bankMovement.updateMany({
-        where: { transactionId: { in: dropIds } },
-        data: { transactionId: null, status: 'new' },
-      });
-      return tx.transaction.deleteMany({ where: { id: { in: dropIds } } });
-    });
-
-    return { deleted: deleted.count };
-  } finally {
-    await prisma.$executeRaw`SELECT pg_advisory_unlock(CAST(${CLEANUP_LOCK} AS bigint))`;
-  }
 }

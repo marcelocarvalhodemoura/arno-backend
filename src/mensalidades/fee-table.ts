@@ -260,6 +260,8 @@ export function isOfficialMensalidadeAmount(profile: MensalidadeProfile, amount:
 }
 
 export function matchesMensalidadeAmount(profile: MensalidadeProfile, amount: number): boolean {
+  // Clube da Flor de Lis, escotistas e dirigentes não pagam: nenhum valor é "mensalidade" deles.
+  if (!paysMensalidade(profile)) return false;
   if (profile.monthlyFee !== undefined && amountsNear(amount, profile.monthlyFee)) return true;
   return isOfficialMensalidadeAmount(profile, amount);
 }

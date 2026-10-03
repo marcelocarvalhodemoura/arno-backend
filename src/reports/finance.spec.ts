@@ -1,4 +1,5 @@
 import {
+  budgetPaceMonth,
   budgetStatus,
   cashBalance,
   cashFlow,
@@ -157,6 +158,59 @@ describe('finance helpers', () => {
     };
     const actuals = projectActuals(withItems, 'p1');
     expect(actuals.byItem[0]).toEqual({ itemId: 'i1', income: 0, expense: 50 });
+  });
+
+  it('counts each transaction once when items share a movement type', () => {
+    const shared = (items: { id: string; description: string; planned: number }[], txs: Transaction[]) =>
+      projectActuals(
+        {
+          ...db,
+          transactions: txs,
+          projects: [
+            {
+              ...db.projects[0],
+              items: items.map((item) => ({ ...item, category: 'Sede', movementTypeId: 'mt-sede' })),
+            },
+          ],
+        },
+        'p1',
+      ).byItem;
+    const items = [
+      { id: 'sucos', description: 'Sucos', planned: 140 },
+      { id: 'salgados', description: 'Salgados', planned: 400 },
+    ];
+    const base = { date: '2026-09-28', type: 'expense' as const, movementTypeId: 'mt-sede', projectId: 'p1' };
+
+    // Sem descrição que desempate: rateio pelo previsto, soma fecha com o total.
+    const split = shared(items, [tx({ ...base, id: 't1', amount: 789.9, description: 'teste3' })]);
+    expect(split).toEqual([
+      { itemId: 'sucos', income: 0, expense: 204.79 },
+      { itemId: 'salgados', income: 0, expense: 585.11 },
+    ]);
+
+    // Descrição do lançamento aponta o item.
+    const named = shared(items, [
+      tx({ ...base, id: 't1', amount: 100, description: 'Compra de salgados' }),
+      tx({ ...base, id: 't2', amount: 30, description: 'Sucos do chá' }),
+    ]);
+    expect(named).toEqual([
+      { itemId: 'sucos', income: 0, expense: 30 },
+      { itemId: 'salgados', income: 0, expense: 100 },
+    ]);
+
+    // Nada previsto: divide igualmente.
+    const zero = shared(
+      items.map((item) => ({ ...item, planned: 0 })),
+      [tx({ ...base, id: 't1', amount: 10, description: 'x' })],
+    );
+    expect(zero.map((row) => row.expense)).toEqual([5, 5]);
+  });
+
+  it('paces the budget by the calendar of the selected year', () => {
+    const today = new Date(2026, 9, 3);
+    expect(budgetPaceMonth(2025, today)).toBe(12);
+    expect(budgetPaceMonth(2026, today)).toBe(10);
+    expect(budgetPaceMonth(2027, today)).toBeNull();
   });
 
   it('scopes dashboard totals and chart to the selected month or the whole year', () => {

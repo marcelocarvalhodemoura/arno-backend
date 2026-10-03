@@ -146,3 +146,22 @@ export async function rehashLegacySeedUsers(): Promise<number> {
 export async function countUsers(): Promise<number> {
   return prisma.user.count();
 }
+
+/**
+ * Promove a super admin os usuários listados em SUPERADMIN_USERS (separados por vírgula).
+ * Roda na inicialização; quem já é super admin não muda. O usuário precisa entrar de novo para valer.
+ */
+export async function promoteConfiguredSuperadmins(): Promise<string[]> {
+  const usernames = (process.env.SUPERADMIN_USERS ?? '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  if (!usernames.length) return [];
+  const rows = await prisma.user.findMany({
+    where: { username: { in: usernames }, role: { not: 'superadmin' } },
+    select: { id: true, username: true },
+  });
+  if (!rows.length) return [];
+  await prisma.user.updateMany({ where: { id: { in: rows.map((row) => row.id) } }, data: { role: 'superadmin' } });
+  return rows.map((row) => row.username);
+}

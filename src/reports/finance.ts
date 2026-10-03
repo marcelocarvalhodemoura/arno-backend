@@ -178,24 +178,45 @@ function typeIdForItem(db: DatabaseShape, item: ProjectItem) {
   return db.movementTypes.find((type) => fold(type.name) === key)?.id;
 }
 
-export function projectItemActuals(db: DatabaseShape, project: FinancialProject, item: ProjectItem) {
-  const typeId = typeIdForItem(db, item);
-  const txs = db.transactions.filter((tx) => {
-    if (!isSettled(tx) || tx.projectId !== project.id) return false;
-    if (typeId) return tx.movementTypeId === typeId;
-    return fold(tx.description).includes(fold(item.description));
-  });
-  return {
-    itemId: item.id,
-    income: sumBy(
-      txs.filter((tx) => tx.type === 'income'),
-      (tx) => tx.amount,
-    ),
-    expense: sumBy(
-      txs.filter((tx) => tx.type === 'expense'),
-      (tx) => tx.amount,
-    ),
-  };
+function describes(item: ProjectItem, tx: Transaction): boolean {
+  const key = fold(item.description);
+  return Boolean(key) && fold(tx.description).includes(key);
+}
+
+/** Divide o valor entre os itens proporcionalmente ao previsto (igual se nada previsto); centavos no último. */
+function splitByPlanned(amount: number, items: ProjectItem[]): number[] {
+  const weights = items.map((item) => Math.max(0, item.planned || 0));
+  const total = weights.reduce((acc, w) => acc + w, 0);
+  const shares = items.map((_, i) => roundMoney(total > 0 ? (amount * weights[i]) / total : amount / items.length));
+  shares[shares.length - 1] = roundMoney(amount - shares.slice(0, -1).reduce((acc, s) => acc + s, 0));
+  return shares;
+}
+
+/**
+ * Realizado por item da previsão. Cada lançamento entra uma única vez:
+ * itens do mesmo tipo disputam pela descrição; sem desempate, rateio pelo previsto.
+ */
+export function projectItemActuals(db: DatabaseShape, project: FinancialProject) {
+  const typed = project.items.map((item) => ({ item, typeId: typeIdForItem(db, item) }));
+  const totals = new Map(project.items.map((item) => [item.id, { income: 0, expense: 0 }]));
+  const txs = db.transactions.filter((tx) => isSettled(tx) && tx.projectId === project.id);
+
+  for (const tx of txs) {
+    const byType = typed.filter((row) => row.typeId && row.typeId === tx.movementTypeId).map((row) => row.item);
+    const candidates = byType.length
+      ? byType
+      : typed.filter((row) => !row.typeId && describes(row.item, tx)).map((row) => row.item);
+    if (!candidates.length) continue;
+    const named = candidates.filter((item) => describes(item, tx));
+    const targets = named.length ? named : candidates;
+    const shares = splitByPlanned(tx.amount, targets);
+    targets.forEach((item, i) => {
+      const row = totals.get(item.id)!;
+      row[tx.type] = roundMoney(row[tx.type] + shares[i]);
+    });
+  }
+
+  return project.items.map((item) => ({ itemId: item.id, ...totals.get(item.id)! }));
 }
 
 /** Status da previsão: estourou, acima do ritmo do ano, ou no caminho. */
@@ -317,7 +338,7 @@ export function projectActuals(db: DatabaseShape, projectId: string) {
       category: typeName(db, movementTypeId),
       ...v,
     })),
-    byItem: project ? project.items.map((item) => projectItemActuals(db, project, item)) : [],
+    byItem: project ? projectItemActuals(db, project) : [],
   };
 }
 
@@ -360,6 +381,20 @@ export function customReport(
           return { key: account.id, label: account.holderName };
         }
         return { key: 'sem-conta', label: 'Sem conta vinculada' };
+      }
+      case 'member': {
+        const member = t.memberId ? db.members.find((m) => m.id === t.memberId) : undefined;
+        return member ? { key: member.id, label: member.name } : { key: 'sem-associado', label: 'Sem associado' };
+      }
+      case 'method': {
+        const labels: Record<string, string> = {
+          pix: 'Pix',
+          transfer: 'Transferência',
+          cash: 'Dinheiro',
+          card: 'Cartão',
+          other: 'Outro',
+        };
+        return { key: t.method, label: labels[t.method] ?? t.method };
       }
       default:
         return { key: t.id, label: t.description };
@@ -433,6 +468,17 @@ export function customReport(
   return { rows, transactions: txs, totals, ledger, opening, closing: running };
 }
 
+/**
+ * Ritmo do calendário para o status da previsão (modo ano completo).
+ * Ano encerrado: 12 meses · ano corrente: mês de hoje · ano futuro: sem ritmo (só ok/over).
+ */
+export function budgetPaceMonth(year: number, today = new Date()): number | null {
+  const current = today.getFullYear();
+  if (year < current) return 12;
+  if (year > current) return null;
+  return today.getMonth() + 1;
+}
+
 export function dashboard(db: DatabaseShape, year: number, month: number): DashboardPayload {
   const { from, to } = periodBounds(year, month);
   const opening = cashBalance(db, dayBefore(from));
@@ -481,8 +527,7 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
     };
   });
 
-  // Ritmo do calendário só no modo ano completo; com mês filtrado, só ok/over.
-  const paceMonth = month === 0 ? new Date().getMonth() + 1 : null;
+  const paceMonth = month === 0 ? budgetPaceMonth(year) : null;
 
   return {
     year,

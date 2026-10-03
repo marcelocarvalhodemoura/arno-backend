@@ -3,7 +3,6 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { disconnectDb, prisma, waitForDb } from '../db';
 import { seedIfEmpty } from '../persistence/finance-store';
-import { cleanupDuplicateTransactions } from '../../statement/cleanup-duplicates';
 
 const execFileAsync = promisify(execFile);
 const INIT_MIGRATION = '20260921170000_init';
@@ -48,10 +47,6 @@ async function runCli() {
   await waitForDb();
   await migrate();
   await seedIfEmpty();
-  const cleaned = await cleanupDuplicateTransactions();
-  if (cleaned.deleted > 0) {
-    console.log(`Higienização: ${cleaned.deleted} lançamento(s) duplicado(s) removido(s)`);
-  }
   console.log('Migrations em dia.');
   await disconnectDb();
 }

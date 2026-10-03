@@ -14,7 +14,9 @@ export class RolesGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<{ auth?: AuthPayload }>();
     const auth = request.auth;
-    if (!auth || !roles.includes(auth.role)) {
+    // O super admin tem todos os poderes do admin (e as telas exclusivas dele).
+    const allowed = auth && (roles.includes(auth.role) || auth.role === 'superadmin');
+    if (!allowed) {
       throw new ForbiddenException({ error: 'Acesso restrito a este perfil' });
     }
     return true;

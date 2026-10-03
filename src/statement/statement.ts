@@ -1,6 +1,6 @@
 import type { BranchId, PaymentMethod, TxNature, TxPaymentStatus, TxType } from '../shared/types';
 import { fold, parseCsv, parseIsoDate, parseSignedAmount, pick } from '../shared/csv';
-import { matchesMensalidadeAmount } from '../mensalidades/fee-table';
+import { matchesMensalidadeAmount, paysMensalidade } from '../mensalidades/fee-table';
 
 export type StatementLayout = 'template' | 'bank';
 export type StatementConfidence = 'high' | 'medium' | 'low';
@@ -16,6 +16,7 @@ export type StatementCatalog = {
     id: string;
     name: string;
     branch: BranchId;
+    role?: string;
     monthlyFee: number;
     clubeLtc?: boolean;
     status?: string;
@@ -259,8 +260,12 @@ function fromBank(row: Record<string, string>, line: number, catalog: StatementC
   }
 
   if (!movement && memberHit && type === 'income') {
+    const byFee = feeNameForAmount(amount, catalog.fees);
+    // Taxa de mensalidade só vale para quem paga mensalidade (não Flor de Lis, escotista ou dirigente).
+    const payer = paysMensalidade(memberHit.member);
     const feeMatch =
-      feeNameForAmount(amount, catalog.fees) ?? (matchesMemberFee(memberHit.member, amount) ? 'Mensalidade' : null);
+      (byFee && (payer || !isMensalidadeName(byFee)) ? byFee : null) ??
+      (matchesMemberFee(memberHit.member, amount) ? 'Mensalidade' : null);
     if (feeMatch) {
       movement = findType(catalog.movementTypes, feeMatch);
       if (movement) {
@@ -568,6 +573,7 @@ function matchesMemberFee(member: StatementCatalog['members'][number], amount: n
   return matchesMensalidadeAmount(
     {
       branch: member.branch,
+      role: member.role,
       clubeLtc: Boolean(member.clubeLtc),
       monthlyFee: member.monthlyFee,
     },

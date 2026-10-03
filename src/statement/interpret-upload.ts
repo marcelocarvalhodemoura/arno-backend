@@ -14,6 +14,7 @@ export function catalogFromDb(db: DatabaseShape): StatementCatalog {
       id: member.id,
       name: member.name,
       branch: member.branch,
+      role: member.role,
       monthlyFee: member.monthlyFee,
       clubeLtc: member.clubeLtc,
       status: member.status,
