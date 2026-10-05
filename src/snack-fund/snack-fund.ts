@@ -1,11 +1,12 @@
 import type { DatabaseShape, Member, Transaction } from '../shared/types';
 import { roundMoney } from '../shared/types';
 import {
-  isCurrentMensalidadeMonth,
-  MENSALIDADE_TABLE,
+  DEFAULT_FEE_SCHEDULE,
+  type FeeSchedule,
+  mensalidadeShares,
   monthFromDate,
-  paysMensalidade,
-  resolveFeeOverride,
+  periodFor,
+  scheduleOf,
 } from '../mensalidades/fee-table';
 import { isMensalidadeName } from '../statement/statement';
 import { fold } from '../shared/csv';
@@ -77,20 +78,17 @@ export function isSnackExpenseMovementName(name: string): boolean {
   return key.includes('lanche') || key.includes('alimenta');
 }
 
-/**
- * Parcela de lanche na base do grupo (R$ 24 do cartaz de R$ 75).
- * Sem taxa do clube. Pioneiros, março/abril e valor especial familiar: 0.
- */
+/** Parcela de lanche da mensalidade, conforme a composição do mês de competência. */
 export function snackShareOf(
   profile: Pick<Member, 'branch' | 'role' | 'clubeLtc' | 'feeOverride' | 'monthlyFee'>,
   dueDate: string,
+  schedule: FeeSchedule = DEFAULT_FEE_SCHEDULE,
 ): number {
-  if (!paysMensalidade(profile)) return 0;
-  const month = monthFromDate(dueDate);
-  if (!isCurrentMensalidadeMonth(month)) return 0;
-  if (resolveFeeOverride(profile) != null) return 0;
-  if (profile.branch === 'pioneiro') return 0;
-  return MENSALIDADE_TABLE.snackShare;
+  return mensalidadeShares(profile, dueDate, { late: false, clubFeeIncluded: false }, schedule).snack;
+}
+
+function snackUnit(db: DatabaseShape, yearMonth: string): number {
+  return periodFor(scheduleOf(db), yearMonth).regular.snack;
 }
 
 function eventDate(tx: Transaction): string {
@@ -109,7 +107,7 @@ function collectIncomeLines(db: DatabaseShape, year: number, month: number): Sna
     if (!tx.memberId) continue;
     const member = db.members.find((item) => item.id === tx.memberId);
     if (!member) continue;
-    const snackShare = snackShareOf(member, tx.date);
+    const snackShare = snackShareOf(member, tx.date, scheduleOf(db));
     if (snackShare <= 0) continue;
     lines.push({
       transactionId: tx.id,
@@ -162,7 +160,7 @@ export function buildSnackFundPreview(db: DatabaseShape, year: number, month: nu
   return {
     year,
     month,
-    snackShareUnit: MENSALIDADE_TABLE.snackShare,
+    snackShareUnit: snackUnit(db, `${year}-${pad2(month)}`),
     incomeLines,
     expenseLines,
     collected,
@@ -192,7 +190,7 @@ export function buildSnackFundYearSummary(db: DatabaseShape, year: number): Snac
   }
   return {
     year,
-    snackShareUnit: MENSALIDADE_TABLE.snackShare,
+    snackShareUnit: snackUnit(db, `${year}-11`),
     months,
     collected,
     spent,

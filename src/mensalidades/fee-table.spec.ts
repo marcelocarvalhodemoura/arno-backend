@@ -1,8 +1,12 @@
+import type { FeeSchedulePeriod } from '../shared/types';
 import {
+  DEFAULT_FEE_SCHEDULE,
   expectedMensalidadeAmount,
   lateMonthlyFee,
   matchesMensalidadeAmount,
+  mensalidadeShares,
   onTimeMonthlyFee,
+  periodFor,
   specialFamilyFee,
 } from './fee-table';
 
@@ -19,12 +23,12 @@ describe('fee table', () => {
   });
 
   it('uses the early-season totals for março and abril', () => {
-    expect(onTimeMonthlyFee({ branch: 'escoteiro', clubeLtc: false }, 3)).toBe(60);
-    expect(lateMonthlyFee({ branch: 'escoteiro', clubeLtc: false }, 3)).toBe(60);
-    expect(onTimeMonthlyFee({ branch: 'escoteiro', clubeLtc: true }, 4)).toBe(60);
-    expect(onTimeMonthlyFee({ branch: 'pioneiro', clubeLtc: false }, 3)).toBe(15);
-    expect(lateMonthlyFee({ branch: 'pioneiro', clubeLtc: false }, 3)).toBe(20);
-    expect(lateMonthlyFee({ branch: 'pioneiro', clubeLtc: true }, 4)).toBe(20);
+    expect(onTimeMonthlyFee({ branch: 'escoteiro', clubeLtc: false }, '2026-03')).toBe(60);
+    expect(lateMonthlyFee({ branch: 'escoteiro', clubeLtc: false }, '2026-03')).toBe(60);
+    expect(onTimeMonthlyFee({ branch: 'escoteiro', clubeLtc: true }, '2026-04')).toBe(60);
+    expect(onTimeMonthlyFee({ branch: 'pioneiro', clubeLtc: false }, '2026-03')).toBe(15);
+    expect(lateMonthlyFee({ branch: 'pioneiro', clubeLtc: false }, '2026-03')).toBe(20);
+    expect(lateMonthlyFee({ branch: 'pioneiro', clubeLtc: true }, '2026-04')).toBe(20);
     expect(expectedMensalidadeAmount({ branch: 'escoteiro', clubeLtc: false }, '2026-03-10', '2026-03-20', true)).toBe(
       60,
     );
@@ -87,7 +91,7 @@ describe('fee table', () => {
     const nonMember = { branch: 'escoteiro' as const, clubeLtc: false, feeOverride: 82 };
     expect(onTimeMonthlyFee(nonMember)).toBe(82);
     expect(lateMonthlyFee(nonMember)).toBe(82);
-    expect(onTimeMonthlyFee(nonMember, 3)).toBe(60);
+    expect(onTimeMonthlyFee(nonMember, '2026-03')).toBe(60);
     expect(expectedMensalidadeAmount(nonMember, '2026-05-10', '2026-05-20', true)).toBe(82);
     expect(expectedMensalidadeAmount(nonMember, '2026-05-10', '2026-05-20', false)).toBe(82);
     expect(matchesMensalidadeAmount(nonMember, 82)).toBe(true);
@@ -98,5 +102,69 @@ describe('fee table', () => {
     expect(expectedMensalidadeAmount(member, '2026-05-10', '2026-05-20', true)).toBe(67.5);
     expect(expectedMensalidadeAmount(member, '2026-05-10', '2026-05-20', false)).toBe(67.5);
     expect(matchesMensalidadeAmount(member, 67.5)).toBe(true);
+  });
+
+  it('keeps the current table after abril in later years (vigência por data, não por mês)', () => {
+    const profile = { branch: 'escoteiro' as const, clubeLtc: false };
+    expect(onTimeMonthlyFee(profile, '2027-03')).toBe(89.5);
+    expect(onTimeMonthlyFee({ branch: 'pioneiro', clubeLtc: false }, '2027-04')).toBe(39.5);
+    expect(periodFor(DEFAULT_FEE_SCHEDULE, '2027-03').startMonth).toBe('2026-05');
+  });
+
+  it('splits the mensalidade into grupo, caixinha, lanche and clube', () => {
+    const regular = { branch: 'escoteiro' as const, clubeLtc: false };
+    expect(mensalidadeShares(regular, '2026-09-10', { late: false, clubFeeIncluded: true })).toMatchObject({
+      group: 47.5,
+      branch: 8,
+      snack: 24,
+      club: 10,
+      total: 89.5,
+    });
+    expect(mensalidadeShares(regular, '2026-09-10', { late: true, clubFeeIncluded: true })).toMatchObject({
+      club: 20,
+      total: 99.5,
+    });
+    expect(mensalidadeShares(regular, '2026-03-10', { late: false, clubFeeIncluded: true })).toMatchObject({
+      group: 35,
+      branch: 5,
+      snack: 20,
+      club: 0,
+      total: 60,
+    });
+    expect(
+      mensalidadeShares({ branch: 'pioneiro', clubeLtc: true }, '2026-09-10', { late: false, clubFeeIncluded: false }),
+    ).toMatchObject({ group: 20, branch: 5, snack: 0, club: 0, total: 25 });
+  });
+
+  it('applies a short adjustment period inside an open-ended one', () => {
+    const [, current] = DEFAULT_FEE_SCHEDULE;
+    const adjustment: FeeSchedulePeriod = {
+      ...current,
+      id: 'adj',
+      startMonth: '2026-07',
+      endMonth: '2026-08',
+      regular: { ...current.regular, snack: 30 },
+    };
+    const schedule = [...DEFAULT_FEE_SCHEDULE, adjustment];
+    const profile = { branch: 'escoteiro' as const, clubeLtc: true };
+    expect(onTimeMonthlyFee(profile, '2026-06', schedule)).toBe(75);
+    expect(onTimeMonthlyFee(profile, '2026-07', schedule)).toBe(81);
+    expect(onTimeMonthlyFee(profile, '2026-08', schedule)).toBe(81);
+    expect(onTimeMonthlyFee(profile, '2026-09', schedule)).toBe(75);
+  });
+
+  it('follows a changed special-family value without rewriting the cadastro', () => {
+    const [early, current] = DEFAULT_FEE_SCHEDULE;
+    const next: FeeSchedulePeriod = {
+      ...current,
+      id: 'next',
+      startMonth: '2027-03',
+      familyNonMember: { ...current.familyNonMember!, group: 77 },
+    };
+    const schedule = [early, current, next];
+    const sibling = { branch: 'escoteiro' as const, clubeLtc: false, feeOverride: 82 };
+    expect(onTimeMonthlyFee(sibling, '2026-09', schedule)).toBe(82);
+    expect(onTimeMonthlyFee(sibling, '2027-05', schedule)).toBe(85);
+    expect(specialFamilyFee(false, schedule, '2027-05')).toBe(85);
   });
 });

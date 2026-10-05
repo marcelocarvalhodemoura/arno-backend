@@ -13,7 +13,7 @@ export class SnackFundController {
   @ApiOperation({
     summary: 'Saldo da taxa de lanche',
     description:
-      'Arrecadado = R$ 24 por mensalidade paga no período (maio–nov, sem pioneiro/valor especial; sem taxa do clube). Gasto = saídas do tipo Lanche/Alimentação. Disponível = arrecadado − gasto. Sem month: resumo do ano.',
+      'Arrecadado = parte do lanche (composição do mês de vencimento e do perfil) de cada mensalidade paga no período; sem taxa do clube. Gasto = saídas do tipo Lanche/Alimentação. Disponível = arrecadado − gasto. Sem month: resumo do ano.',
   })
   @ApiQuery({ name: 'year', required: false, example: '2026' })
   @ApiQuery({ name: 'month', required: false, example: '9', description: '1–12; omita para o resumo anual' })

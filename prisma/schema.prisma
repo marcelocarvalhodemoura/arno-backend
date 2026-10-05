@@ -401,6 +401,26 @@ model MonthClosing {
   @@map("month_closings")
 }
 
+/// Composição da mensalidade por período de vigência (meses YYYY-MM; fim nulo = em aberto).
+/// Cada perfil é um JSON com group, branch, snack, clubOnTime, clubLate, dilution, lateFee e pendingSplit.
+model FeeSchedulePeriod {
+  id              String    @id @db.Uuid
+  startMonth      String    @unique @map("start_month")
+  endMonth        String?   @map("end_month")
+  note            String    @default("")
+  regular         Json
+  pioneer         Json
+  familyNonMember Json?     @map("family_non_member")
+  familyMember    Json?     @map("family_member")
+  origin          String    @default("manual")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById     String?   @map("created_by") @db.Uuid
+  updatedAt       DateTime? @map("updated_at") @db.Timestamptz(6)
+  updatedById     String?   @map("updated_by") @db.Uuid
+
+  @@map("fee_schedule_periods")
+}
+
 /// Linha do tempo de cada lançamento (só inclusão; não é regravada com o financeiro).
 model TransactionHistory {
   id            String   @id @default(dbgenerated("uuidv7()")) @db.Uuid

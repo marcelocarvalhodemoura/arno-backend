@@ -205,7 +205,7 @@ export interface Member {
   branch: YouthBranchId;
   role: MemberRole;
   monthlyFee: number;
-  /** Valor fixo opcional (ex.: R$ 82 / R$ 67,50 filho de chefe ou irmão). Null = tabela oficial. */
+  /** Valor especial (filho de chefe / irmão) ou personalizado; o valor vigente vem da composição. Null = tabela. */
   feeOverride?: number | null;
   /** Filho de chefe — XOR com irmãos; aplica feeOverride especial. */
   chiefChild?: boolean;
@@ -284,7 +284,7 @@ export interface Transaction {
   notaFileName?: string;
   notaContentType?: string;
   externalId?: string;
-  /** Mensalidade: se a parcela do clube (R$ 20) entra neste mês. */
+  /** Mensalidade: se a taxa do clube (e a diluição) entra neste mês. */
   clubFeeIncluded?: boolean;
   /** Rateio: id comum a todas as partes do mesmo crédito. */
   splitGroupId?: string;
@@ -462,9 +462,56 @@ export interface MonthClosing {
   balance: number;
 }
 
+/** Perfis com composição própria na tabela da mensalidade. */
+export type FeeProfileKey = 'regular' | 'pioneer' | 'familyNonMember' | 'familyMember';
+
+/**
+ * Partes da mensalidade (R$).
+ * Base = grupo + ramo + lanche. Clube e diluição só entram quando a taxa do clube está incluída (não sócio).
+ * Valor especial de família é fixo: grupo + ramo + lanche + clube no prazo + diluição, sem atraso.
+ */
+export interface FeeComposition {
+  /** Operacional — caixa do grupo. */
+  group: number;
+  /** Caixinha do ramo. */
+  branch: number;
+  /** Lanche. */
+  snack: number;
+  /** Taxa do clube (Lindóia) até o vencimento. */
+  clubOnTime: number;
+  /** Taxa do clube (Lindóia) após o vencimento. */
+  clubLate: number;
+  /** Diluição dez/jan/fev — vai para o caixa do grupo. */
+  dilution: number;
+  /** Acréscimo por atraso sobre a base — vai para o caixa do grupo. */
+  lateFee: number;
+  /** Divisão ainda não confirmada pela tesouraria (o total vale; as partes, não). */
+  pendingSplit?: boolean;
+}
+
+/** Composição da mensalidade num período de vigência (meses YYYY-MM, fim opcional). */
+export interface FeeSchedulePeriod {
+  id: string;
+  startMonth: string;
+  endMonth?: string | null;
+  note: string;
+  regular: FeeComposition;
+  pioneer: FeeComposition;
+  /** Null = sem valor especial no período: irmãos e filhos de chefe pagam a tabela normal. */
+  familyNonMember: FeeComposition | null;
+  familyMember: FeeComposition | null;
+  origin: RecordOrigin;
+  createdAt: string;
+  createdBy?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
 export interface DatabaseShape {
   trash?: TrashedTransaction[];
   monthClosings?: MonthClosing[];
+  /** Vazio/ausente = tabela padrão (DEFAULT_FEE_SCHEDULE). */
+  feeSchedule?: FeeSchedulePeriod[];
   members: Member[];
   memberGuardians: MemberGuardian[];
   memberSiblings: MemberSibling[];

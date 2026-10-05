@@ -1,5 +1,5 @@
 import { fold } from '../shared/csv';
-import { MENSALIDADE_BRANCH_SHARE } from '../mensalidades/fee-table';
+import { mensalidadeShares, periodFor, scheduleOf } from '../mensalidades/fee-table';
 import { isMensalidadeName } from '../statement/statement';
 import type {
   BranchId,
@@ -37,12 +37,17 @@ function isMensalidadeIncome(db: DatabaseShape, tx: Transaction): boolean {
 
 /**
  * Valor do lançamento na visão por ramo.
- * Mensalidade de jovem: só a caixinha do ramo (R$ 8 do cartaz), não o valor integral.
+ * Mensalidade de jovem: só a caixinha do ramo (conforme a composição do mês), não o valor integral.
  */
 export function amountForBranchView(db: DatabaseShape, tx: Transaction): number {
   if (tx.branch === 'grupo') return tx.amount;
   if (!isMensalidadeIncome(db, tx)) return tx.amount;
-  return roundMoney(Math.min(MENSALIDADE_BRANCH_SHARE, Math.abs(tx.amount)));
+  const schedule = scheduleOf(db);
+  const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
+  const share = member
+    ? mensalidadeShares(member, tx.date, { late: false, clubFeeIncluded: false }, schedule).branch
+    : (tx.branch === 'pioneiro' ? periodFor(schedule, tx.date).pioneer : periodFor(schedule, tx.date).regular).branch;
+  return roundMoney(Math.min(share, Math.abs(tx.amount)));
 }
 
 /** Caixinha do ramo só na síntese/agrupamento por ramo — relatório fiscal permanece integral. */

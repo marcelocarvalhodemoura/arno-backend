@@ -5,10 +5,12 @@ import {
   effectiveClubFeeIncluded,
   ensureOfficialMensalidadeFees,
   expectedMensalidadeAmount,
+  type FeeSchedule,
   lateMonthlyFee,
   onTimeMonthlyFee,
   paysMensalidade,
   resolveFeeOverride,
+  scheduleOf,
 } from './fee-table';
 import { id } from '../shared/id';
 import { siblingIdsOf } from '../members/members';
@@ -49,9 +51,10 @@ export function mensalidadeAmountForTiming(
   dueDate: string,
   clubFeeIncluded: boolean,
   timing: MensalidadeSettleTiming,
+  schedule?: FeeSchedule,
 ): number {
   const today = timing === 'on_time' ? dueDate : dayAfterISO(dueDate);
-  return roundMoney(expectedMensalidadeAmount(profile, dueDate, today, clubFeeIncluded));
+  return roundMoney(expectedMensalidadeAmount(profile, dueDate, today, clubFeeIncluded, schedule));
 }
 
 const MONTH_NAMES = [
@@ -273,7 +276,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
   cancelOutOfSeasonMensalidades(db);
   let created = 0;
   for (const member of db.members) {
-    applyOfficialFee(member);
+    applyOfficialFee(member, scheduleOf(db));
     if (!paysMensalidade(member)) {
       cancelUnpaidMensalidades(db, member.id);
       continue;
@@ -290,7 +293,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
       if (mensalidadeForMonth(db, member.id, year, month)) continue;
       const dueDate = dueDateForMonth(year, month, dueDay);
       const clubFeeIncluded = defaultClubFeeIncluded(member);
-      const baseAmount = roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded));
+      const baseAmount = roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded, scheduleOf(db)));
       const createdTx: Transaction = {
         id: id(),
         date: dueDate,
@@ -324,7 +327,7 @@ export function applyMensalidadeFee(
 ) {
   let updated = 0;
   for (const member of db.members) {
-    const next = onTimeMonthlyFee(member);
+    const next = onTimeMonthlyFee(member, undefined, scheduleOf(db));
     if (roundMoney(member.monthlyFee) === next) continue;
     member.monthlyFee = next;
     Object.assign(member, updatedAudit(userId));
@@ -334,8 +337,8 @@ export function applyMensalidadeFee(
   return updated;
 }
 
-export function assignOfficialFee(member: Member, userId?: string) {
-  applyOfficialFee(member);
+export function assignOfficialFee(member: Member, userId?: string, schedule?: FeeSchedule) {
+  applyOfficialFee(member, schedule);
   if (userId) Object.assign(member, updatedAudit(userId));
   return member.monthlyFee;
 }
@@ -409,7 +412,7 @@ export function settleMensalidade(
   if (!member) throw new Error('Mensalidade sem associado');
   const dueDate = tx.date.slice(0, 10);
   const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
-  const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing);
+  const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing, scheduleOf(db));
   const ym = yearMonthKey(Number(dueDate.slice(0, 4)), Number(dueDate.slice(5, 7)));
   const embed = embedMetaForCell(db, member.id, Number(dueDate.slice(0, 4)), Number(dueDate.slice(5, 7)), 'pending');
   const shouldNotify = input.notifyReceipt !== false;
@@ -486,11 +489,12 @@ export function settleMensalidades(
 
 export function buildMensalidadeReport(db: DatabaseShape, year: number, today = todayISO()): MensalidadeReport {
   const dueDay = dueDayOf(db);
+  const schedule = scheduleOf(db);
   const rows: MensalidadeRow[] = db.members
-    .filter((member) => onTimeMonthlyFee(member) > 0)
+    .filter((member) => onTimeMonthlyFee(member, undefined, schedule) > 0)
     .map((member) => {
-      const onTime = onTimeMonthlyFee(member);
-      const late = lateMonthlyFee(member);
+      const onTime = onTimeMonthlyFee(member, undefined, schedule);
+      const late = lateMonthlyFee(member, undefined, schedule);
       const first = firstOwedMonth(year, member.joinedAt);
       const cells: MensalidadeCell[] = MENSALIDADE_MONTHS.map((month) => {
         if (!first || month < first) {
@@ -518,11 +522,11 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           };
         }
         const clubFeeIncluded = effectiveClubFeeIncluded(member, tx?.clubFeeIncluded);
-        const onTimeAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time');
-        const lateAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late');
+        const onTimeAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time', scheduleOf(db));
+        const lateAmount = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late', scheduleOf(db));
         const status = cellStatus(tx?.paymentStatus, dueDate, today);
         const embed = embedMetaForCell(db, member.id, year, month, status);
-        const baseOpen = expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded);
+        const baseOpen = expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded, schedule);
         return {
           month,
           dueDate,
@@ -547,7 +551,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         monthlyFee: onTime,
         lateFee: late,
         clubeLtc: member.clubeLtc,
-        feeOverride: resolveFeeOverride(member),
+        feeOverride: resolveFeeOverride(member, schedule),
         chiefChild: Boolean(member.chiefChild),
         siblingIds: siblingIdsOf(db, member.id),
         cells,
@@ -634,7 +638,7 @@ export function previewAllocateMensalidades(
       throw new Error(`Mensalidade de ${MONTH_NAMES[month]} ${year} já está paga`);
     }
     const clubFeeIncluded = effectiveClubFeeIncluded(member, existing?.clubFeeIncluded);
-    const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing);
+    const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing, scheduleOf(db));
     const embed = embedMetaForCell(db, member.id, year, month, 'pending');
     const amount = roundMoney(base + embed.extra);
     return {
@@ -643,8 +647,12 @@ export function previewAllocateMensalidades(
       month,
       dueDate,
       amount,
-      onTimeAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time') + embed.extra),
-      lateAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late') + embed.extra),
+      onTimeAmount: roundMoney(
+        mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time', scheduleOf(db)) + embed.extra,
+      ),
+      lateAmount: roundMoney(
+        mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late', scheduleOf(db)) + embed.extra,
+      ),
       clubFeeIncluded,
       arrearsInstallment: embed.arrearsInstallment,
       arrearsPlanId: embed.arrearsPlanId,
@@ -882,7 +890,9 @@ export function splitTransactionWithMensalidades(
       const member = db.members.find((item) => item.id === tx.memberId)!;
       const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
       const withEmbed = (['on_time', 'late'] as const).map((timing) =>
-        roundMoney(mensalidadeAmountForTiming(member, meta.dueDate, clubFeeIncluded, timing) + embed.extra),
+        roundMoney(
+          mensalidadeAmountForTiming(member, meta.dueDate, clubFeeIncluded, timing, scheduleOf(db)) + embed.extra,
+        ),
       );
       // Só baixa a parcela do acordo se a parte cobre mensalidade + parcela.
       if (withEmbed.some((amount) => Math.abs(amount - tx.amount) < 0.01)) {
@@ -930,8 +940,12 @@ export function listOpenMensalidades(db: DatabaseShape, memberId: string, today 
         month,
         dueDate,
         status: dueDate < today ? ('overdue' as const) : ('pending' as const),
-        onTimeAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time') + embed.extra),
-        lateAmount: roundMoney(mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late') + embed.extra),
+        onTimeAmount: roundMoney(
+          mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'on_time', scheduleOf(db)) + embed.extra,
+        ),
+        lateAmount: roundMoney(
+          mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, 'late', scheduleOf(db)) + embed.extra,
+        ),
       };
     });
 }

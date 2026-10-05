@@ -1,6 +1,6 @@
-import type { BranchId, PaymentMethod, TxNature, TxPaymentStatus, TxType } from '../shared/types';
+import type { BranchId, FeeSchedulePeriod, PaymentMethod, TxNature, TxPaymentStatus, TxType } from '../shared/types';
 import { fold, parseCsv, parseIsoDate, parseSignedAmount, pick } from '../shared/csv';
-import { matchesMensalidadeAmount, paysMensalidade } from '../mensalidades/fee-table';
+import { matchesMensalidadeAmount, paysMensalidade, scheduleOf } from '../mensalidades/fee-table';
 
 export type StatementLayout = 'template' | 'bank';
 export type StatementConfidence = 'high' | 'medium' | 'low';
@@ -24,6 +24,8 @@ export type StatementCatalog = {
     guardians?: { id: string; name: string }[];
   }[];
   fees?: { name: string; amount: number }[];
+  /** Composição da mensalidade por período (reconhecer valores oficiais). */
+  feeSchedule?: FeeSchedulePeriod[];
   pendingPayments?: {
     id: string;
     memberId?: string;
@@ -265,7 +267,7 @@ function fromBank(row: Record<string, string>, line: number, catalog: StatementC
     const payer = paysMensalidade(memberHit.member);
     const feeMatch =
       (byFee && (payer || !isMensalidadeName(byFee)) ? byFee : null) ??
-      (matchesMemberFee(memberHit.member, amount) ? 'Mensalidade' : null);
+      (matchesMemberFee(memberHit.member, amount, catalog) ? 'Mensalidade' : null);
     if (feeMatch) {
       movement = findType(catalog.movementTypes, feeMatch);
       if (movement) {
@@ -275,7 +277,7 @@ function fromBank(row: Record<string, string>, line: number, catalog: StatementC
     }
   }
 
-  if (!movement && type === 'income' && memberHit && matchesMemberFee(memberHit.member, amount)) {
+  if (!movement && type === 'income' && memberHit && matchesMemberFee(memberHit.member, amount, catalog)) {
     movement = findType(catalog.movementTypes, 'Mensalidade');
     if (movement) {
       hint = 'Mensalidade pelo valor do associado — marcar como paga';
@@ -564,12 +566,16 @@ function findPendingFee(catalog: StatementCatalog, memberId: string, amount: num
   const matches = (catalog.pendingPayments ?? []).filter((item) => {
     if (item.memberId !== memberId) return false;
     if (!mensalidadeIds.has(item.movementTypeId)) return false;
-    return near(item.amount, amount) || (member ? matchesMemberFee(member, amount) : false);
+    return near(item.amount, amount) || (member ? matchesMemberFee(member, amount, catalog) : false);
   });
   return matches.find((item) => item.date.startsWith(month)) ?? matches[0];
 }
 
-function matchesMemberFee(member: StatementCatalog['members'][number], amount: number) {
+function matchesMemberFee(
+  member: StatementCatalog['members'][number],
+  amount: number,
+  catalog: Pick<StatementCatalog, 'feeSchedule'>,
+) {
   return matchesMensalidadeAmount(
     {
       branch: member.branch,
@@ -578,6 +584,7 @@ function matchesMemberFee(member: StatementCatalog['members'][number], amount: n
       monthlyFee: member.monthlyFee,
     },
     amount,
+    scheduleOf(catalog),
   );
 }
 

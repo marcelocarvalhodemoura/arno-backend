@@ -4,12 +4,13 @@ import type { DatabaseShape, Member, PaymentMethod, Transaction } from '../share
 import { roundMoney } from '../shared/types';
 import { createTransaction } from '../ledger/transactions';
 import {
+  DEFAULT_FEE_SCHEDULE,
   effectiveClubFeeIncluded,
-  isCurrentMensalidadeMonth,
-  MENSALIDADE_TABLE,
+  type FeeSchedule,
+  mensalidadeShares,
   monthFromDate,
-  paysMensalidade,
-  resolveFeeOverride,
+  periodFor,
+  scheduleOf,
 } from '../mensalidades/fee-table';
 import { todayISO } from '../mensalidades/mensalidades';
 import { isMensalidadeName } from '../statement/statement';
@@ -80,18 +81,24 @@ function isMensalidadeTx(db: DatabaseShape, tx: Transaction) {
   return Boolean(movement && isMensalidadeName(movement.name));
 }
 
-/** Parcela Lindóia a repassar (sem a diluição R$ 4,50 do grupo). */
+/** Parcela Lindóia a repassar (sem a diluição do grupo), conforme a composição do mês. */
 export function remittanceClubShare(
   profile: Pick<Member, 'branch' | 'role' | 'clubeLtc' | 'feeOverride' | 'monthlyFee'>,
   dueDate: string,
   paidAt: string,
+  schedule: FeeSchedule = DEFAULT_FEE_SCHEDULE,
 ): number {
-  if (!paysMensalidade(profile)) return 0;
-  const month = monthFromDate(dueDate);
-  if (!isCurrentMensalidadeMonth(month)) return 0;
-  if (resolveFeeOverride(profile) != null) return 0;
-  const late = paidAt > dueDate;
-  return late ? MENSALIDADE_TABLE.late : MENSALIDADE_TABLE.punctual;
+  return mensalidadeShares(profile, dueDate, { late: paidAt > dueDate, clubFeeIncluded: true }, schedule).club;
+}
+
+/** Valores de referência da taxa do clube no mês (não sócio, tabela normal). */
+function clubRates(db: DatabaseShape, yearMonth: string) {
+  const { regular } = periodFor(scheduleOf(db), yearMonth);
+  return { clubShareOnTime: regular.clubOnTime, clubShareLate: regular.clubLate };
+}
+
+function brl(n: number) {
+  return n.toFixed(2).replace('.', ',');
 }
 
 export function ensureClubRemittanceType(db: DatabaseShape, userId: string) {
@@ -139,7 +146,7 @@ function collectLines(db: DatabaseShape, year: number, month: number): ClubRemit
     const member = db.members.find((item) => item.id === tx.memberId);
     if (!member) continue;
     if (!effectiveClubFeeIncluded(member, tx.clubFeeIncluded)) continue;
-    const clubShare = remittanceClubShare(member, tx.date, tx.paidAt);
+    const clubShare = remittanceClubShare(member, tx.date, tx.paidAt, scheduleOf(db));
     if (clubShare <= 0) continue;
     lines.push({
       transactionId: tx.id,
@@ -168,8 +175,7 @@ export function buildClubRemittancePreview(db: DatabaseShape, year: number, mont
   return {
     year,
     month,
-    clubShareOnTime: MENSALIDADE_TABLE.punctual,
-    clubShareLate: MENSALIDADE_TABLE.late,
+    ...clubRates(db, `${year}-${pad2(month)}`),
     lines,
     total,
     count: lines.length,
@@ -196,8 +202,7 @@ export function buildClubRemittanceYearSummary(db: DatabaseShape, year: number):
   }
   return {
     year,
-    clubShareOnTime: MENSALIDADE_TABLE.punctual,
-    clubShareLate: MENSALIDADE_TABLE.late,
+    ...clubRates(db, `${year}-11`),
     months,
     totalDue,
     totalRemitted,
@@ -229,7 +234,7 @@ export function registerClubRemittance(
   const description = `Repasse Lindóia · ${pad2(input.month)}/${input.year} · ${preview.count} mensalidade(s)`;
   const notes =
     input.notes?.trim() ||
-    `Taxa Lindóia arrecadada em pagamentos de ${pad2(input.month)}/${input.year} (pontual R$ ${MENSALIDADE_TABLE.punctual.toFixed(2).replace('.', ',')} / atraso R$ ${MENSALIDADE_TABLE.late.toFixed(2).replace('.', ',')}). Diluição do grupo não entra no repasse.`;
+    `Taxa Lindóia arrecadada em pagamentos de ${pad2(input.month)}/${input.year} (pontual R$ ${brl(preview.clubShareOnTime)} / atraso R$ ${brl(preview.clubShareLate)}). Diluição do grupo não entra no repasse.`;
 
   const tx = createTransaction(
     db,

@@ -1,4 +1,5 @@
 import {
+  amountForBranchView,
   budgetPaceMonth,
   budgetStatus,
   cashBalance,
@@ -359,6 +360,42 @@ describe('finance helpers', () => {
     expect(report.opening).toBe(40);
     expect(report.closing).toBe(70);
     expect(report.ledger.every((line) => line.branch === 'lobinho')).toBe(true);
+  });
+
+  it('uses the caixinha of the month and profile (pioneiro R$ 5, março/abril R$ 5)', () => {
+    const fixture: DatabaseShape = {
+      ...db,
+      members: [
+        {
+          id: 'm-pio',
+          name: 'Caio',
+          email: '',
+          phone: '',
+          branch: 'pioneiro',
+          role: 'jovem',
+          monthlyFee: 39.5,
+          status: 'active',
+          joinedAt: '2026-03-01',
+          clubeLtc: false,
+          origin: 'manual',
+          createdAt: '2026-03-01T00:00:00.000Z',
+        },
+      ],
+      movementTypes: [...db.movementTypes, movement({ id: 'mt-mens', name: 'Mensalidade', direction: 'income' })],
+    };
+    const base = { type: 'income' as const, movementTypeId: 'mt-mens' };
+    expect(
+      amountForBranchView(
+        fixture,
+        tx({ ...base, id: 'a', date: '2026-08-10', amount: 39.5, branch: 'pioneiro', memberId: 'm-pio' }),
+      ),
+    ).toBe(5);
+    expect(
+      amountForBranchView(fixture, tx({ ...base, id: 'b', date: '2026-03-10', amount: 60, branch: 'lobinho' })),
+    ).toBe(5);
+    expect(
+      amountForBranchView(fixture, tx({ ...base, id: 'c', date: '2026-08-10', amount: 89.5, branch: 'lobinho' })),
+    ).toBe(8);
   });
 
   it('attributes only the ramo caixinha (R$ 8) from mensalidades in branch views', () => {

@@ -22,6 +22,7 @@ import {
   isSpecialFamilyFeeAmount,
   paysMensalidade,
   resolveFeeOverride,
+  scheduleOf,
   specialFamilyFee,
 } from '../mensalidades/fee-table';
 import {
@@ -31,8 +32,8 @@ import {
   refreshPendingMensalidadeSchedule,
 } from '../mensalidades/mensalidades';
 
-function normalizeFeeOverride(value: number | null | undefined, clubeLtc?: boolean): number | null {
-  return resolveFeeOverride({ feeOverride: value == null ? null : value, clubeLtc });
+function normalizeFeeOverride(db: DatabaseShape, value: number | null | undefined, clubeLtc?: boolean): number | null {
+  return resolveFeeOverride({ feeOverride: value == null ? null : value, clubeLtc }, scheduleOf(db));
 }
 
 export function siblingIdsOf(db: DatabaseShape, memberId: string): string[] {
@@ -49,19 +50,19 @@ function refreshFamilyFee(db: DatabaseShape, memberId: string) {
   const member = db.members.find((item) => item.id === memberId);
   if (!member) return;
   if (member.chiefChild) {
-    member.feeOverride = specialFamilyFee(member.clubeLtc);
-    assignOfficialFee(member);
+    member.feeOverride = specialFamilyFee(member.clubeLtc, scheduleOf(db));
+    assignOfficialFee(member, undefined, scheduleOf(db));
     return;
   }
   if (siblingIdsOf(db, memberId).length > 0) {
-    member.feeOverride = specialFamilyFee(member.clubeLtc);
-    assignOfficialFee(member);
+    member.feeOverride = specialFamilyFee(member.clubeLtc, scheduleOf(db));
+    assignOfficialFee(member, undefined, scheduleOf(db));
     return;
   }
-  if (member.feeOverride != null && isSpecialFamilyFeeAmount(member.feeOverride)) {
+  if (member.feeOverride != null && isSpecialFamilyFeeAmount(member.feeOverride, scheduleOf(db))) {
     member.feeOverride = null;
   }
-  assignOfficialFee(member);
+  assignOfficialFee(member, undefined, scheduleOf(db));
 }
 
 /** Substitui os irmãos do associado e mantém o vínculo bidirecional. */
@@ -123,7 +124,7 @@ export function replaceSiblings(db: DatabaseShape, memberId: string, siblingIds:
 }
 
 /**
- * Aplica filho de chefe XOR irmãos e sincroniza feeOverride (R$ 82 ou R$ 67,50 sócio).
+ * Aplica filho de chefe XOR irmãos e sincroniza feeOverride com o valor especial da composição (não sócio / sócio).
  * Se nenhum dos campos de família vier no payload, preserva feeOverride manual.
  */
 export function applyFamilyDiscount(
@@ -135,10 +136,11 @@ export function applyFamilyDiscount(
   const touchesFamily = input.chiefChild !== undefined || input.siblingIds !== undefined;
   if (!touchesFamily) {
     if (input.feeOverride !== undefined) {
-      member.feeOverride = input.feeOverride === null ? null : normalizeFeeOverride(input.feeOverride, member.clubeLtc);
+      member.feeOverride =
+        input.feeOverride === null ? null : normalizeFeeOverride(db, input.feeOverride, member.clubeLtc);
     } else if (member.chiefChild || siblingIdsOf(db, member.id).length > 0) {
       // Sócio Lindóia alterado: recalcula 82 ↔ 67,50.
-      member.feeOverride = specialFamilyFee(member.clubeLtc);
+      member.feeOverride = specialFamilyFee(member.clubeLtc, scheduleOf(db));
     }
     return;
   }
@@ -162,9 +164,9 @@ export function applyFamilyDiscount(
   replaceSiblings(db, member.id, chiefChild ? [] : siblingIds, userId);
 
   if (chiefChild) {
-    member.feeOverride = specialFamilyFee(member.clubeLtc);
+    member.feeOverride = specialFamilyFee(member.clubeLtc, scheduleOf(db));
   } else if (siblingIdsOf(db, member.id).length > 0) {
-    member.feeOverride = specialFamilyFee(member.clubeLtc);
+    member.feeOverride = specialFamilyFee(member.clubeLtc, scheduleOf(db));
   } else {
     member.feeOverride = null;
   }
@@ -248,7 +250,7 @@ export function resolveGuardianId(db: DatabaseShape, memberId: string | undefine
 
 export function refreshOfficialFees(db: DatabaseShape) {
   for (const member of db.members) {
-    assignOfficialFee(member);
+    assignOfficialFee(member, undefined, scheduleOf(db));
     if (!paysMensalidade(member)) cancelUnpaidMensalidades(db, member.id);
   }
   return db;
@@ -290,9 +292,9 @@ export function createMember(db: DatabaseShape, input: CreateMemberInput, userId
       userId,
     );
   } else {
-    created.feeOverride = normalizeFeeOverride(feeOverrideInput, created.clubeLtc);
+    created.feeOverride = normalizeFeeOverride(db, feeOverrideInput, created.clubeLtc);
   }
-  assignOfficialFee(created);
+  assignOfficialFee(created, undefined, scheduleOf(db));
   return created;
 }
 
@@ -346,7 +348,7 @@ export function updateMember(
     replaceSiblings(db, member.id, [], userId);
     member.feeOverride = null;
   }
-  assignOfficialFee(member, userId);
+  assignOfficialFee(member, userId, scheduleOf(db));
   if (!paysMensalidade(member)) {
     cancelUnpaidMensalidades(db, member.id);
   } else if (becameInactive) {
@@ -465,7 +467,7 @@ export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId
       monthlyFee: 0,
       ...createdAudit(userId, 'integration'),
     };
-    assignOfficialFee(member);
+    assignOfficialFee(member, undefined, scheduleOf(db));
     db.members.push(member);
     if (incoming.length) replaceGuardians(db, member.id, incoming, userId, 'integration');
     created.push(member.id);

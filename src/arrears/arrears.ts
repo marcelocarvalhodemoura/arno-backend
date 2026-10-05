@@ -11,7 +11,7 @@ import type {
 } from '../shared/types';
 import { roundMoney } from '../shared/types';
 import { dueDateForMonth, dueDayOf, MENSALIDADE_MONTHS, todayISO } from '../mensalidades/mensalidades';
-import { effectiveClubFeeIncluded, expectedMensalidadeAmount } from '../mensalidades/fee-table';
+import { effectiveClubFeeIncluded, expectedMensalidadeAmount, scheduleOf } from '../mensalidades/fee-table';
 import { splitTransaction } from '../ledger/split';
 
 export const ARREARS_MOVEMENT_NAME = 'Acordo / dívida diluída';
@@ -608,13 +608,17 @@ export function removeArrearsEmbedSplit(
   const member = primary.memberId ? db.members.find((item) => item.id === primary.memberId) : undefined;
   if (member && recalculateBase) {
     const club = effectiveClubFeeIncluded(member, primary.clubFeeIncluded);
-    primary.amount = roundMoney(expectedMensalidadeAmount(member, primary.date.slice(0, 10), today, club));
+    primary.amount = roundMoney(
+      expectedMensalidadeAmount(member, primary.date.slice(0, 10), today, club, scheduleOf(db)),
+    );
     primary.clubFeeIncluded = club;
   } else if (preservedBase != null) {
     primary.amount = preservedBase;
   } else if (member) {
     const club = effectiveClubFeeIncluded(member, primary.clubFeeIncluded);
-    primary.amount = roundMoney(expectedMensalidadeAmount(member, primary.date.slice(0, 10), today, club));
+    primary.amount = roundMoney(
+      expectedMensalidadeAmount(member, primary.date.slice(0, 10), today, club, scheduleOf(db)),
+    );
     primary.clubFeeIncluded = club;
   }
   clearMensalidadeEmbedLink(primary);
@@ -654,7 +658,7 @@ export function syncMensalidadeArrearsEmbed(
   const month = Number(dueDate.slice(5, 7));
   const ym = yearMonthKey(year, month);
   const club = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
-  const tableBase = roundMoney(expectedMensalidadeAmount(member, dueDate, today, club));
+  const tableBase = roundMoney(expectedMensalidadeAmount(member, dueDate, today, club, scheduleOf(db)));
   const embed = embedMetaForCell(db, member.id, year, month, 'pending');
 
   let preservedBase = tx.amount;

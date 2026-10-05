@@ -6,6 +6,8 @@ import { id } from '../id';
 import type {
   DatabaseShape,
   Fee,
+  FeeComposition,
+  FeeSchedulePeriod,
   FinancialProject,
   Member,
   MemberAccount,
@@ -19,6 +21,7 @@ import type {
 import { countUsers } from '../../identity/users';
 import { assertClosedMonthsUntouched, diffTransactions, purgeTrash, type HistoryEntry } from '../../ledger/governance';
 import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types';
+import { DEFAULT_FEE_SCHEDULE } from '../../mensalidades/fee-table';
 
 let cache: DatabaseShape | null = null;
 
@@ -69,7 +72,7 @@ function asTimestamp(value: string | null | undefined): Date | null {
 
 async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
   await client.$executeRawUnsafe(
-    'TRUNCATE transactions, member_arrears, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings, transaction_trash, month_closings RESTART IDENTITY',
+    'TRUNCATE transactions, member_arrears, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings, transaction_trash, month_closings, fee_schedule_periods RESTART IDENTITY',
   );
 
   if (db.movementTypes.length) {
@@ -301,6 +304,26 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
     });
   }
 
+  if (db.feeSchedule?.length) {
+    await client.feeSchedulePeriod.createMany({
+      data: db.feeSchedule.map((period) => ({
+        id: period.id,
+        startMonth: period.startMonth,
+        endMonth: period.endMonth ?? null,
+        note: period.note ?? '',
+        regular: period.regular as unknown as Prisma.InputJsonValue,
+        pioneer: period.pioneer as unknown as Prisma.InputJsonValue,
+        familyNonMember: (period.familyNonMember as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull,
+        familyMember: (period.familyMember as unknown as Prisma.InputJsonValue) ?? Prisma.DbNull,
+        origin: storedOrigin(period.origin),
+        createdAt: new Date(period.createdAt),
+        createdById: period.createdBy ?? null,
+        updatedAt: asTimestamp(period.updatedAt),
+        updatedById: period.updatedBy ?? null,
+      })),
+    });
+  }
+
   await client.settings.create({
     data: {
       openingBalance: db.settings.openingBalance,
@@ -437,6 +460,7 @@ function emptyFinance(): DatabaseShape {
     transactions: [],
     trash: [],
     monthClosings: [],
+    feeSchedule: [],
     settings: {
       openingBalance: 0,
       groupName: 'Grupo Escoteiro Arno Friedrich',
@@ -460,6 +484,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     settings,
     trash,
     closings,
+    feePeriods,
   ] = await Promise.all([
     sql.member.findMany({ orderBy: { name: 'asc' } }),
     sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
@@ -474,6 +499,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     sql.settings.findFirst(),
     sql.transactionTrash.findMany({ orderBy: { deletedAt: 'desc' } }),
     sql.monthClosing.findMany({ orderBy: { yearMonth: 'asc' } }),
+    sql.feeSchedulePeriod.findMany({ orderBy: { startMonth: 'asc' } }),
   ]);
 
   const itemsByProject = new Map<string, FinancialProject['items']>();
@@ -527,6 +553,8 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
       expense: Number(row.expense),
       balance: Number(row.balance),
     })),
+    // Sem períodos gravados: a tabela padrão passa a ser gravada na próxima alteração.
+    feeSchedule: feePeriods.length ? feePeriods.map(mapFeePeriod) : structuredClone(DEFAULT_FEE_SCHEDULE),
     settings: settings
       ? {
           openingBalance: Number(settings.openingBalance),
@@ -707,6 +735,52 @@ function mapFee(row: {
     id: row.id,
     name: row.name,
     amount: Number(row.amount),
+    ...mapAudit(row),
+  };
+}
+
+function mapComposition(value: Prisma.JsonValue): FeeComposition {
+  const raw = (value ?? {}) as Record<string, unknown>;
+  const num = (key: string) => {
+    const n = Number(raw[key]);
+    return Number.isFinite(n) ? n : 0;
+  };
+  return {
+    group: num('group'),
+    branch: num('branch'),
+    snack: num('snack'),
+    clubOnTime: num('clubOnTime'),
+    clubLate: num('clubLate'),
+    dilution: num('dilution'),
+    lateFee: num('lateFee'),
+    pendingSplit: raw.pendingSplit === true,
+  };
+}
+
+function mapFeePeriod(row: {
+  id: string;
+  startMonth: string;
+  endMonth: string | null;
+  note: string;
+  regular: Prisma.JsonValue;
+  pioneer: Prisma.JsonValue;
+  familyNonMember: Prisma.JsonValue | null;
+  familyMember: Prisma.JsonValue | null;
+  origin: string;
+  createdAt: Date;
+  createdById: string | null;
+  updatedAt: Date | null;
+  updatedById: string | null;
+}): FeeSchedulePeriod {
+  return {
+    id: row.id,
+    startMonth: row.startMonth,
+    endMonth: row.endMonth,
+    note: row.note ?? '',
+    regular: mapComposition(row.regular),
+    pioneer: mapComposition(row.pioneer),
+    familyNonMember: row.familyNonMember == null ? null : mapComposition(row.familyNonMember),
+    familyMember: row.familyMember == null ? null : mapComposition(row.familyMember),
     ...mapAudit(row),
   };
 }

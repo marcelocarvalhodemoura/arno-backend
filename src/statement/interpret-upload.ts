@@ -30,6 +30,7 @@ export function catalogFromDb(db: DatabaseShape): StatementCatalog {
         .map((guardian) => ({ id: guardian.id, name: guardian.name })),
     })),
     fees: db.fees,
+    feeSchedule: db.feeSchedule,
     pendingPayments: db.transactions
       .filter((tx) => tx.paymentStatus === 'pending' && tx.type === 'income')
       .map((tx) => ({

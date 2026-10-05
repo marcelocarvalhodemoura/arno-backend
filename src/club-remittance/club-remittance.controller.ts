@@ -15,7 +15,7 @@ export class ClubRemittanceController {
   @ApiOperation({
     summary: 'Prévia do repasse da taxa Lindóia',
     description:
-      'Sem month: resumo do ano. Com month: lista as mensalidades pagas naquele mês (paidAt) com taxa do clube incluída e o total a repassar (R$ 10 pontual / R$ 20 atraso; diluição do grupo não entra).',
+      'Sem month: resumo do ano. Com month: lista as mensalidades pagas naquele mês (paidAt) com taxa do clube incluída e o total a repassar (valor no prazo ou após o vencimento conforme a composição do mês; diluição do grupo não entra).',
   })
   @ApiQuery({ name: 'year', required: false, example: '2026' })
   @ApiQuery({ name: 'month', required: false, example: '9', description: '1–12; omita para o resumo anual' })

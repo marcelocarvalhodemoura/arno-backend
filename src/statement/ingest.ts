@@ -1,6 +1,6 @@
 import { fold } from '../shared/csv';
 import { createdAudit, updatedAudit } from '../shared/audit';
-import { amountsNear, matchesMensalidadeAmount } from '../mensalidades/fee-table';
+import { amountsNear, matchesMensalidadeAmount, scheduleOf } from '../mensalidades/fee-table';
 import { id } from '../shared/id';
 import { isMensalidadeName, isUnidentifiedName } from './statement';
 import type { DatabaseShape, ImportSource, RecordOrigin, Transaction } from '../shared/types';
@@ -311,7 +311,8 @@ export function ingestTransactions(
             tx.type === 'income' &&
             tx.memberId === row.memberId &&
             isMensalidadeMovement(db, tx.movementTypeId) &&
-            (amountsNear(tx.amount, amount) || (member ? matchesMensalidadeAmount(member, amount) : false)),
+            (amountsNear(tx.amount, amount) ||
+              (member ? matchesMensalidadeAmount(member, amount, scheduleOf(db)) : false)),
         )
         .sort((a, b) => {
           const aSame = a.date.startsWith(month) ? 0 : 1;

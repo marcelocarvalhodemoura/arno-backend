@@ -1139,4 +1139,50 @@ describe('API integration', () => {
       expect.arrayContaining([expect.objectContaining({ label: 'Relatório gerado' })]),
     );
   });
+
+  it('stores the mensalidade composition by period and keeps it admin-only to change', async () => {
+    const tesoureiro = await tesoureiroAuth();
+    const adminToken = await login(TEST_ADMIN_USER, TEST_PASSWORD);
+    const admin = { Authorization: `Bearer ${adminToken}` };
+
+    const listed = await request(server).get('/api/fee-schedule').set(tesoureiro);
+    expect(listed.status).toBe(200);
+    expect(listed.body.map((period: { startMonth: string }) => period.startMonth)).toEqual(
+      expect.arrayContaining(['2026-03', '2026-05']),
+    );
+    const current = listed.body.find((period: { startMonth: string }) => period.startMonth === '2026-05');
+    expect(current.regular).toEqual(expect.objectContaining({ group: 43, branch: 8, snack: 24 }));
+
+    const body = {
+      startMonth: '2031-03',
+      endMonth: '2031-04',
+      note: 'Ajuste de teste',
+      regular: { ...current.regular, snack: 30 },
+      pioneer: current.pioneer,
+      familyNonMember: null,
+      familyMember: null,
+    };
+    const denied = await request(server).post('/api/fee-schedule').set(tesoureiro).send(body);
+    expect(denied.status).toBe(403);
+
+    const created = await request(server).post('/api/fee-schedule').set(admin).send(body);
+    expect(created.status).toBe(201);
+    const saved = created.body.find((period: { startMonth: string }) => period.startMonth === '2031-03');
+    expect(saved).toEqual(
+      expect.objectContaining({ endMonth: '2031-04', familyNonMember: null, note: 'Ajuste de teste' }),
+    );
+    expect(saved.regular.snack).toBe(30);
+
+    invalidateCache();
+    const reread = await request(server).get('/api/fee-schedule').set(admin);
+    expect(reread.body.find((period: { id: string }) => period.id === saved.id)?.regular.snack).toBe(30);
+
+    const duplicate = await request(server).post('/api/fee-schedule').set(admin).send(body);
+    expect(duplicate.status).toBe(400);
+    expect(duplicate.body.error).toContain('2031-03');
+
+    const removed = await request(server).delete(`/api/fee-schedule/${saved.id}`).set(admin);
+    expect(removed.status).toBe(200);
+    expect(removed.body.some((period: { id: string }) => period.id === saved.id)).toBe(false);
+  });
 });

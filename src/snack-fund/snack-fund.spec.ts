@@ -83,10 +83,11 @@ describe('snack-fund', () => {
     expect(isSnackExpenseMovementName('Sede')).toBe(false);
   });
 
-  it('uses R$ 24 only for regular maio–nov base (no club fee in the share)', () => {
+  it('uses the lanche share of the month (R$ 20 março/abril, R$ 24 maio em diante)', () => {
     const regular = member({ id: 'm1', name: 'Ana', joinedAt: '2026-03-01' });
     expect(snackShareOf(regular, '2026-05-10')).toBe(24);
-    expect(snackShareOf(regular, '2026-03-10')).toBe(0);
+    expect(snackShareOf(regular, '2026-03-10')).toBe(20);
+    expect(snackShareOf({ ...regular, branch: 'pioneiro' }, '2026-03-10')).toBe(0);
     expect(snackShareOf({ ...regular, branch: 'pioneiro' }, '2026-05-10')).toBe(0);
     expect(snackShareOf({ ...regular, feeOverride: 82 }, '2026-05-10')).toBe(0);
     expect(snackShareOf({ ...regular, clubeLtc: true, monthlyFee: 75 }, '2026-05-10')).toBe(24);

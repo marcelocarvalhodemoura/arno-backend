@@ -51,13 +51,14 @@ export class MembersController {
         chiefChild: {
           type: 'boolean',
           example: false,
-          description: 'Filho de chefe (XOR com siblingIds). Aplica R$ 82 (não sócio) ou R$ 67,50 (sócio).',
+          description:
+            'Filho de chefe (XOR com siblingIds). Aplica o valor especial de família da composição (não sócio ou sócio).',
         },
         siblingIds: {
           type: 'array',
           items: { type: 'string' },
           description:
-            'IDs de irmãos associados (XOR com chiefChild). Vínculo bidirecional; aplica R$ 82 / R$ 67,50 sócio.',
+            'IDs de irmãos associados (XOR com chiefChild). Vínculo bidirecional; aplica o valor especial de família da composição.',
         },
         feeOverride: {
           type: 'number',

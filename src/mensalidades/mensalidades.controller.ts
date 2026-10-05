@@ -181,7 +181,7 @@ export class MensalidadesController {
   @ApiOperation({
     summary: 'Incluir ou remover a taxa do clube em uma mensalidade',
     description:
-      'Altera só lançamentos pendentes. clubFeeIncluded=true inclui a parcela do clube (R$ 20, exceto pioneiros).',
+      'Altera só lançamentos pendentes. clubFeeIncluded=true inclui a taxa do clube e a diluição, conforme a composição do mês.',
   })
   @ApiBody({
     schema: {
