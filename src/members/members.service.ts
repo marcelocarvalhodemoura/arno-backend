@@ -48,7 +48,7 @@ export class MembersService {
       return await mutate((db) => createMember(db, data, userId));
     } catch (error) {
       const message = errorMessage(error, 'Não foi possível cadastrar');
-      fail(message, message === 'E-mail já cadastrado' ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST);
+      fail(message, HttpStatus.BAD_REQUEST);
     }
   }
 
@@ -60,7 +60,7 @@ export class MembersService {
       return updated;
     } catch (error) {
       const message = errorMessage(error, 'Não foi possível alterar');
-      fail(message, message === 'E-mail já cadastrado' ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST);
+      fail(message, HttpStatus.BAD_REQUEST);
     }
   }
 

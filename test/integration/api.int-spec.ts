@@ -173,17 +173,18 @@ describe('API integration', () => {
     expect(savedAfterRename.guardians[0].id).toBe(savedAfterPatch.guardians[0].id);
     expect(savedAfterRename.guardians[0].name).toBe('MARIA TESTE ALTERADA');
 
-    const duplicate = await request(server).post('/api/members').set(auth).send({
+    const sharedEmail = await request(server).post('/api/members').set(auth).send({
       name: 'Outro associado',
       email: createdMember.body.email,
       phone: '(51) 99999-1111',
       branch: 'escoteiro',
-      role: 'jovem',
+      role: 'escotista',
       monthlyFee: 60,
       joinedAt: '2026-08-01',
       clubeLtc: false,
     });
-    expect(duplicate.status).toBe(409);
+    expect(sharedEmail.status).toBe(201);
+    expect(sharedEmail.body.email).toBe(createdMember.body.email);
 
     const members = await request(server).get('/api/members').set(auth);
     expect(members.status).toBe(200);

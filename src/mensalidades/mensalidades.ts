@@ -7,6 +7,7 @@ import {
   expectedMensalidadeAmount,
   type FeeSchedule,
   lateMonthlyFee,
+  mensalidadeFormula,
   onTimeMonthlyFee,
   paysMensalidade,
   resolveFeeOverride,
@@ -487,6 +488,18 @@ export function settleMensalidades(
   return { items };
 }
 
+/** Parcela(s) de dívida já pagas referentes ao mês (para mostrar na fórmula do mês pago). */
+function paidArrearsForMonth(db: DatabaseShape, memberId: string, year: number, month: number): number {
+  const ym = yearMonthKey(year, month);
+  return roundMoney(
+    db.transactions
+      .filter(
+        (tx) => tx.memberId === memberId && tx.arrearsId && tx.arrearsYearMonth === ym && tx.paymentStatus === 'paid',
+      )
+      .reduce((sum, tx) => sum + tx.amount, 0),
+  );
+}
+
 export function buildMensalidadeReport(db: DatabaseShape, year: number, today = todayISO()): MensalidadeReport {
   const dueDay = dueDayOf(db);
   const schedule = scheduleOf(db);
@@ -527,6 +540,11 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         const status = cellStatus(tx?.paymentStatus, dueDate, today);
         const embed = embedMetaForCell(db, member.id, year, month, status);
         const baseOpen = expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded, schedule);
+        const formula = {
+          onTime: mensalidadeFormula(member, dueDate, { late: false, clubFeeIncluded }, schedule),
+          late: mensalidadeFormula(member, dueDate, { late: true, clubFeeIncluded }, schedule),
+        };
+        const paidArrears = status === 'paid' ? paidArrearsForMonth(db, member.id, year, month) : 0;
         return {
           month,
           dueDate,
@@ -538,6 +556,8 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           clubFeeIncluded,
           arrearsInstallment: embed.arrearsInstallment,
           arrearsPlanId: embed.arrearsPlanId,
+          formula,
+          paidArrearsInstallment: paidArrears > 0 ? paidArrears : undefined,
         };
       });
       return {

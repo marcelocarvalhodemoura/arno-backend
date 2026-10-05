@@ -184,6 +184,33 @@ export function cleanedGuardians(list: GuardianInput[]) {
     .filter((item) => item.name.length >= 2);
 }
 
+/** Pioneiros e adultos usam o próprio e-mail; os ramos abaixo usam o do responsável. */
+export function ownsContactEmail(member: { branch: string; role: string }) {
+  return member.role !== 'jovem' || member.branch === 'pioneiro';
+}
+
+export function memberContactEmail(
+  member: { branch: string; role: string },
+  ownEmail: string,
+  guardians: { email: string }[],
+) {
+  const own = optionalContactEmail(ownEmail).toLowerCase();
+  if (ownsContactEmail(member)) return own;
+  const guardian = guardians.map((item) => optionalContactEmail(item.email)).find(Boolean);
+  return (guardian ?? own).toLowerCase();
+}
+
+function guardiansOf(db: DatabaseShape, memberId: string) {
+  return (db.memberGuardians ?? []).filter((item) => item.memberId === memberId);
+}
+
+function assertContactEmail(member: { branch: string; role: string; email: string }) {
+  if (member.email) return;
+  throw new Error(
+    ownsContactEmail(member) ? 'Informe o e-mail do associado' : 'Informe o e-mail de pelo menos um responsável',
+  );
+}
+
 export function assertYouthGuardians(role: string, count: number) {
   if (role === 'jovem' && count < 1) {
     throw new Error('Informe pelo menos um responsável do jovem');
@@ -257,9 +284,6 @@ export function refreshOfficialFees(db: DatabaseShape) {
 }
 
 export function createMember(db: DatabaseShape, input: CreateMemberInput, userId: string): Member {
-  if (db.members.some((item) => item.email.toLowerCase() === input.email.toLowerCase())) {
-    throw new Error('E-mail já cadastrado');
-  }
   const {
     guardians,
     feeOverride: feeOverrideInput,
@@ -269,10 +293,13 @@ export function createMember(db: DatabaseShape, input: CreateMemberInput, userId
   } = input;
   const list = cleanedGuardians(guardians ?? []);
   assertYouthGuardians(data.role, list.length);
+  const email = memberContactEmail(data, data.email, list);
+  assertContactEmail({ ...data, email });
   const created: Member = {
     id: id(),
     status: 'active',
     ...data,
+    email,
     name: upperCaseName(data.name),
     chiefChild: false,
     feeOverride: null,
@@ -306,12 +333,6 @@ export function updateMember(
 ): Member | null {
   const member = db.members.find((item) => item.id === memberId);
   if (!member) return null;
-  if (
-    input.email &&
-    db.members.some((item) => item.id !== member.id && item.email.toLowerCase() === input.email!.toLowerCase())
-  ) {
-    throw new Error('E-mail já cadastrado');
-  }
   const {
     guardians,
     feeOverride: feeOverrideInput,
@@ -331,7 +352,14 @@ export function updateMember(
     assertYouthGuardians(nextRole, count);
   }
   const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
+  const nextEmail = memberContactEmail(
+    { branch: data.branch ?? member.branch, role: nextRole },
+    data.email ?? member.email,
+    guardiansOf(db, member.id),
+  );
+  assertContactEmail({ branch: data.branch ?? member.branch, role: nextRole, email: nextEmail });
   Object.assign(member, data);
+  member.email = nextEmail;
   if (data.name !== undefined) member.name = upperCaseName(data.name);
   applyFamilyDiscount(
     db,
@@ -445,16 +473,24 @@ export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId
   const skipped: { email: string; reason: string }[] = [];
   for (const row of rows) {
     const incoming = cleanedGuardians(row.guardians ?? []);
-    const existing = db.members.find((member) => member.email.toLowerCase() === row.email.toLowerCase());
+    const existing = db.members.find((member) => member.branch === row.branch && fold(member.name) === fold(row.name));
     if (existing) {
-      const current = (db.memberGuardians ?? []).filter((item) => item.memberId === existing.id);
+      const current = guardiansOf(db, existing.id);
       const merged = mergeGuardianInputs(current, incoming);
       if (merged.length > current.length) {
         replaceGuardians(db, existing.id, merged, userId, 'integration');
         updated.push(existing.id);
         continue;
       }
-      skipped.push({ email: row.email, reason: 'E-mail já cadastrado' });
+      skipped.push({ email: row.email || row.name, reason: 'Associado já cadastrado' });
+      continue;
+    }
+    const email = memberContactEmail(row, row.email, incoming);
+    if (!email) {
+      skipped.push({
+        email: row.name,
+        reason: ownsContactEmail(row) ? 'Sem e-mail do associado' : 'Sem e-mail de responsável',
+      });
       continue;
     }
     const { guardians: _guardians, ...data } = row;
@@ -462,6 +498,7 @@ export function importMembers(db: DatabaseShape, rows: MemberImportRow[], userId
       id: id(),
       status: 'active',
       ...data,
+      email,
       name: upperCaseName(data.name),
       chiefChild: false,
       monthlyFee: 0,

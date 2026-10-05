@@ -52,9 +52,11 @@ export const accountBody = z.object({
   isPrimary: z.boolean().optional().default(false),
 });
 
+const memberEmail = z.string().trim().email().or(z.literal(''));
+
 export const memberImportRow = z.object({
   name: z.string().min(2),
-  email: z.string().email(),
+  email: memberEmail.optional().default(''),
   phone: z.string().min(8),
   branch: youthBranch,
   role: z.enum(['jovem', 'escotista', 'dirigente', 'clube']),
@@ -83,7 +85,7 @@ export const txImportRow = z.object({
 
 export const createMemberBody = z.object({
   name: z.string().min(2),
-  email: z.string().email(),
+  email: memberEmail.optional().default(''),
   phone: z.string().min(8),
   branch: youthBranch,
   role: z.enum(['jovem', 'escotista', 'dirigente', 'clube']),
@@ -98,7 +100,7 @@ export const createMemberBody = z.object({
 
 export const patchMemberBody = z.object({
   name: z.string().min(2).optional(),
-  email: z.string().email().optional(),
+  email: memberEmail.optional(),
   phone: z.string().min(8).optional(),
   branch: youthBranch.optional(),
   role: z.enum(['jovem', 'escotista', 'dirigente', 'clube']).optional(),

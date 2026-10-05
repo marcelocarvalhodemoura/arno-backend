@@ -50,6 +50,49 @@ describe('members', () => {
     ]);
   });
 
+  it('uses the guardian e-mail below pioneiro so siblings can share it', () => {
+    const db = emptyDb();
+    const youth = (name: string, branch: 'lobinho' | 'senior' | 'pioneiro') =>
+      createMember(
+        db,
+        {
+          name,
+          email: `${branch}@example.com`,
+          phone: '51999990001',
+          branch,
+          role: 'jovem',
+          joinedAt: '2026-03-01',
+          clubeLtc: false,
+          guardians: [{ name: 'Helena Souza', relationship: 'Mãe', phone: '', email: 'Helena@Example.com' }],
+        },
+        'u1',
+      );
+    expect(youth('Ana Souza', 'lobinho').email).toBe('helena@example.com');
+    expect(youth('Caio Souza', 'senior').email).toBe('helena@example.com');
+    expect(youth('Bia Souza', 'pioneiro').email).toBe('pioneiro@example.com');
+  });
+
+  it('requires a contact e-mail', () => {
+    const base = { phone: '51999990001', joinedAt: '2026-03-01', clubeLtc: false } as const;
+    expect(() =>
+      createMember(
+        emptyDb(),
+        {
+          ...base,
+          name: 'Ana Souza',
+          email: '',
+          branch: 'lobinho',
+          role: 'jovem',
+          guardians: [{ name: 'Helena Souza', relationship: 'Mãe', phone: '', email: '' }],
+        },
+        'u1',
+      ),
+    ).toThrow('Informe o e-mail de pelo menos um responsável');
+    expect(() =>
+      createMember(emptyDb(), { ...base, name: 'Rui Lima', email: '', branch: 'pioneiro', role: 'escotista' }, 'u1'),
+    ).toThrow('Informe o e-mail do associado');
+  });
+
   it('upper-cases member and guardian names on create', () => {
     const db = emptyDb();
     const member = createMember(

@@ -395,6 +395,24 @@ export interface Settings {
 
 export type MensalidadeCellStatus = 'paid' | 'pending' | 'overdue' | 'none';
 
+/**
+ * Fórmula da mensalidade do mês, parcela por parcela (o que aparece para quem confere).
+ * `group` é só o operacional; diluição e acréscimo por atraso vêm separados.
+ * `source`: tabela do período, valor especial de família ou valor personalizado do cadastro.
+ */
+export interface MensalidadeFormula {
+  source: 'table' | 'family' | 'custom';
+  group: number;
+  branch: number;
+  snack: number;
+  club: number;
+  dilution: number;
+  lateFee: number;
+  total: number;
+  /** Divisão ainda não confirmada pela tesouraria (o total vale; as partes, não). */
+  pendingSplit: boolean;
+}
+
 export interface MensalidadeCell {
   month: number;
   dueDate: string | null;
@@ -410,6 +428,10 @@ export interface MensalidadeCell {
   /** Parcela de dívida embutida (modo embed), se houver. */
   arrearsInstallment?: number;
   arrearsPlanId?: string;
+  /** Fórmula do mês no prazo e com atraso (ausente em meses sem cobrança). */
+  formula?: { onTime: MensalidadeFormula; late: MensalidadeFormula };
+  /** Parcela de dívida paga junto com a mensalidade (meses pagos). */
+  paidArrearsInstallment?: number;
 }
 
 export interface MensalidadeRow {

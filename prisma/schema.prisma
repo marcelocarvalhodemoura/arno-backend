@@ -72,7 +72,8 @@ model MovementType {
 model Member {
   id          String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name        String
-  email       String    @unique
+  /** Jovens até sênior usam o e-mail do responsável; irmãos podem repetir. */
+  email       String
   phone       String
   branch      String
   role        String
@@ -100,6 +101,7 @@ model Member {
   arrears      MemberArrears[]
 
   @@index([joinedAt])
+  @@index([email])
   @@map("members")
 }
 

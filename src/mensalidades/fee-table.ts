@@ -1,6 +1,6 @@
 import { createdAudit } from '../shared/audit';
 import { id } from '../shared/id';
-import type { DatabaseShape, FeeComposition, FeeSchedulePeriod, Member } from '../shared/types';
+import type { DatabaseShape, FeeComposition, FeeSchedulePeriod, Member, MensalidadeFormula } from '../shared/types';
 import { roundMoney } from '../shared/types';
 
 /**
@@ -170,7 +170,9 @@ export function resolveFeeOverride(
   return roundMoney(n);
 }
 
-type ResolvedFee = { kind: 'table'; parts: FeeComposition } | { kind: 'fixed'; parts: FeeComposition; total: number };
+type ResolvedFee =
+  | { kind: 'table'; parts: FeeComposition }
+  | { kind: 'fixed'; special: 'family' | 'custom'; parts: FeeComposition; total: number };
 
 /**
  * Composição que vale para o associado no mês.
@@ -186,14 +188,70 @@ function resolveFee(profile: MensalidadeProfile, when: string | undefined, sched
 
   if (isSpecialFamilyFeeAmount(override, schedule)) {
     const family = familyCompositionFor(period, profile.clubeLtc);
-    if (family) return { kind: 'fixed', parts: family, total: familyTotalOf(family) };
+    if (family) return { kind: 'fixed', special: 'family', parts: family, total: familyTotalOf(family) };
     return { kind: 'table', parts: table };
   }
 
   // Valor personalizado: a caixinha do ramo sai primeiro, o resto vai para o grupo.
   const total = roundMoney(override);
   const branch = Math.min(table.branch, total);
-  return { kind: 'fixed', parts: composition({ group: roundMoney(total - branch), branch }), total };
+  return {
+    kind: 'fixed',
+    special: 'custom',
+    parts: composition({ group: roundMoney(total - branch), branch }),
+    total,
+  };
+}
+
+/** Fórmula da mensalidade do mês, parcela por parcela (diluição e acréscimo por atraso separados). */
+export function mensalidadeFormula(
+  profile: MensalidadeProfile,
+  dueDate: string,
+  opts: { late: boolean; clubFeeIncluded: boolean },
+  schedule: FeeSchedule = DEFAULT_FEE_SCHEDULE,
+): MensalidadeFormula {
+  if (!paysMensalidade(profile)) {
+    return {
+      source: 'table',
+      group: 0,
+      branch: 0,
+      snack: 0,
+      club: 0,
+      dilution: 0,
+      lateFee: 0,
+      total: 0,
+      pendingSplit: false,
+    };
+  }
+  const resolved = resolveFee(profile, dueDate, schedule);
+  const parts = resolved.parts;
+  if (resolved.kind === 'fixed') {
+    return {
+      source: resolved.special,
+      group: parts.group,
+      branch: parts.branch,
+      snack: parts.snack,
+      club: parts.clubOnTime,
+      dilution: parts.dilution,
+      lateFee: 0,
+      total: resolved.total,
+      pendingSplit: Boolean(parts.pendingSplit),
+    };
+  }
+  const lateFee = opts.late ? parts.lateFee : 0;
+  const club = opts.clubFeeIncluded ? (opts.late ? parts.clubLate : parts.clubOnTime) : 0;
+  const dilution = opts.clubFeeIncluded ? parts.dilution : 0;
+  return {
+    source: 'table',
+    group: parts.group,
+    branch: parts.branch,
+    snack: parts.snack,
+    club,
+    dilution,
+    lateFee,
+    total: roundMoney(parts.group + lateFee + dilution + parts.branch + parts.snack + club),
+    pendingSplit: Boolean(parts.pendingSplit),
+  };
 }
 
 export type MensalidadeShares = {
@@ -208,6 +266,7 @@ export type MensalidadeShares = {
 /**
  * Para onde vai cada real da mensalidade.
  * `late`: pago após o vencimento. `clubFeeIncluded`: taxa do clube cobrada neste mês.
+ * Diluição e acréscimo por atraso vão para o caixa do grupo.
  */
 export function mensalidadeShares(
   profile: MensalidadeProfile,
@@ -215,32 +274,14 @@ export function mensalidadeShares(
   opts: { late: boolean; clubFeeIncluded: boolean },
   schedule: FeeSchedule = DEFAULT_FEE_SCHEDULE,
 ): MensalidadeShares {
-  if (!paysMensalidade(profile)) {
-    return { group: 0, branch: 0, snack: 0, club: 0, total: 0, pendingSplit: false };
-  }
-  const resolved = resolveFee(profile, dueDate, schedule);
-  const parts = resolved.parts;
-  if (resolved.kind === 'fixed') {
-    return {
-      group: roundMoney(parts.group + parts.dilution),
-      branch: parts.branch,
-      snack: parts.snack,
-      club: parts.clubOnTime,
-      total: resolved.total,
-      pendingSplit: Boolean(parts.pendingSplit),
-    };
-  }
-  const lateFee = opts.late ? parts.lateFee : 0;
-  const club = opts.clubFeeIncluded ? (opts.late ? parts.clubLate : parts.clubOnTime) : 0;
-  const dilution = opts.clubFeeIncluded ? parts.dilution : 0;
-  const group = roundMoney(parts.group + lateFee + dilution);
+  const formula = mensalidadeFormula(profile, dueDate, opts, schedule);
   return {
-    group,
-    branch: parts.branch,
-    snack: parts.snack,
-    club,
-    total: roundMoney(group + parts.branch + parts.snack + club),
-    pendingSplit: Boolean(parts.pendingSplit),
+    group: roundMoney(formula.group + formula.dilution + formula.lateFee),
+    branch: formula.branch,
+    snack: formula.snack,
+    club: formula.club,
+    total: formula.total,
+    pendingSplit: formula.pendingSplit,
   };
 }
 

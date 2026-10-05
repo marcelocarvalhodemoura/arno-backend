@@ -45,10 +45,10 @@ function emailsOf(db: DatabaseShape, memberId?: string) {
     seen.add(key);
     list.push({ name: name.trim() || member?.name || 'Família', email: key });
   }
-  if (member?.email) add(member.name, member.email);
   for (const guardian of db.memberGuardians ?? []) {
     if (guardian.memberId === memberId && guardian.email) add(guardian.name, guardian.email);
   }
+  if (member?.email) add(member.name, member.email);
   return list;
 }
 

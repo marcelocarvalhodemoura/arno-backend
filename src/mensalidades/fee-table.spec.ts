@@ -4,6 +4,7 @@ import {
   expectedMensalidadeAmount,
   lateMonthlyFee,
   matchesMensalidadeAmount,
+  mensalidadeFormula,
   mensalidadeShares,
   onTimeMonthlyFee,
   periodFor,
@@ -11,6 +12,42 @@ import {
 } from './fee-table';
 
 describe('fee table', () => {
+  it('breaks the month into parts, with dilution and late fee kept apart from the group share', () => {
+    const regular = { branch: 'escoteiro', clubeLtc: false };
+    expect(mensalidadeFormula(regular, '2026-05-10', { late: false, clubFeeIncluded: true })).toEqual({
+      source: 'table',
+      group: 43,
+      branch: 8,
+      snack: 24,
+      club: 10,
+      dilution: 4.5,
+      lateFee: 0,
+      total: 89.5,
+      pendingSplit: false,
+    });
+    expect(mensalidadeFormula(regular, '2026-05-10', { late: true, clubFeeIncluded: true })).toMatchObject({
+      club: 20,
+      total: 99.5,
+    });
+    expect(mensalidadeFormula(regular, '2026-05-10', { late: true, clubFeeIncluded: false })).toMatchObject({
+      club: 0,
+      dilution: 0,
+      total: 75,
+    });
+    expect(
+      mensalidadeFormula({ branch: 'pioneiro' }, '2026-03-10', { late: true, clubFeeIncluded: true }),
+    ).toMatchObject({ group: 10, branch: 5, lateFee: 5, total: 20, pendingSplit: true });
+    expect(
+      mensalidadeFormula({ branch: 'escoteiro', feeOverride: 82 }, '2026-06-10', { late: true, clubFeeIncluded: true }),
+    ).toMatchObject({ source: 'family', group: 74, branch: 8, lateFee: 0, total: 82, pendingSplit: true });
+    expect(
+      mensalidadeFormula({ branch: 'escoteiro', feeOverride: 50 }, '2026-06-10', {
+        late: false,
+        clubFeeIncluded: true,
+      }),
+    ).toMatchObject({ source: 'custom', group: 42, branch: 8, total: 50 });
+  });
+
   it('uses the poster amounts for non-members and club members (maio–nov)', () => {
     expect(onTimeMonthlyFee({ branch: 'escoteiro', clubeLtc: false })).toBe(89.5);
     expect(lateMonthlyFee({ branch: 'escoteiro', clubeLtc: false })).toBe(99.5);
