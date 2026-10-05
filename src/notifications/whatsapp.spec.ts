@@ -118,3 +118,28 @@ describe('whatsapp webhook', () => {
     expect(whatsappWebhookUrl()).toBe('https://tesouraria.exemplo.org/webhook');
   });
 });
+
+describe('parseWhatsAppWebhook — coexistência com o celular da tesouraria', () => {
+  const change = (field: string) => ({
+    object: 'whatsapp_business_account',
+    entry: [
+      {
+        changes: [
+          {
+            field,
+            value: {
+              metadata: { phone_number_id: '1' },
+              messages: [{ from: '5551999990000', id: 'w1', type: 'text', text: { body: 'oi' } }],
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  it('ignora eco do que a tesouraria enviou e o histórico importado', () => {
+    expect(parseWhatsAppWebhook(change('smb_message_echoes'))).toEqual([]);
+    expect(parseWhatsAppWebhook(change('history'))).toEqual([]);
+    expect(parseWhatsAppWebhook(change('messages'))).toHaveLength(1);
+  });
+});

@@ -253,3 +253,13 @@ describe('reconcileProof', () => {
     expect(outcome.status).not.toBe('rejected');
   });
 });
+
+describe('asksForHelp', () => {
+  it('só responde instruções quando pedem explicitamente', async () => {
+    const { asksForHelp } = await import('./proof-whatsapp');
+    expect(asksForHelp('Ajuda')).toBe(true);
+    expect(asksForHelp('menu?')).toBe(true);
+    expect(asksForHelp('oi, bom dia')).toBe(false);
+    expect(asksForHelp('preciso de ajuda com a inscrição')).toBe(false);
+  });
+});

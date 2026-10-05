@@ -102,6 +102,10 @@ export function parseWhatsAppWebhook(body: unknown): WhatsAppIncomingMessage[] {
     const changes = asRecord(entry)?.changes;
     if (!Array.isArray(changes)) continue;
     for (const change of changes) {
+      // Só mensagens recebidas. Ecos do que a tesouraria envia pelo celular (smb_message_echoes) e
+      // histórico importado na coexistência (history) não são comprovantes novos.
+      const field = asString(asRecord(change)?.field);
+      if (field && field !== 'messages') continue;
       const value = asRecord(change)?.value as WhatsAppChangeValue | undefined;
       if (!value) continue;
       const phoneNumberId = asString(value.metadata?.phone_number_id);

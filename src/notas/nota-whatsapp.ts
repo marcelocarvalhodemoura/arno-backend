@@ -6,7 +6,7 @@ import { digitsPhone, sendWhatsAppText, whatsappConfig, type WhatsAppIncomingMes
 import { notaReply, reconcileNota } from './nota-intake';
 import { readNota } from './nota-reader';
 import { membersByPhone } from '../comprovantes/proof-intake';
-import { looksLikeNota, processMemberText, processProof } from '../comprovantes/proof-whatsapp';
+import { asksForHelp, looksLikeNota, processMemberText, processProof } from '../comprovantes/proof-whatsapp';
 
 const HELP =
   'Olá! Envie a foto ou o PDF da nota fiscal (de preferência com o QR code visível). Na legenda você pode indicar o ramo, por exemplo "lobinho". Comprovantes de pagamento de associados também podem ser enviados aqui.';
@@ -40,22 +40,23 @@ export async function processIncomingMessage(message: WhatsAppIncomingMessage) {
   const staff = allowedSender(message.from);
   const members = membersByPhone(await loadDb(), message.from);
 
+  // Conversa normal fica com a tesouraria (o celular continua no mesmo número): sem resposta automática.
   if (!message.mediaId) {
     if (members.length) await processMemberText(message);
-    else if (staff) await reply(message.from, HELP);
-    else console.warn(`WhatsApp: remetente ${message.from} sem cadastro (texto ignorado)`);
+    else if (staff && asksForHelp(message.text)) await reply(message.from, HELP);
     return;
   }
 
   try {
     const media = await downloadMedia(message.mediaId);
     const contentType = normalizeType(media.contentType, message.fileName);
+    // Arquivo que não é foto/PDF (ou grande demais) é conversa comum; só a tesouraria recebe o aviso.
     if (!NOTA_ALLOWED_TYPES.includes(contentType)) {
-      await reply(message.from, 'Não consegui abrir esse arquivo. Envie como foto (JPEG ou PNG) ou PDF.');
+      if (staff) await reply(message.from, 'Não consegui abrir esse arquivo. Envie como foto (JPEG ou PNG) ou PDF.');
       return;
     }
     if (media.body.length > NOTA_MAX_BYTES) {
-      await reply(message.from, 'O arquivo passou de 10 MB. Tente uma foto mais leve ou o PDF.');
+      if (staff) await reply(message.from, 'O arquivo passou de 10 MB. Tente uma foto mais leve ou o PDF.');
       return;
     }
 

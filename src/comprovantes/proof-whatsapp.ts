@@ -52,13 +52,9 @@ export async function processProof(
   );
   if (proof.kind === 'nota_fiscal' && context.staff) return 'nota';
 
-  if (!(proof.amount > 0) && proof.kind === 'outro') {
-    await reply(
-      message.from,
-      'Não reconheci um comprovante de pagamento nesse arquivo. Envie o PDF do comprovante do banco ou um print da tela com valor e data.',
-    );
-    return 'done';
-  }
+  // No número oficial chegam fotos e documentos de todo tipo (acampamento, ficha de inscrição...):
+  // o que não é comprovante fica para a tesouraria responder pelo celular, sem resposta automática.
+  if (!(proof.amount > 0) && proof.kind === 'outro') return 'done';
 
   const previous = await findSettledByE2e(proof.e2e);
   if (previous) {
@@ -89,15 +85,23 @@ export async function processProof(
   return 'done';
 }
 
-/** Texto solto de quem tem comprovante aberto vira observação para a tesouraria (ex.: "é do Pedro"). */
+/** Pedido explícito de instruções. Qualquer outro texto é conversa com a tesouraria. */
+export function asksForHelp(text?: string) {
+  return /^(ajuda|menu|comprovante)[\s!?.]*$/.test(fold(text ?? ''));
+}
+
+/**
+ * Texto de associado. A tesouraria conversa pelo celular no mesmo número (coexistência), então o
+ * sistema não responde conversa: só guarda o texto como observação do comprovante aberto (ex.: "é do
+ * Pedro") e manda instruções quando pedirem "ajuda".
+ */
 export async function processMemberText(message: WhatsAppIncomingMessage) {
-  const open = await latestOpenProofOf(message.from, new Date(Date.now() - 24 * 3_600_000));
-  if (open && message.text?.trim()) {
-    await appendReason(open.id, message.text.trim());
-    await reply(message.from, 'Anotado, obrigado! A tesouraria vai considerar isso na conferência.');
+  if (asksForHelp(message.text)) {
+    await reply(message.from, PROOF_HELP);
     return;
   }
-  await reply(message.from, PROOF_HELP);
+  const open = await latestOpenProofOf(message.from, new Date(Date.now() - 24 * 3_600_000));
+  if (open && message.text?.trim()) await appendReason(open.id, message.text.trim());
 }
 
 /**
