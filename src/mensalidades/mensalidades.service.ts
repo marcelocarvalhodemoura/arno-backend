@@ -15,7 +15,14 @@ import {
 } from './mensalidades';
 import { collectMensalidadeNotifyIds, notifyMensalidadeTransactions } from './notify';
 import { fail } from '../shared/http/api';
-import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from '../notifications/notify';
+import {
+  configuredNotifyChannels,
+  lastWhatsAppChargeByMember,
+  notifyTransaction,
+  recordManualWhatsApp,
+  summarizeDeliveries,
+} from '../notifications/notify';
+import { buildWhatsAppChargeQueue } from './whatsapp-queue';
 import { dismissReview, loadDb, mutate, readDismissals } from '../shared/persistence/finance-store';
 import { confirmReconciliation, reconciliationKey, reconciliationSuggestions } from './reconciliation';
 import { assemblyReport, delinquencyReport, memberProfile, nextSteps } from './overview';
@@ -34,6 +41,13 @@ const notifyBody = z.object({
     .array(z.enum(['email', 'whatsapp']))
     .min(1)
     .optional(),
+});
+
+const whatsappSentBody = z.object({
+  memberId: z.string().min(1),
+  phone: z.string().min(8),
+  text: z.string().min(1).max(4000),
+  transactionIds: z.array(z.string().min(1)).min(1),
 });
 
 const clubFeeBody = z.object({
@@ -261,7 +275,7 @@ export class MensalidadesService {
 
       const channels = configuredNotifyChannels();
       const notified: Transaction[] = [];
-      let notifySummary = {
+      const notifySummary = {
         queued: 0,
         sent: 0,
         failed: 0,
@@ -345,7 +359,7 @@ export class MensalidadesService {
         ),
       );
 
-      let notifySummary = {
+      const notifySummary = {
         queued: 0,
         sent: 0,
         failed: 0,
@@ -399,5 +413,21 @@ export class MensalidadesService {
     const db = await loadDb();
     const txIds = collectMensalidadeNotifyIds(report, parsed.data);
     return notifyMensalidadeTransactions(db, txIds, parsed.data.kind, channels, userId);
+  }
+
+  async whatsappQueue(mode?: string) {
+    const wanted = mode === 'upcoming' ? 'upcoming' : 'overdue';
+    return buildWhatsAppChargeQueue(await loadDb(), wanted, await lastWhatsAppChargeByMember());
+  }
+
+  async whatsappSent(body: unknown, userId: string) {
+    const parsed = whatsappSentBody.safeParse(body);
+    if (!parsed.success) fail('Informe o associado, o telefone, a mensagem e as mensalidades', HttpStatus.BAD_REQUEST);
+    const db = await loadDb();
+    if (!db.members.some((item) => item.id === parsed.data.memberId)) {
+      fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    }
+    const id = await recordManualWhatsApp({ ...parsed.data, userId });
+    return { id, sentAt: new Date().toISOString() };
   }
 }

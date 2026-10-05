@@ -100,6 +100,36 @@ export class MensalidadesController {
     return this.mensalidades.open(memberId);
   }
 
+  @Get('mensalidades/whatsapp-queue')
+  @ApiOperation({
+    summary: 'Fila de cobrança pelo WhatsApp (link wa.me)',
+    description:
+      'mode=overdue: mensalidades vencidas, com o acréscimo por atraso. mode=upcoming: as que vencem no mês atual. Cada contato traz a mensagem pronta, o Pix copia e cola com o valor e o link wa.me.',
+  })
+  @ApiQuery({ name: 'mode', required: false, enum: ['overdue', 'upcoming'] })
+  whatsappQueue(@Query('mode') mode?: string) {
+    return this.mensalidades.whatsappQueue(mode);
+  }
+
+  @Post('mensalidades/whatsapp-queue/sent')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Registrar cobrança enviada pelo WhatsApp da tesouraria' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['memberId', 'phone', 'text', 'transactionIds'],
+      properties: {
+        memberId: { type: 'string' },
+        phone: { type: 'string', example: '(51) 99999-1002' },
+        text: { type: 'string' },
+        transactionIds: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  })
+  whatsappSent(@Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.mensalidades.whatsappSent(body, auth.userId);
+  }
+
   @Patch('mensalidades/settle')
   @ApiOperation({
     summary: 'Registrar pagamento de mensalidade',

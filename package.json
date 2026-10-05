@@ -17,6 +17,7 @@
     "normalize:names": "ts-node --transpile-only scripts/normalize-member-names.ts",
     "prisma:generate": "prisma generate",
     "insomnia": "node scripts/generate-insomnia.js",
+    "whatsapp:check": "node scripts/whatsapp-setup.mjs",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:unit": "NODE_OPTIONS=--experimental-vm-modules jest",

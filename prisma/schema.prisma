@@ -460,3 +460,51 @@ model AuditEvent {
   @@index([userId, at])
   @@map("audit_events")
 }
+
+/// Última mensagem recebida de cada número (controle da janela gratuita de 24 h da Meta).
+model WhatsappContact {
+  phone         String   @id
+  name          String   @default("")
+  lastInboundAt DateTime @map("last_inbound_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("whatsapp_contacts")
+}
+
+/// Comprovante de pagamento recebido no WhatsApp (Pix, TED, boleto, depósito).
+/// status: waiting (crédito ainda não chegou no extrato) | matched | already | review | rejected | discarded.
+model PaymentProof {
+  id            String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  phone         String
+  senderName    String    @default("") @map("sender_name")
+  memberIds     String[]  @default([]) @map("member_ids")
+  status        String
+  reason        String    @default("")
+  kind          String    @default("outro")
+  /// pdf (regras sobre o texto) | ia | ocr
+  source        String
+  amount        Decimal?  @db.Decimal(12, 2)
+  date          DateTime? @db.Date
+  e2e           String?
+  bank          String    @default("")
+  payerName     String    @default("") @map("payer_name")
+  payerDocument String    @default("") @map("payer_document")
+  payeeName     String    @default("") @map("payee_name")
+  payeeDocument String    @default("") @map("payee_document")
+  caption       String    @default("")
+  rawText       String    @default("") @map("raw_text")
+  fileKey       String?   @map("file_key")
+  fileName      String?   @map("file_name")
+  contentType   String?   @map("content_type")
+  /// Lançamento de entrada (crédito do extrato) a que o comprovante foi ligado.
+  creditId      String?   @map("credit_id") @db.Uuid
+  messageId     String    @unique @map("message_id")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime? @map("updated_at") @db.Timestamptz(6)
+  resolvedBy    String?   @map("resolved_by") @db.Uuid
+
+  @@index([status])
+  @@index([e2e])
+  @@index([phone])
+  @@map("payment_proofs")
+}

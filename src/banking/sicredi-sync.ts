@@ -1,4 +1,5 @@
 import { ensureIdentifyType, ingestTransactions } from '../statement/ingest';
+import { retryWaitingProofs } from '../comprovantes/proof-whatsapp';
 import {
   getBankSyncState,
   listBankMovements,
@@ -259,8 +260,14 @@ export async function syncSicrediPix(options: { from?: string; to?: string; user
         }
       }
     }
+    // Comprovantes que chegaram pelo WhatsApp antes do crédito: agora o Pix pode estar no caixa.
+    const proofs = await retryWaitingProofs(userId).catch((error) => {
+      console.error('Comprovantes após Pix:', error);
+      return { checked: 0, settled: 0 };
+    });
     return {
       ...overview,
+      proofsSettled: proofs.settled,
       lastSyncAt: sync.lastSyncAt,
       fetched: pix.length,
       created: ingest.created.length,

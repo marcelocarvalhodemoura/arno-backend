@@ -1,6 +1,7 @@
 import { prisma } from '../shared/db';
 import { sendMail } from './mail';
 import { sendWhatsAppText } from './whatsapp';
+import { isOutsideWindowError, OUTSIDE_WINDOW_ERROR, windowOpen } from './whatsapp-window';
 
 type NotifyChannel = 'email' | 'whatsapp';
 
@@ -100,12 +101,28 @@ async function finishRow(id: string, status: 'sent' | 'failed' | 'skipped' | 'qu
   });
 }
 
+function whatsappMock() {
+  return process.env.WHATSAPP_MOCK === '1' || process.env.MAIL_MOCK === '1';
+}
+
+/** WhatsApp só sai dentro da janela gratuita de 24 h; fora dela a Meta recusa ou cobra. */
+async function sendWhatsAppInWindow(to: string, body: string) {
+  if (!whatsappMock() && !(await windowOpen(to))) {
+    return { ok: false, skipped: true, error: OUTSIDE_WINDOW_ERROR };
+  }
+  const sent = await sendWhatsAppText(to, body);
+  if (!sent.ok && sent.error && isOutsideWindowError(sent.error)) {
+    return { ok: false, skipped: true, error: OUTSIDE_WINDOW_ERROR };
+  }
+  return sent;
+}
+
 export async function deliverRow(row: OutboxRow) {
   const channel = row.channel as NotifyChannel;
   const sent =
     channel === 'email'
       ? await sendMail(row.to_address, row.subject, row.body, row.html_body ?? undefined)
-      : await sendWhatsAppText(row.to_address, `${row.subject}\n\n${row.body}`);
+      : await sendWhatsAppInWindow(row.to_address, `${row.subject}\n\n${row.body}`);
 
   if (sent.ok) {
     await finishRow(row.id, 'sent');

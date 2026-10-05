@@ -1,13 +1,15 @@
 import { listUsers } from '../identity/users';
 import { todayISO } from '../mensalidades/mensalidades';
-import { mutate } from '../shared/persistence/finance-store';
+import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { buildNotaKey, NOTA_ALLOWED_TYPES, NOTA_MAX_BYTES, s3Configured, uploadNotaObject } from '../storage/s3';
 import { digitsPhone, sendWhatsAppText, whatsappConfig, type WhatsAppIncomingMessage } from '../notifications/whatsapp';
 import { notaReply, reconcileNota } from './nota-intake';
 import { readNota } from './nota-reader';
+import { membersByPhone } from '../comprovantes/proof-intake';
+import { looksLikeNota, processMemberText, processProof } from '../comprovantes/proof-whatsapp';
 
 const HELP =
-  'Olá! Envie a foto ou o PDF da nota fiscal (de preferência com o QR code visível). Na legenda você pode indicar o ramo, por exemplo "lobinho".';
+  'Olá! Envie a foto ou o PDF da nota fiscal (de preferência com o QR code visível). Na legenda você pode indicar o ramo, por exemplo "lobinho". Comprovantes de pagamento de associados também podem ser enviados aqui.';
 
 /** Ids de mensagens já tratadas — a Meta reentrega o mesmo evento se o 200 demorar. */
 const seen = new Map<string, number>();
@@ -32,13 +34,16 @@ export async function processIncomingMessage(message: WhatsAppIncomingMessage) {
   seen.set(message.id, Date.now());
   for (const [key, at] of seen) if (Date.now() - at > 86_400_000) seen.delete(key);
 
-  if (!allowedSender(message.from)) {
-    console.warn(`WhatsApp: remetente ${message.from} não autorizado (WHATSAPP_ALLOWED_SENDERS)`);
-    return;
-  }
+  // Tesouraria e chefias (WHATSAPP_ALLOWED_SENDERS) lançam notas de despesa; associados e
+  // responsáveis (telefone no cadastro) mandam comprovantes. Desconhecido com arquivo: comprovante
+  // guardado para a tesouraria conferir, sem baixa automática.
+  const staff = allowedSender(message.from);
+  const members = membersByPhone(await loadDb(), message.from);
 
   if (!message.mediaId) {
-    await reply(message.from, HELP);
+    if (members.length) await processMemberText(message);
+    else if (staff) await reply(message.from, HELP);
+    else console.warn(`WhatsApp: remetente ${message.from} sem cadastro (texto ignorado)`);
     return;
   }
 
@@ -46,12 +51,18 @@ export async function processIncomingMessage(message: WhatsAppIncomingMessage) {
     const media = await downloadMedia(message.mediaId);
     const contentType = normalizeType(media.contentType, message.fileName);
     if (!NOTA_ALLOWED_TYPES.includes(contentType)) {
-      await reply(message.from, 'Não consegui abrir esse arquivo. Envie a nota como foto (JPEG ou PNG) ou PDF.');
+      await reply(message.from, 'Não consegui abrir esse arquivo. Envie como foto (JPEG ou PNG) ou PDF.');
       return;
     }
     if (media.body.length > NOTA_MAX_BYTES) {
       await reply(message.from, 'O arquivo passou de 10 MB. Tente uma foto mais leve ou o PDF.');
       return;
+    }
+
+    const isNota = staff && (await looksLikeNota(media.body, contentType));
+    if (!isNota) {
+      const handled = await processProof(message, { body: media.body, contentType }, { members, staff });
+      if (handled === 'done') return;
     }
 
     const nota = await readNota(media.body, contentType);
@@ -93,7 +104,7 @@ export async function processIncomingMessage(message: WhatsAppIncomingMessage) {
     console.error('WhatsApp nota:', error);
     await reply(
       message.from,
-      'Tive um problema ao processar a nota. A tesouraria foi avisada pelo log; tente de novo em instantes.',
+      'Tive um problema ao processar o arquivo. A tesouraria foi avisada pelo log; tente de novo em instantes.',
     );
   }
 }
@@ -119,9 +130,21 @@ export async function downloadMedia(mediaId: string) {
   };
 }
 
-function normalizeType(contentType: string, fileName?: string) {
+const TYPE_BY_EXTENSION: Record<string, string> = {
+  pdf: 'application/pdf',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+/** Arquivo mandado como "documento" pode chegar sem tipo; vale a extensão do nome. */
+export function normalizeType(contentType: string, fileName?: string) {
   if (contentType === 'image/jpg') return 'image/jpeg';
-  if (contentType === 'application/octet-stream' && fileName?.toLowerCase().endsWith('.pdf')) return 'application/pdf';
+  if (!contentType || contentType === 'application/octet-stream') {
+    const extension = fileName?.toLowerCase().split('.').pop() ?? '';
+    return TYPE_BY_EXTENSION[extension] ?? contentType;
+  }
   return contentType;
 }
 

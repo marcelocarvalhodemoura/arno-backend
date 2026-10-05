@@ -6,6 +6,7 @@ import { isMensalidadeName } from '../statement/statement';
 import type { DatabaseShape, Transaction } from '../shared/types';
 import { composeNotifyMessage } from './templates';
 import { whatsappStatus } from './whatsapp';
+import { OUTSIDE_WINDOW_ERROR, windowOpen } from './whatsapp-window';
 
 export type NotifyKind = 'charge' | 'receipt';
 export type NotifyChannel = 'email' | 'whatsapp';
@@ -114,103 +115,55 @@ export async function notifyTransaction(
 ): Promise<NotifyDelivery[]> {
   const deliveries: NotifyDelivery[] = [];
   const uniqueChannels = [...new Set(channels)];
+  const base = { kind, memberId: tx.memberId, transactionId: tx.id, userId };
+
+  async function skip(channel: NotifyChannel, to: string, error: string) {
+    const rowId = await recordOutbox({ ...base, channel, status: 'skipped', to, subject: '', body: '', error });
+    deliveries.push({ id: rowId, kind, channel, status: 'skipped', to, error });
+  }
+
+  async function queue(channel: NotifyChannel, to: string, who: string) {
+    const message = composeNotifyMessage(db, tx, kind, who);
+    const rowId = await recordOutbox({
+      ...base,
+      channel,
+      status: 'queued',
+      to,
+      subject: message.subject,
+      body: message.text,
+      html: channel === 'email' ? message.html : undefined,
+    });
+    deliveries.push({ id: rowId, kind, channel, status: 'queued', to });
+  }
+
+  async function queueEmails() {
+    const targets = emailsOf(db, tx.memberId);
+    if (!targets.length) return skip('email', '(sem e-mail)', 'Associado sem e-mail cadastrado');
+    for (const target of targets) await queue('email', target.email, target.name);
+  }
+
+  let emailFallback = false;
   for (const channel of uniqueChannels) {
-    if (channel === 'email') {
-      const targets = emailsOf(db, tx.memberId);
-      if (!targets.length) {
-        const rowId = await recordOutbox({
-          kind,
-          channel,
-          status: 'skipped',
-          memberId: tx.memberId,
-          transactionId: tx.id,
-          to: '(sem e-mail)',
-          subject: '',
-          body: '',
-          error: 'Associado sem e-mail cadastrado',
-          userId,
-        });
-        deliveries.push({
-          id: rowId,
-          kind,
-          channel,
-          status: 'skipped',
-          to: '(sem e-mail)',
-          error: 'Associado sem e-mail cadastrado',
-        });
-        continue;
-      }
-      for (const target of targets) {
-        const message = composeNotifyMessage(db, tx, kind, target.name);
-        const rowId = await recordOutbox({
-          kind,
-          channel,
-          status: 'queued',
-          memberId: tx.memberId,
-          transactionId: tx.id,
-          to: target.email,
-          subject: message.subject,
-          body: message.text,
-          html: message.html,
-          userId,
-        });
-        deliveries.push({
-          id: rowId,
-          kind,
-          channel,
-          status: 'queued',
-          to: target.email,
-        });
-      }
-    }
+    if (channel === 'email') await queueEmails();
     if (channel === 'whatsapp') {
       const targets = phonesOf(db, tx.memberId);
       if (!targets.length) {
-        const rowId = await recordOutbox({
-          kind,
-          channel,
-          status: 'skipped',
-          memberId: tx.memberId,
-          transactionId: tx.id,
-          to: '(sem telefone)',
-          subject: '',
-          body: '',
-          error: 'Associado sem telefone cadastrado',
-          userId,
-        });
-        deliveries.push({
-          id: rowId,
-          kind,
-          channel,
-          status: 'skipped',
-          to: '(sem telefone)',
-          error: 'Associado sem telefone cadastrado',
-        });
+        await skip('whatsapp', '(sem telefone)', 'Associado sem telefone cadastrado');
         continue;
       }
+      const mock = process.env.WHATSAPP_MOCK === '1' || process.env.MAIL_MOCK === '1';
       for (const target of targets) {
-        const message = composeNotifyMessage(db, tx, kind, target.name);
-        const rowId = await recordOutbox({
-          kind,
-          channel,
-          status: 'queued',
-          memberId: tx.memberId,
-          transactionId: tx.id,
-          to: target.phone,
-          subject: message.subject,
-          body: message.text,
-          userId,
-        });
-        deliveries.push({
-          id: rowId,
-          kind,
-          channel,
-          status: 'queued',
-          to: target.phone,
-        });
+        if (mock || (await windowOpen(target.phone))) {
+          await queue('whatsapp', target.phone, target.name);
+        } else {
+          await skip('whatsapp', target.phone, OUTSIDE_WINDOW_ERROR);
+          emailFallback = true;
+        }
       }
     }
   }
+  // Custo zero: quem não escreveu nas últimas 24 h recebe por e-mail.
+  if (emailFallback && !uniqueChannels.includes('email') && mailConfigured()) await queueEmails();
   if (deliveries.some((item) => item.status === 'queued')) kickOutbox();
   return deliveries;
 }
@@ -256,4 +209,41 @@ export function summarizeDeliveries(items: NotifyDelivery[]) {
   const skipped = items.filter((item) => item.status === 'skipped').length;
   const queued = items.filter((item) => item.status === 'queued' || item.status === 'sending').length;
   return { queued, sent, failed, skipped, total: items.length };
+}
+
+export const MANUAL_WHATSAPP_SUBJECT = 'Cobrança enviada pela tesouraria (link wa.me)';
+
+/** Registra no histórico a cobrança que a tesouraria enviou do próprio WhatsApp pelo link wa.me. */
+export async function recordManualWhatsApp(input: {
+  memberId: string;
+  phone: string;
+  text: string;
+  transactionIds: string[];
+  userId: string;
+}) {
+  return recordOutbox({
+    kind: 'charge',
+    channel: 'whatsapp',
+    status: 'sent',
+    memberId: input.memberId,
+    transactionId: input.transactionIds[0],
+    to: input.phone,
+    subject: MANUAL_WHATSAPP_SUBJECT,
+    body: input.text,
+    userId: input.userId,
+  });
+}
+
+/** Data da última cobrança por WhatsApp enviada a cada associado. */
+export async function lastWhatsAppChargeByMember() {
+  const rows = await prisma.messageOutbox.groupBy({
+    by: ['memberId'],
+    where: { kind: 'charge', channel: 'whatsapp', status: 'sent', memberId: { not: null } },
+    _max: { sentAt: true },
+  });
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.memberId && row._max.sentAt) map.set(row.memberId, row._max.sentAt.toISOString());
+  }
+  return map;
 }

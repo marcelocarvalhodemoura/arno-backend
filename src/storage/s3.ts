@@ -56,6 +56,11 @@ export function buildNotaKey(transactionId: string, fileName: string, contentTyp
   return `notas/${transactionId}/${randomUUID()}${ext}`;
 }
 
+export function buildProofKey(proofId: string, fileName: string, contentType: string) {
+  const ext = safeExtension(fileName, contentType);
+  return `comprovantes/${proofId}/${randomUUID()}${ext}`;
+}
+
 export async function uploadNotaObject(input: { key: string; body: Buffer; contentType: string; fileName: string }) {
   await s3().send(
     new PutObjectCommand({

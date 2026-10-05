@@ -3,6 +3,7 @@ import { listNotifications, notifyStatus } from './notify';
 import { countQueued } from './outbox';
 import { processIncomingMessage } from '../notas/nota-whatsapp';
 import { handleWhatsAppEvents, hubChallenge, isWhatsAppAccount, verifyWebhook } from './whatsapp';
+import { recordInbound } from './whatsapp-window';
 
 @Injectable()
 export class NotificationsService {
@@ -28,7 +29,11 @@ export class NotificationsService {
     try {
       // Responde 200 à Meta na hora; a leitura da nota roda em segundo plano.
       for (const message of handleWhatsAppEvents(body)) {
-        void processIncomingMessage(message).catch((error) => console.error('WhatsApp nota:', error));
+        // Grava antes de responder: a resposta só sai se a janela de 24 h estiver aberta.
+        void recordInbound(message.from, message.contactName, message.timestamp)
+          .catch((error) => console.error('WhatsApp janela 24 h:', error))
+          .then(() => processIncomingMessage(message))
+          .catch((error) => console.error('WhatsApp nota:', error));
       }
     } catch (error) {
       console.error('WhatsApp webhook:', error);

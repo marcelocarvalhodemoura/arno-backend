@@ -9,6 +9,7 @@ import { errorMessage } from '../shared/http/errors';
 import { txImportRow } from '../shared/http/schemas';
 import { mutate } from '../shared/persistence/finance-store';
 import { IMPORT_CHUNK_SIZE } from '../shared/types';
+import { retryWaitingProofs } from '../comprovantes/proof-whatsapp';
 
 const mappingSchema = z.record(z.string(), z.string()).optional();
 
@@ -83,6 +84,8 @@ export class StatementService {
         importSource: row.importSource ?? batchSource,
       }));
       const result = await mutate((db) => ingestTransactions(db, rows, userId, 'integration'));
+      // Comprovantes do WhatsApp que esperavam o crédito: o extrato novo pode trazê-lo.
+      await retryWaitingProofs(userId).catch((error) => console.error('Comprovantes após extrato:', error));
       return {
         created: result.created.length,
         paid: result.paid.length,

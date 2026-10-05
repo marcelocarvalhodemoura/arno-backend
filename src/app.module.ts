@@ -15,6 +15,7 @@ import { StatementModule } from './statement/statement.module';
 import { BankingModule } from './banking/banking.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
+import { ComprovantesModule } from './comprovantes/comprovantes.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { AuditModule } from './audit/audit.module';
     BankingModule,
     NotificationsModule,
     AuditModule,
+    ComprovantesModule,
   ],
 })
 export class AppModule {}
