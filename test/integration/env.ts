@@ -14,3 +14,5 @@ process.env.AUTH_SECRET ??= 'test-secret';
 process.env.ADMIN_USER = TEST_TREASURER_USER;
 process.env.ADMIN_PASSWORD = TEST_PASSWORD;
 process.env.MAIL_MOCK = '1';
+// Testes não chamam IA de verdade, mesmo com a chave no .env local.
+delete process.env.OPENAI_API_KEY;
