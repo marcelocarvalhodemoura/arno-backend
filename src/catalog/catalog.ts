@@ -28,6 +28,7 @@ export function createMovementType(
   input: {
     name: string;
     direction: MovementType['direction'];
+    audience?: MovementType['audience'];
     description?: string;
     pixKey?: string;
     branch?: MovementType['branch'];
@@ -42,6 +43,7 @@ export function createMovementType(
     active: true,
     name: input.name,
     direction: input.direction,
+    audience: input.audience ?? 'general',
     description: input.description ?? '',
     pixKey: (input.pixKey ?? '').trim(),
     branch: input.branch ?? 'grupo',
@@ -57,6 +59,7 @@ export function updateMovementType(
   input: {
     name?: string;
     direction?: MovementType['direction'];
+    audience?: MovementType['audience'];
     description?: string;
     pixKey?: string;
     branch?: MovementType['branch'];

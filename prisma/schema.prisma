@@ -51,6 +51,7 @@ model MovementType {
   id          String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
   name        String    @unique
   direction   String
+  audience    String    @default("general")
   description String    @default("")
   pixKey      String    @default("") @map("pix_key")
   branch      String    @default("grupo")

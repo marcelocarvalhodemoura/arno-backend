@@ -13,7 +13,7 @@ import {
 import { fail, parseDto } from '../shared/http/api';
 import { errorMessage } from '../shared/http/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
-import { branch, direction } from '../shared/http/schemas';
+import { audience, branch, direction } from '../shared/http/schemas';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { ALL_BRANCHES, resolveMensalidadeDueDay, YOUTH_BRANCHES } from '../shared/types';
 import type { AuthPayload } from '../shared/auth/token';
@@ -27,6 +27,7 @@ const settingsBody = z.object({
 const createMovementTypeBody = z.object({
   name: z.string().min(2),
   direction,
+  audience: audience.optional().default('general'),
   description: z.string().optional().default(''),
   pixKey: z.string().optional().default(''),
   branch: branch.optional().default('grupo'),
@@ -35,6 +36,7 @@ const createMovementTypeBody = z.object({
 const patchMovementTypeBody = z.object({
   name: z.string().min(2).optional(),
   direction: direction.optional(),
+  audience: audience.optional(),
   description: z.string().optional(),
   pixKey: z.string().optional(),
   branch: branch.optional(),

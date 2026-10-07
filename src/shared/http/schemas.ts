@@ -8,6 +8,7 @@ export const nature = z.enum(['fixed', 'variable']);
 export const txType = z.enum(['income', 'expense']);
 export const holderKind = z.enum(['parent', 'youth', 'other']);
 export const direction = z.enum(['income', 'expense', 'both']);
+export const audience = z.enum(['internal', 'external', 'general']);
 export const userRole = z.enum(['superadmin', 'admin', 'tesoureiro']);
 
 export function optionalContactEmail(value: unknown): string {

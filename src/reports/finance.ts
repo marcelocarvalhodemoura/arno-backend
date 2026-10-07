@@ -10,10 +10,12 @@ import type {
   DashboardBudget,
   DashboardPayload,
   DatabaseShape,
+  EventResultRow,
   FinancialProject,
   FiscalLedgerLine,
   ProjectItem,
   Transaction,
+  TypePayers,
 } from '../shared/types';
 import { BRANCH_LABELS, DASHBOARD_BRANCHES, monthKey, pad2, periodBounds, roundMoney } from '../shared/types';
 
@@ -121,6 +123,87 @@ export function reportOpeningBalance(db: DatabaseShape, query: CustomReportQuery
 
 function typeName(db: DatabaseShape, id: string): string {
   return db.movementTypes.find((t) => t.id === id)?.name ?? id;
+}
+
+function audienceOf(db: DatabaseShape, id: string) {
+  return db.movementTypes.find((t) => t.id === id)?.audience ?? 'general';
+}
+
+/** Um resultado por tipo de público externo presente no recorte. */
+export function eventResults(db: DatabaseShape, txs: Transaction[]): EventResultRow[] {
+  const byType = new Map<string, EventResultRow>();
+  for (const t of txs) {
+    if (audienceOf(db, t.movementTypeId) !== 'external') continue;
+    const row = byType.get(t.movementTypeId) ?? {
+      movementTypeId: t.movementTypeId,
+      name: typeName(db, t.movementTypeId),
+      income: 0,
+      expense: 0,
+      net: 0,
+      count: 0,
+    };
+    if (t.type === 'income') row.income = roundMoney(row.income + t.amount);
+    else row.expense = roundMoney(row.expense + t.amount);
+    row.net = roundMoney(row.income - row.expense);
+    row.count += 1;
+    byType.set(t.movementTypeId, row);
+  }
+  return [...byType.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+}
+
+/**
+ * Tipos com lista de pagantes: os escolhidos no filtro; sem filtro, no agrupamento por tipo de conta,
+ * todo tipo de público interno com entrada no recorte.
+ */
+function payerTypeIds(
+  db: DatabaseShape,
+  txs: Transaction[],
+  query: Pick<CustomReportQuery, 'movementTypeIds' | 'groupBy'>,
+): string[] {
+  if (query.movementTypeIds.length) return query.movementTypeIds;
+  if (query.groupBy !== 'movementType') return [];
+  const ids = txs.filter((t) => t.type === 'income').map((t) => t.movementTypeId);
+  return [...new Set(ids)]
+    .filter((typeId) => audienceOf(db, typeId) === 'internal')
+    .sort((a, b) => typeName(db, a).localeCompare(typeName(db, b), 'pt-BR'));
+}
+
+/** Associados que pagaram cada tipo de público interno pedido (só entradas). */
+export function typePayers(db: DatabaseShape, txs: Transaction[], movementTypeIds: string[]): TypePayers[] {
+  return movementTypeIds
+    .filter((typeId) => audienceOf(db, typeId) === 'internal')
+    .map((typeId) => {
+      const incomes = txs.filter((t) => t.movementTypeId === typeId && t.type === 'income');
+      const byMember = new Map<string, TypePayers['payers'][number]>();
+      const unlinked = { amount: 0, count: 0 };
+      for (const t of incomes) {
+        const member = t.memberId ? db.members.find((m) => m.id === t.memberId) : undefined;
+        if (!member) {
+          unlinked.amount = roundMoney(unlinked.amount + t.amount);
+          unlinked.count += 1;
+          continue;
+        }
+        const payer = byMember.get(member.id) ?? {
+          memberId: member.id,
+          name: member.name,
+          branch: member.branch,
+          amount: 0,
+          count: 0,
+          lastDate: t.date,
+        };
+        payer.amount = roundMoney(payer.amount + t.amount);
+        payer.count += 1;
+        if (t.date > payer.lastDate) payer.lastDate = t.date;
+        byMember.set(member.id, payer);
+      }
+      return {
+        movementTypeId: typeId,
+        name: typeName(db, typeId),
+        payers: [...byMember.values()].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR')),
+        total: sumBy(incomes, (t) => t.amount),
+        unlinked,
+      };
+    });
 }
 
 export function cashFlow(
@@ -357,6 +440,8 @@ export function customReport(
   ledger: FiscalLedgerLine[];
   opening: number;
   closing: number;
+  events: EventResultRow[];
+  payers: TypePayers[];
 } {
   const txs = db.transactions
     .filter((t) => isSettled(t) && inRange(t.date, query.from, query.to) && matchesReportFilters(t, query))
@@ -470,7 +555,16 @@ export function customReport(
     };
   });
 
-  return { rows, transactions: txs, totals, ledger, opening, closing: running };
+  return {
+    rows,
+    transactions: txs,
+    totals,
+    ledger,
+    opening,
+    closing: running,
+    events: eventResults(db, txs),
+    payers: typePayers(db, txs, payerTypeIds(db, txs, query)),
+  };
 }
 
 /**

@@ -59,6 +59,11 @@ export class CatalogController {
       properties: {
         name: { type: 'string', example: 'Doação' },
         direction: { type: 'string', enum: ['income', 'expense', 'both'] },
+        audience: {
+          type: 'string',
+          enum: ['internal', 'external', 'general'],
+          description: 'internal = associados, external = comunidade, general = não se aplica',
+        },
         description: { type: 'string' },
         pixKey: { type: 'string' },
         branch: { type: 'string', example: 'grupo' },

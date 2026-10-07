@@ -504,4 +504,99 @@ describe('finance helpers', () => {
     expect(labeled).toEqual(['Conta Teste', 'Sem conta vinculada']);
     expect(report.rows.find((row) => row.label === 'Conta Teste')?.expense).toBe(50);
   });
+
+  it('separa resultado dos eventos externos e pagantes dos tipos internos', () => {
+    const member = (memberId: string, name: string) => ({
+      id: memberId,
+      name,
+      email: '',
+      phone: '',
+      branch: 'escoteiro' as const,
+      role: 'jovem' as const,
+      monthlyFee: 89.5,
+      status: 'active' as const,
+      joinedAt: '2026-03-01',
+      clubeLtc: false,
+      origin: 'manual' as const,
+      createdAt: '2026-03-01T00:00:00.000Z',
+    });
+    const fixture: DatabaseShape = {
+      ...db,
+      members: [member('m-ana', 'ANA'), member('m-bia', 'BIA')],
+      movementTypes: [
+        ...db.movementTypes,
+        movement({ id: 'mt-pastel', name: 'Pastelada', direction: 'both', audience: 'external' }),
+        movement({ id: 'mt-bivaque', name: 'Bivaque Distrital', direction: 'both', audience: 'internal' }),
+      ],
+      transactions: [
+        ...db.transactions,
+        tx({ id: 'p1', date: '2026-08-02', type: 'expense', amount: 120, movementTypeId: 'mt-pastel' }),
+        tx({ id: 'p2', date: '2026-08-03', type: 'income', amount: 450, movementTypeId: 'mt-pastel' }),
+        tx({
+          id: 'b1',
+          date: '2026-08-04',
+          type: 'income',
+          amount: 60,
+          movementTypeId: 'mt-bivaque',
+          memberId: 'm-bia',
+        }),
+        tx({
+          id: 'b2',
+          date: '2026-08-05',
+          type: 'income',
+          amount: 60,
+          movementTypeId: 'mt-bivaque',
+          memberId: 'm-ana',
+        }),
+        tx({
+          id: 'b3',
+          date: '2026-08-09',
+          type: 'income',
+          amount: 20,
+          movementTypeId: 'mt-bivaque',
+          memberId: 'm-ana',
+        }),
+        tx({ id: 'b4', date: '2026-08-06', type: 'income', amount: 60, movementTypeId: 'mt-bivaque' }),
+        tx({ id: 'b5', date: '2026-08-07', type: 'expense', amount: 90, movementTypeId: 'mt-bivaque' }),
+        tx({
+          id: 'b6',
+          date: '2026-08-08',
+          type: 'income',
+          amount: 60,
+          movementTypeId: 'mt-bivaque',
+          memberId: 'm-bia',
+          paymentStatus: 'pending',
+        }),
+      ],
+    };
+    const query = {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      branches: [],
+      types: [],
+      natures: [],
+      groupBy: 'movementType' as const,
+    };
+
+    const all = customReport(fixture, { ...query, movementTypeIds: [] });
+    expect(all.events).toEqual([
+      { movementTypeId: 'mt-pastel', name: 'Pastelada', income: 450, expense: 120, net: 330, count: 2 },
+    ]);
+    // Sem filtro, o agrupamento por tipo de conta lista os pagantes de todo tipo interno com entrada.
+    expect(all.payers.map((group) => group.name)).toEqual(['Bivaque Distrital']);
+
+    const byMonth = customReport(fixture, { ...query, groupBy: 'month', movementTypeIds: [] });
+    expect(byMonth.payers).toEqual([]);
+
+    const bivaque = customReport(fixture, { ...query, movementTypeIds: ['mt-bivaque', 'mt-pastel'] });
+    expect(bivaque.payers).toHaveLength(1);
+    const [payers] = bivaque.payers;
+    expect(payers?.name).toBe('Bivaque Distrital');
+    expect(payers?.payers.map((p) => [p.name, p.amount, p.count, p.lastDate])).toEqual([
+      ['ANA', 80, 2, '2026-08-09'],
+      ['BIA', 60, 1, '2026-08-04'],
+    ]);
+    expect(payers?.total).toBe(200);
+    expect(payers?.unlinked).toEqual({ amount: 60, count: 1 });
+  });
 });

@@ -81,6 +81,7 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         id: type.id,
         name: type.name,
         direction: type.direction,
+        audience: type.audience ?? 'general',
         description: type.description,
         pixKey: type.pixKey ?? '',
         branch: type.branch ?? 'grupo',
@@ -699,6 +700,7 @@ function mapMovementType(row: {
   id: string;
   name: string;
   direction: string;
+  audience: string;
   description: string;
   pixKey: string;
   branch: string;
@@ -713,6 +715,7 @@ function mapMovementType(row: {
     id: row.id,
     name: row.name,
     direction: row.direction as MovementType['direction'],
+    audience: (row.audience as MovementType['audience']) || 'general',
     description: row.description ?? '',
     pixKey: row.pixKey ?? '',
     branch: (row.branch as MovementType['branch']) || 'grupo',
