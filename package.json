@@ -15,6 +15,7 @@
     "postinstall": "prisma generate",
     "migrate": "ts-node src/shared/database/migrate.ts",
     "normalize:names": "ts-node --transpile-only scripts/normalize-member-names.ts",
+    "duplicates:check": "ts-node --transpile-only scripts/cleanup-duplicate-transactions.ts",
     "prisma:generate": "prisma generate",
     "insomnia": "node scripts/generate-insomnia.js",
     "whatsapp:check": "node scripts/whatsapp-setup.mjs",

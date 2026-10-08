@@ -502,6 +502,16 @@ describe('API integration', () => {
       expect(account.status).toBe(201);
     }
 
+    // O associado é reaproveitado entre execuções; o Pix do PDF importado antes já conta como importado
+    // (linha original / data de pagamento) e não daria baixa na mensalidade nova.
+    await prisma.transaction.deleteMany({
+      where: {
+        date: { gte: new Date('2026-01-01'), lte: new Date('2026-01-31') },
+        OR: [{ memberId }, { amount: 60, type: 'income' }],
+      },
+    });
+    invalidateCache();
+
     const pending = await request(server).post('/api/transactions').set(auth).send({
       date: '2026-01-10',
       type: 'income',

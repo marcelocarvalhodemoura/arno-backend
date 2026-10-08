@@ -185,28 +185,34 @@ function scoreReusable(tx: Transaction, row: IngestRow): number {
   return score;
 }
 
+/** O lançamento é o mesmo dinheiro que esta linha do extrato? (por qualquer uma das suas matchViews) */
+export function matchesBankRow(
+  db: DatabaseShape,
+  tx: Transaction,
+  row: Pick<IngestRow, 'date' | 'type' | 'description' | 'amount' | 'memberId' | 'externalId'>,
+): boolean {
+  const amount = roundMoney(row.amount);
+  if (tx.type !== row.type) return false;
+  if (tx.externalId && row.externalId && tx.externalId !== row.externalId) return false;
+  if (row.memberId && tx.memberId && row.memberId !== tx.memberId && !tx.splitGroupId) return false;
+  return matchViews(tx, db).some((view) => {
+    if (view.date !== row.date) return false;
+    if (!amountsNear(view.amount, amount) && !amountsNear(tx.amount, amount)) return false;
+    if (!tx.externalId && !row.externalId) {
+      // Reimportação de extrato após rateio/edição: histórico bancário compatível.
+      if (!isBankStatementLine(row.description) && !isBankStatementLine(view.description)) return false;
+    }
+    return descriptionsCompatible(view.description, row.description);
+  });
+}
+
 /** Casa extrato/PDF com lançamento já conciliado (inclui rateio pelo valor original). */
 export function findReusableTransaction(
   db: DatabaseShape,
   row: Pick<IngestRow, 'date' | 'type' | 'description' | 'amount' | 'memberId' | 'externalId'>,
   claimedIds?: Set<string>,
 ): Transaction | undefined {
-  const amount = roundMoney(row.amount);
-  const candidates = db.transactions.filter((tx) => {
-    if (claimedIds?.has(tx.id)) return false;
-    if (tx.type !== row.type) return false;
-    if (tx.externalId && row.externalId && tx.externalId !== row.externalId) return false;
-    if (row.memberId && tx.memberId && row.memberId !== tx.memberId && !tx.splitGroupId) return false;
-    return matchViews(tx, db).some((view) => {
-      if (view.date !== row.date) return false;
-      if (!amountsNear(view.amount, amount) && !amountsNear(tx.amount, amount)) return false;
-      if (!tx.externalId && !row.externalId) {
-        // Reimportação de extrato após rateio/edição: histórico bancário compatível.
-        if (!isBankStatementLine(row.description) && !isBankStatementLine(view.description)) return false;
-      }
-      return descriptionsCompatible(view.description, row.description);
-    });
-  });
+  const candidates = db.transactions.filter((tx) => !claimedIds?.has(tx.id) && matchesBankRow(db, tx, row));
   if (!candidates.length) return undefined;
   const best = [...candidates].sort(
     (a, b) => scoreReusable(b, row as IngestRow) - scoreReusable(a, row as IngestRow),
