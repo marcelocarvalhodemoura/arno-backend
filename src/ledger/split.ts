@@ -115,7 +115,10 @@ export function splitTransaction(db: DatabaseShape, txId: string, parts: SplitPa
       splitCount,
       ...createdAudit(userId, tx.origin),
     };
-    // A nota fica só na primeira parte do rateio.
+    // A nota e a linha original do extrato ficam só na primeira parte do rateio.
+    delete copy.sourceDate;
+    delete copy.sourceDescription;
+    delete copy.sourceAmount;
     delete copy.notaKey;
     delete copy.notaFileName;
     delete copy.notaContentType;

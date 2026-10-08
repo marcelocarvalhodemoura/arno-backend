@@ -304,6 +304,13 @@ export interface Transaction {
   arrearsYearMonth?: string;
   /** csv | pdf | sicredi — preenchido nas importações novas. */
   importSource?: ImportSource;
+  /**
+   * Linha original do extrato que gerou o lançamento. Conciliar, ratear ou editar muda data, histórico
+   * e valor; estes campos não mudam e são o que a reimportação compara.
+   */
+  sourceDate?: string;
+  sourceDescription?: string;
+  sourceAmount?: number;
   createdBy?: string;
   createdAt: string;
   updatedAt?: string;

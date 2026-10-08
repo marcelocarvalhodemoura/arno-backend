@@ -276,6 +276,9 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         updatedById: tx.updatedBy ?? null,
         origin: storedOrigin(tx.origin, true),
         importSource: tx.importSource ?? null,
+        sourceDate: tx.sourceDate ? asDate(tx.sourceDate) : null,
+        sourceDescription: tx.sourceDescription ?? null,
+        sourceAmount: tx.sourceAmount ?? null,
       })),
     });
   }
@@ -852,6 +855,9 @@ function mapTransaction(row: {
   arrearsYearMonth: string | null;
   origin: string;
   importSource: string | null;
+  sourceDate: Date | null;
+  sourceDescription: string | null;
+  sourceAmount: Prisma.Decimal | null;
   createdAt: Date;
   createdById: string | null;
   updatedAt: Date | null;
@@ -889,6 +895,9 @@ function mapTransaction(row: {
       row.importSource === 'csv' || row.importSource === 'pdf' || row.importSource === 'sicredi'
         ? row.importSource
         : undefined,
+    sourceDate: row.sourceDate ? dateOnly(row.sourceDate) : undefined,
+    sourceDescription: row.sourceDescription ?? undefined,
+    sourceAmount: row.sourceAmount != null ? Number(row.sourceAmount) : undefined,
     ...mapAudit(row),
   };
 }

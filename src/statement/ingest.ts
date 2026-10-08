@@ -128,8 +128,53 @@ function datesOf(tx: Transaction, db: DatabaseShape): Set<string> {
   return new Set(db.transactions.filter((item) => item.splitGroupId === tx.splitGroupId).map((item) => item.date));
 }
 
+/** Um jeito de enxergar o lançamento como a linha do extrato que o gerou. */
+type MatchView = { date: string; description: string; amount: number };
+
+/** Histórico do Pix que a conciliação guarda nas observações ("Pix: ...") ao reescrever a descrição. */
+function pixLineFromNotes(tx: Transaction): string {
+  const line = (tx.notes ?? '')
+    .split('\n')
+    .reverse()
+    .find((item) => item.startsWith('Pix: '));
+  return line ? line.slice(5).trim() : '';
+}
+
+/**
+ * Datas, históricos e valores pelos quais a reimportação reconhece o lançamento.
+ * - Como está hoje (todas as datas do rateio).
+ * - Linha original do extrato (source*), gravada na importação e nunca editada.
+ * - Legado sem source*: a conciliação move a data para o vencimento e reescreve a descrição,
+ *   mas deixa a data do Pix em paidAt e o histórico nas observações.
+ */
+export function matchViews(tx: Transaction, db: DatabaseShape): MatchView[] {
+  const amount = effectiveMatchAmount(tx);
+  const dates = [...datesOf(tx, db)];
+  const paidAt = tx.paidAt?.slice(0, 10);
+  if (paidAt && !dates.includes(paidAt)) dates.push(paidAt);
+  const pixLine = pixLineFromNotes(tx);
+  const descriptions = pixLine ? [tx.description, pixLine] : [tx.description];
+  const views: MatchView[] = dates.flatMap((date) =>
+    descriptions.map((description) => ({ date, description, amount })),
+  );
+  if (tx.sourceDate && tx.sourceDescription && tx.sourceAmount != null) {
+    views.push({ date: tx.sourceDate, description: tx.sourceDescription, amount: roundMoney(tx.sourceAmount) });
+  }
+  const unique = new Map(views.map((view) => [`${view.date}|${view.amount}|${view.description}`, view]));
+  return [...unique.values()];
+}
+
+function sameSourceLine(tx: Transaction, row: Pick<IngestRow, 'date' | 'description'>): boolean {
+  return (
+    tx.sourceDate === row.date &&
+    Boolean(tx.sourceDescription) &&
+    normalizePixDescription(tx.sourceDescription ?? '') === normalizePixDescription(row.description)
+  );
+}
+
 function scoreReusable(tx: Transaction, row: IngestRow): number {
   let score = 0;
+  if (sameSourceLine(tx, row)) score += 10;
   if (tx.splitIndex === 1) score += 6;
   if (tx.splitGroupId) score += 4;
   if (!tx.externalId) score += 3;
@@ -150,15 +195,17 @@ export function findReusableTransaction(
   const candidates = db.transactions.filter((tx) => {
     if (claimedIds?.has(tx.id)) return false;
     if (tx.type !== row.type) return false;
-    if (!datesOf(tx, db).has(row.date)) return false;
-    if (!amountsNear(effectiveMatchAmount(tx), amount) && !amountsNear(tx.amount, amount)) return false;
     if (tx.externalId && row.externalId && tx.externalId !== row.externalId) return false;
-    if (!tx.externalId && !row.externalId) {
-      // Reimportação de extrato após rateio/edição: histórico bancário compatível.
-      if (!isBankStatementLine(row.description) && !isBankStatementLine(tx.description)) return false;
-    }
     if (row.memberId && tx.memberId && row.memberId !== tx.memberId && !tx.splitGroupId) return false;
-    return descriptionsCompatible(tx.description, row.description);
+    return matchViews(tx, db).some((view) => {
+      if (view.date !== row.date) return false;
+      if (!amountsNear(view.amount, amount) && !amountsNear(tx.amount, amount)) return false;
+      if (!tx.externalId && !row.externalId) {
+        // Reimportação de extrato após rateio/edição: histórico bancário compatível.
+        if (!isBankStatementLine(row.description) && !isBankStatementLine(view.description)) return false;
+      }
+      return descriptionsCompatible(view.description, row.description);
+    });
   });
   if (!candidates.length) return undefined;
   const best = [...candidates].sort(
@@ -171,8 +218,17 @@ export function findReusableTransaction(
   return primary;
 }
 
+/** Grava a linha do extrato no lançamento que ainda não a tem (importações anteriores a source*). */
+function stampSourceLine(tx: Transaction, row: Pick<IngestRow, 'date' | 'description' | 'amount'>): boolean {
+  if (tx.sourceDate) return false;
+  tx.sourceDate = row.date;
+  tx.sourceDescription = row.description;
+  tx.sourceAmount = roundMoney(row.amount);
+  return true;
+}
+
 function attachIncomingIds(tx: Transaction, row: IngestRow, memberGuardianId: string | undefined, userId: string) {
-  let changed = false;
+  let changed = stampSourceLine(tx, row);
   if (row.externalId && !tx.externalId) {
     tx.externalId = row.externalId;
     changed = true;
@@ -217,24 +273,14 @@ export function ingestTransactions(
 
   for (const tx of db.transactions) {
     if (tx.externalId) seenExt.add(`ext:${tx.externalId}`);
-    const matchAmount = effectiveMatchAmount(tx);
-    for (const date of datesOf(tx, db)) {
-      const key = contentFingerprint({
-        date,
-        type: tx.type,
-        description: tx.description,
-        amount: matchAmount,
-        memberId: tx.memberId,
-      });
+    const softKeys = new Set<string>();
+    for (const view of matchViews(tx, db)) {
+      const key = contentFingerprint({ ...view, type: tx.type, memberId: tx.memberId });
       if (!byContent.has(key)) byContent.set(key, tx);
-      const soft = softContentKey({
-        date,
-        type: tx.type,
-        description: tx.description,
-        amount: matchAmount,
-      });
-      softExisting.set(soft, (softExisting.get(soft) ?? 0) + 1);
+      softKeys.add(softContentKey({ ...view, type: tx.type }));
     }
+    // Cada lançamento conta uma vez por chave, mesmo visto por mais de uma data/histórico.
+    for (const soft of softKeys) softExisting.set(soft, (softExisting.get(soft) ?? 0) + 1);
   }
 
   for (const row of rows) {
@@ -328,6 +374,7 @@ export function ingestTransactions(
         if (row.externalId && !pending.externalId) pending.externalId = row.externalId;
         if (memberGuardianId && !pending.memberGuardianId) pending.memberGuardianId = memberGuardianId;
         if (row.importSource && !pending.importSource) pending.importSource = row.importSource;
+        stampSourceLine(pending, { ...row, amount });
         Object.assign(pending, updatedAudit(userId));
         paid.push(pending.id);
         softConsumed.set(softKey, (softConsumed.get(softKey) ?? 0) + 1);
@@ -386,6 +433,9 @@ export function ingestTransactions(
       notes: row.notes,
       externalId: row.externalId,
       importSource: row.importSource,
+      sourceDate: row.date,
+      sourceDescription: row.description,
+      sourceAmount: amount,
       ...createdAudit(userId, origin),
     };
     if ((tx.paymentStatus ?? 'paid') === 'paid') tx.paidAt = row.date;
