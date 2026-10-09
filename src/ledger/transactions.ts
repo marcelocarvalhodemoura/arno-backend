@@ -1,33 +1,13 @@
-import { createdAudit, updatedAudit } from '../shared/audit';
+import { createdAudit } from '../shared/audit';
 import { id } from '../shared/id';
 import type { BranchId, DatabaseShape, Transaction } from '../shared/types';
-import { roundMoney } from '../shared/types';
 import type { CreateTransactionInput, PatchTransactionInput } from '../shared/http/schemas';
 import { resolveGuardianId } from '../members/members';
-import { todayISO } from '../shared/dates';
-import { isMensalidadeName, sicrediPayer } from '../statement/statement';
-import { registerArrearsInstallmentPaid, dissolveMensalidadeArrearsSplitIfSeparate } from '../arrears/arrears';
-import { BusinessRuleViolation } from '../shared/domain/errors';
+import { sicrediPayer } from '../statement/statement';
+import { domainEvents } from '../shared/domain/domain-events';
+import { LedgerEntry, stampPaidAt } from './domain/ledger-entry';
 
-export function stampPaidAt(
-  tx: Transaction,
-  movementName: string,
-  status: Transaction['paymentStatus'],
-  paidAt?: string | null,
-  today = todayISO(),
-) {
-  tx.paymentStatus = status;
-  if (status !== 'paid') {
-    delete tx.paidAt;
-    return;
-  }
-  if (paidAt) {
-    tx.paidAt = paidAt;
-    return;
-  }
-  if (tx.paidAt) return;
-  tx.paidAt = isMensalidadeName(movementName) ? today : tx.date;
-}
+export { stampPaidAt };
 
 export function listTransactions(
   db: DatabaseShape,
@@ -48,24 +28,12 @@ export function listTransactions(
 
 export function createTransaction(db: DatabaseShape, input: CreateTransactionInput, userId: string): Transaction {
   const movement = db.movementTypes.find((item) => item.id === input.movementTypeId);
-  if (!movement || !movement.active) throw new BusinessRuleViolation('Tipo de movimentação inválido');
-  if (movement.direction !== 'both' && movement.direction !== input.type) {
-    throw new BusinessRuleViolation('Este tipo não aceita essa direção (entrada/saída)');
-  }
-  const memberGuardianId = resolveGuardianId(db, input.memberId, input.memberGuardianId);
-  const { paidAt, paymentStatus, ...data } = input;
-  const tx: Transaction = {
-    id: id(),
-    ...data,
-    memberGuardianId,
-    paymentStatus: paymentStatus ?? 'paid',
-    amount: roundMoney(input.amount),
-    ...createdAudit(userId),
-  };
-  stampPaidAt(tx, movement.name, tx.paymentStatus, paidAt);
-  if (!memberGuardianId) delete tx.memberGuardianId;
-  db.transactions.push(tx);
-  return tx;
+  const { paidAt, paymentStatus, memberGuardianId: guardianInput, ...fields } = input;
+  const entry = LedgerEntry.open(fields, movement, { status: paymentStatus, paidAt }, userId);
+  const memberGuardianId = resolveGuardianId(db, input.memberId, guardianInput);
+  if (memberGuardianId) entry.tx.memberGuardianId = memberGuardianId;
+  db.transactions.push(entry.tx);
+  return entry.tx;
 }
 
 export function updateTransaction(
@@ -76,6 +44,7 @@ export function updateTransaction(
 ): { tx: Transaction; shouldNotify: boolean } | null {
   const tx = db.transactions.find((item) => item.id === txId);
   if (!tx) return null;
+  const entry = LedgerEntry.of(tx);
   const {
     memberId,
     memberAccountId,
@@ -89,43 +58,23 @@ export function updateTransaction(
     paymentStatus,
     ...rest
   } = input;
-  const shouldNotify = Boolean(notifyReceipt) && paymentStatus === 'paid' && tx.paymentStatus !== 'paid';
-  const becamePaid = paymentStatus === 'paid' && tx.paymentStatus !== 'paid';
-  const nextType = type ?? tx.type;
-  const nextMovementId = movementTypeId ?? tx.movementTypeId;
-  const movement = db.movementTypes.find((item) => item.id === nextMovementId);
-  if (!movement) throw new BusinessRuleViolation('Tipo de movimentação inválido');
-  const sameKind = nextType === tx.type && nextMovementId === tx.movementTypeId;
-  if (!sameKind) {
-    if (!movement.active)
-      throw new BusinessRuleViolation('Este tipo está inativo. Escolha outro tipo de movimentação.');
-    if (movement.direction !== 'both' && movement.direction !== nextType) {
-      throw new BusinessRuleViolation('Este tipo não aceita essa direção (entrada/saída). Troque o tipo ou a direção.');
-    }
-  }
-  Object.assign(tx, rest, { type: nextType, movementTypeId: nextMovementId }, updatedAudit(userId));
-  if (amount !== undefined) tx.amount = roundMoney(amount);
+  const shouldNotify = Boolean(notifyReceipt) && paymentStatus === 'paid' && !entry.isPaid;
+  const movement = db.movementTypes.find((item) => item.id === (movementTypeId ?? tx.movementTypeId));
+  entry.changeKind(type ?? tx.type, movement);
+  Object.assign(tx, rest);
+  entry.touch(userId);
+  if (amount !== undefined) entry.changeAmount(amount);
   if (paymentStatus !== undefined || paidAt !== undefined) {
-    stampPaidAt(tx, movement.name, paymentStatus ?? tx.paymentStatus, paidAt === undefined ? tx.paidAt : paidAt);
+    entry.changePayment(
+      movement!,
+      paymentStatus ?? tx.paymentStatus,
+      paidAt === undefined ? tx.paidAt : paidAt,
+      userId,
+    );
   }
-  if (becamePaid && tx.arrearsId && tx.arrearsYearMonth) {
-    registerArrearsInstallmentPaid(db, tx.arrearsId, tx.arrearsYearMonth, userId, {
-      source: 'separate',
-      transactionId: tx.id,
-      method: tx.method,
-      paidAt: tx.paidAt ?? tx.date,
-    });
-  }
-  // Mensalidade + acordo: se uma parte foi paga e a outra não (ou em datas diferentes), vira lançamentos únicos.
-  if (paymentStatus !== undefined || paidAt !== undefined) {
-    dissolveMensalidadeArrearsSplitIfSeparate(db, tx, userId);
-  }
-  if (memberId === null) delete tx.memberId;
-  else if (memberId) tx.memberId = memberId;
-  if (memberAccountId === null) delete tx.memberAccountId;
-  else if (memberAccountId) tx.memberAccountId = memberAccountId;
-  if (projectId === null) delete tx.projectId;
-  else if (projectId) tx.projectId = projectId;
+  entry.assign('memberId', memberId);
+  entry.assign('memberAccountId', memberAccountId);
+  entry.assign('projectId', projectId);
   if (memberId) learnPayerAccount(db, tx, userId);
   const nextMemberId = memberId === null ? undefined : (memberId ?? tx.memberId);
   if (memberGuardianId === null || !nextMemberId) {
@@ -138,6 +87,8 @@ export function updateTransaction(
     );
     if (!belongs) delete tx.memberGuardianId;
   }
+  // Acordo de atrasados e rateio mensalidade + acordo reagem aos eventos de pagamento (arrears/arrears.events.ts).
+  domainEvents.publish(entry.pullEvents(), db);
   return { tx, shouldNotify };
 }
 

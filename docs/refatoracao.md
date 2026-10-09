@@ -115,3 +115,20 @@ Bench depois da fase (banco de teste com ~3.300 lançamentos):
 | ------------------------- | ------------------------------- | ------------------------------------------------ |
 | `POST /transactions`      | 414 ms (com ~1.290 lançamentos) | **12 ms**                                        |
 | `PATCH /transactions/:id` | 412 ms (com ~1.290 lançamentos) | 906 ms (ainda no `mutate()`, cresce com o banco) |
+
+## Fase 4 — entidade e eventos de domínio
+
+- **`LedgerEntry`** (`src/ledger/domain/ledger-entry.ts`): o lançamento com as suas regras — `open` (tipo ativo e
+  direção aceita, pago por padrão, valor em `Money`), `changeKind`, `changeAmount`, `changePayment`, `assign`, `touch`.
+  Envolve o registro `Transaction` que é persistido, então o resto do código continua lendo o mesmo formato.
+  `createTransaction` e `updateTransaction` agora são uma sequência de chamadas da entidade.
+- **Eventos de domínio** (`src/shared/domain/domain-events.ts`): síncronos e em memória; o handler roda dentro da mesma
+  gravação de quem publicou. Eventos do caixa em `src/ledger/domain/events.ts`:
+  - `TransactionPaid` — um lançamento virou pago (com a parcela de acordo que ele quita, se houver);
+  - `TransactionPaymentChanged` — mudou a situação ou a data de pagamento.
+- **O acordo de atrasados reage aos eventos** (`src/arrears/arrears.events.ts`). As 6 chamadas diretas a
+  `registerArrearsInstallmentPaid` (caixa, quitação de mensalidade, rateio, conciliação) viraram
+  `TransactionPaid`; a dissolução do rateio mensalidade + acordo reage a `TransactionPaymentChanged`.
+  O domínio do caixa (`src/ledger/transactions.ts`) não importa mais `arrears`. Resta `ledger.service.ts` usar
+  `resolveArrearsTxMarker` para decorar a listagem (leitura).
+- Os handlers são registrados pelo `ArrearsModule`; specs que dependem dessa reação importam `arrears.events`.
