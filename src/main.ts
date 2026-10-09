@@ -7,6 +7,7 @@ import { migrate } from './shared/database/migrate';
 import { seedIfEmpty } from './shared/persistence/finance-store';
 import { promoteConfiguredSuperadmins, rehashLegacySeedUsers } from './identity/users';
 import { startOutboxWorker } from './notifications/outbox';
+import { startTrashPurgeWorker } from './ledger/trash-purge';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { setupSwagger } from './shared/swagger/setup-swagger';
 import { appConfig } from './shared/config';
@@ -30,6 +31,7 @@ async function bootstrap() {
   setupSwagger(app);
 
   startOutboxWorker();
+  startTrashPurgeWorker();
 
   const port = appConfig.port;
   await app.listen(port);

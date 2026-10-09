@@ -14,61 +14,60 @@ import type {
   MemberArrears,
   MemberGuardian,
   MovementType,
-  RecordOrigin,
   Settings,
-  Transaction,
 } from '../types';
 import { countUsers } from '../../identity/users';
 import { assertClosedMonthsUntouched, diffTransactions, purgeTrash, type HistoryEntry } from '../../ledger/governance';
 import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types';
 import { DEFAULT_FEE_SCHEDULE } from '../../mensalidades/fee-table';
+import { asDate, asTimestamp, dateOnly, mapAudit, storedOrigin } from './row-mapping';
+import { takeFinanceLock } from './lock';
+import {
+  toMonthClosing,
+  toTransaction,
+  toTransactionRow,
+  toTrashed,
+  toTrashRow,
+} from '../../ledger/infra/transaction.mapper';
 import { appConfig } from '../config';
 
 let cache: DatabaseShape | null = null;
+/**
+ * Muda a cada gravação. Uma leitura que começou antes de uma gravação não pode guardar o resultado no cache
+ * depois dela: sem isto, uma leitura lenta devolvia ao cache um financeiro já desatualizado.
+ */
+let cacheVersion = 0;
 
-const FINANCE_LOCK = 87123001;
+function setCache(db: DatabaseShape | null) {
+  cacheVersion += 1;
+  cache = db;
+}
+
 const WRITE_TIMEOUT_MS = 120_000;
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
 export async function loadDb(): Promise<DatabaseShape> {
   if (cache) return cache;
-  cache = await readFinance(prisma);
-  return cache;
+  const version = cacheVersion;
+  const db = await readFinance(prisma);
+  if (version === cacheVersion) cache = db;
+  return db;
 }
 
 export function invalidateCache(): void {
-  cache = null;
+  setCache(null);
 }
 
 export async function persist(db: DatabaseShape): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
+      await takeFinanceLock(tx);
       await writeFinance(tx, db);
     },
     { timeout: WRITE_TIMEOUT_MS },
   );
-  cache = db;
-}
-
-function storedOrigin(origin: string | undefined, allowSicredi = false): string {
-  if (origin === 'manual') return 'manual';
-  if (allowSicredi && origin === 'sicredi') return 'sicredi';
-  return 'integration';
-}
-
-function asDate(value: string): Date {
-  return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
-}
-
-function dateOnly(value: Date): string {
-  return value.toISOString().slice(0, 10);
-}
-
-function asTimestamp(value: string | null | undefined): Date | null {
-  if (!value) return null;
-  return new Date(value);
+  setCache(db);
 }
 
 async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
@@ -243,56 +242,13 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
 
   if (db.transactions.length) {
     await client.transaction.createMany({
-      data: db.transactions.map((tx) => ({
-        id: tx.id,
-        date: asDate(tx.date),
-        type: tx.type,
-        nature: tx.nature,
-        movementTypeId: tx.movementTypeId,
-        description: tx.description,
-        amount: tx.amount,
-        branch: tx.branch,
-        method: tx.method,
-        paymentStatus: tx.paymentStatus === 'pending' ? 'pending' : 'paid',
-        paidAt: tx.paidAt ? asDate(tx.paidAt) : null,
-        memberId: tx.memberId ?? null,
-        memberAccountId: tx.memberAccountId ?? null,
-        memberGuardianId: tx.memberGuardianId ?? null,
-        projectId: tx.projectId ?? null,
-        notes: tx.notes ?? null,
-        notaKey: tx.notaKey ?? null,
-        notaFileName: tx.notaFileName ?? null,
-        notaContentType: tx.notaContentType ?? null,
-        externalId: tx.externalId ?? null,
-        clubFeeIncluded: tx.clubFeeIncluded ?? null,
-        splitGroupId: tx.splitGroupId ?? null,
-        splitTotal: tx.splitTotal ?? null,
-        splitIndex: tx.splitIndex ?? null,
-        splitCount: tx.splitCount ?? null,
-        arrearsId: tx.arrearsId ?? null,
-        arrearsYearMonth: tx.arrearsYearMonth ?? null,
-        createdById: tx.createdBy ?? null,
-        createdAt: tx.createdAt ? new Date(tx.createdAt) : new Date(),
-        updatedAt: asTimestamp(tx.updatedAt),
-        updatedById: tx.updatedBy ?? null,
-        origin: storedOrigin(tx.origin, true),
-        importSource: tx.importSource ?? null,
-        sourceDate: tx.sourceDate ? asDate(tx.sourceDate) : null,
-        sourceDescription: tx.sourceDescription ?? null,
-        sourceAmount: tx.sourceAmount ?? null,
-      })),
+      data: db.transactions.map(toTransactionRow),
     });
   }
 
   if (db.trash?.length) {
     await client.transactionTrash.createMany({
-      data: db.trash.map((entry) => ({
-        id: entry.id,
-        transactionId: entry.transaction.id,
-        payload: entry.transaction as unknown as Prisma.InputJsonValue,
-        deletedAt: new Date(entry.deletedAt),
-        deletedById: entry.deletedBy ?? null,
-      })),
+      data: db.trash.map(toTrashRow),
     });
   }
 
@@ -346,7 +302,7 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
 export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restoredIds?: Set<string> } = {}): Promise<T> {
   const result = await prisma.$transaction(
     async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
+      await takeFinanceLock(tx);
       const db = await readFinance(tx);
       const before = new Map(db.transactions.map((item) => [item.id, structuredClone(item)]));
       const value = fn(db);
@@ -358,11 +314,11 @@ export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restore
     },
     { timeout: WRITE_TIMEOUT_MS },
   );
-  cache = result.db;
+  setCache(result.db);
   return result.value;
 }
 
-async function recordHistory(client: Db, entries: HistoryEntry[]) {
+export async function recordHistory(client: Db, entries: HistoryEntry[]) {
   if (!entries.length) return;
   await client.transactionHistory.createMany({
     data: entries.map((entry) => ({
@@ -401,7 +357,7 @@ export async function resetDb(): Promise<DatabaseShape> {
 }
 
 export async function seedIfEmpty(): Promise<void> {
-  cache = null;
+  setCache(null);
   if ((await countUsers()) === 0) {
     const password = appConfig.admin.password || randomBytes(12).toString('base64url');
     const hash = await hashPassword(password);
@@ -449,10 +405,10 @@ export async function seedIfEmpty(): Promise<void> {
     });
   }
 
-  cache = await readFinance(prisma);
+  setCache(await readFinance(prisma));
 }
 
-function emptyFinance(): DatabaseShape {
+export function emptyFinance(): DatabaseShape {
   return {
     members: [],
     memberGuardians: [],
@@ -543,21 +499,9 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
       items: itemsByProject.get(row.id) ?? [],
       ...mapAudit(row),
     })),
-    transactions: transactions.map(mapTransaction),
-    trash: trash.map((row) => ({
-      id: row.id,
-      transaction: row.payload as unknown as Transaction,
-      deletedAt: row.deletedAt.toISOString(),
-      deletedBy: row.deletedById ?? undefined,
-    })),
-    monthClosings: closings.map((row) => ({
-      yearMonth: row.yearMonth,
-      closedAt: row.closedAt.toISOString(),
-      closedBy: row.closedById ?? undefined,
-      income: Number(row.income),
-      expense: Number(row.expense),
-      balance: Number(row.balance),
-    })),
+    transactions: transactions.map(toTransaction),
+    trash: trash.map(toTrashed),
+    monthClosings: closings.map(toMonthClosing),
     // Sem períodos gravados: a tabela padrão passa a ser gravada na próxima alteração.
     feeSchedule: feePeriods.length ? feePeriods.map(mapFeePeriod) : structuredClone(DEFAULT_FEE_SCHEDULE),
     settings: settings
@@ -570,23 +514,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
   };
 }
 
-function mapAudit(row: {
-  origin: string;
-  createdAt: Date;
-  createdById: string | null;
-  updatedAt: Date | null;
-  updatedById: string | null;
-}) {
-  return {
-    origin: (row.origin === 'manual' ? 'manual' : row.origin === 'sicredi' ? 'sicredi' : 'integration') as RecordOrigin,
-    createdAt: row.createdAt.toISOString(),
-    createdBy: row.createdById ?? undefined,
-    updatedAt: row.updatedAt?.toISOString(),
-    updatedBy: row.updatedById ?? undefined,
-  };
-}
-
-function mapMember(row: {
+export function mapMember(row: {
   id: string;
   name: string;
   email: string;
@@ -638,7 +566,7 @@ function mapSibling(row: {
   };
 }
 
-function mapGuardian(row: {
+export function mapGuardian(row: {
   id: string;
   memberId: string;
   name: string;
@@ -662,7 +590,7 @@ function mapGuardian(row: {
   };
 }
 
-function mapAccount(row: {
+export function mapAccount(row: {
   id: string;
   memberId: string;
   holderName: string;
@@ -700,7 +628,7 @@ function mapAccount(row: {
   };
 }
 
-function mapMovementType(row: {
+export function mapMovementType(row: {
   id: string;
   name: string;
   direction: string;
@@ -822,83 +750,6 @@ function mapArrears(row: {
     chargeMode: row.chargeMode === 'separate' ? 'separate' : 'embed',
     note: row.note ?? '',
     status: row.status === 'settled' ? 'settled' : row.status === 'cancelled' ? 'cancelled' : 'active',
-    ...mapAudit(row),
-  };
-}
-
-function mapTransaction(row: {
-  id: string;
-  date: Date;
-  type: string;
-  nature: string;
-  movementTypeId: string;
-  description: string;
-  amount: Prisma.Decimal;
-  branch: string;
-  method: string;
-  paymentStatus: string;
-  paidAt: Date | null;
-  memberId: string | null;
-  memberAccountId: string | null;
-  memberGuardianId: string | null;
-  projectId: string | null;
-  notes: string | null;
-  notaKey: string | null;
-  notaFileName: string | null;
-  notaContentType: string | null;
-  externalId: string | null;
-  clubFeeIncluded: boolean | null;
-  splitGroupId: string | null;
-  splitTotal: Prisma.Decimal | null;
-  splitIndex: number | null;
-  splitCount: number | null;
-  arrearsId: string | null;
-  arrearsYearMonth: string | null;
-  origin: string;
-  importSource: string | null;
-  sourceDate: Date | null;
-  sourceDescription: string | null;
-  sourceAmount: Prisma.Decimal | null;
-  createdAt: Date;
-  createdById: string | null;
-  updatedAt: Date | null;
-  updatedById: string | null;
-}): Transaction {
-  return {
-    id: row.id,
-    date: dateOnly(row.date),
-    type: row.type as Transaction['type'],
-    nature: row.nature as Transaction['nature'],
-    movementTypeId: row.movementTypeId,
-    description: row.description,
-    amount: Number(row.amount),
-    branch: row.branch as Transaction['branch'],
-    method: row.method as Transaction['method'],
-    paymentStatus: row.paymentStatus === 'pending' ? 'pending' : 'paid',
-    paidAt: row.paidAt ? dateOnly(row.paidAt) : undefined,
-    memberId: row.memberId ?? undefined,
-    memberAccountId: row.memberAccountId ?? undefined,
-    memberGuardianId: row.memberGuardianId ?? undefined,
-    projectId: row.projectId ?? undefined,
-    notes: row.notes ?? undefined,
-    notaKey: row.notaKey ?? undefined,
-    notaFileName: row.notaFileName ?? undefined,
-    notaContentType: row.notaContentType ?? undefined,
-    externalId: row.externalId ?? undefined,
-    clubFeeIncluded: row.clubFeeIncluded ?? undefined,
-    splitGroupId: row.splitGroupId ?? undefined,
-    splitTotal: row.splitTotal != null ? Number(row.splitTotal) : undefined,
-    splitIndex: row.splitIndex ?? undefined,
-    splitCount: row.splitCount ?? undefined,
-    arrearsId: row.arrearsId ?? undefined,
-    arrearsYearMonth: row.arrearsYearMonth ?? undefined,
-    importSource:
-      row.importSource === 'csv' || row.importSource === 'pdf' || row.importSource === 'sicredi'
-        ? row.importSource
-        : undefined,
-    sourceDate: row.sourceDate ? dateOnly(row.sourceDate) : undefined,
-    sourceDescription: row.sourceDescription ?? undefined,
-    sourceAmount: row.sourceAmount != null ? Number(row.sourceAmount) : undefined,
     ...mapAudit(row),
   };
 }

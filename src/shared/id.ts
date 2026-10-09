@@ -25,3 +25,10 @@ export function id(): string {
 export function isUuidV7(value: string): boolean {
   return UUID_RE.test(value);
 }
+
+const ANY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Qualquer UUID (as colunas `uuid` do Postgres recusam outro formato). */
+export function isUuid(value: string): boolean {
+  return ANY_UUID_RE.test(value);
+}
