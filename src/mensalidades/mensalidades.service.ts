@@ -15,13 +15,8 @@ import {
 } from './mensalidades';
 import { collectMensalidadeNotifyIds, notifyMensalidadeTransactions } from './notify';
 import { fail } from '../shared/http/api';
-import {
-  configuredNotifyChannels,
-  lastWhatsAppChargeByMember,
-  notifyTransaction,
-  recordManualWhatsApp,
-  summarizeDeliveries,
-} from '../notifications/notify';
+import { lastWhatsAppChargeByMember, recordManualWhatsApp } from '../notifications/notify';
+import { NotificationDispatcher } from '../notifications/notification-dispatcher';
 import { buildWhatsAppChargeQueue } from './whatsapp-queue';
 import { dismissReview, loadDb, mutate, readDismissals } from '../shared/persistence/finance-store';
 import { confirmReconciliation, reconciliationKey, reconciliationSuggestions } from './reconciliation';
@@ -102,6 +97,8 @@ function roundMoneySum(amounts: number[]) {
 
 @Injectable()
 export class MensalidadesService {
+  constructor(private readonly notifications: NotificationDispatcher) {}
+
   async report(yearQuery: string | undefined, userId: string) {
     const year = Number(yearQuery ?? new Date().getFullYear());
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
@@ -255,51 +252,17 @@ export class MensalidadesService {
     });
     if (!settled?.items.length) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
 
-    const channels = configuredNotifyChannels();
-    const notified: Transaction[] = [];
-    const notifySummary = {
-      queued: 0,
-      sent: 0,
-      failed: 0,
-      skipped: 0,
-      total: 0,
-      note: undefined as string | undefined,
-    };
+    const toNotify = settled.items.filter((item) => item.shouldNotify).map((item) => item.tx);
+    const receipts = await this.notifications.notifyReceipts(await loadDb(), toNotify, userId);
+    const notify = receipts.total || receipts.note ? receipts : undefined;
+    const items = settled.items.map((item) => ({ ...item.tx }));
 
-    for (const item of settled.items) {
-      if (!item.shouldNotify || !item.tx.memberId) {
-        notified.push(item.tx);
-        continue;
-      }
-      if (!channels.length) {
-        notifySummary.skipped += 1;
-        notifySummary.total += 1;
-        notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
-        notified.push(item.tx);
-        continue;
-      }
-      const db = await loadDb();
-      const notify = summarizeDeliveries(await notifyTransaction(db, item.tx, 'receipt', channels, userId));
-      notifySummary.queued += notify.queued;
-      notifySummary.sent += notify.sent;
-      notifySummary.failed += notify.failed;
-      notifySummary.skipped += notify.skipped;
-      notifySummary.total += notify.total;
-      notified.push({ ...item.tx });
-    }
-
-    const amount = roundMoneySum(settled.items.map((item) => item.tx.amount));
-    if (ids.length === 1) {
-      return {
-        ...notified[0],
-        notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
-      };
-    }
+    if (ids.length === 1) return { ...items[0], notify };
     return {
-      settled: notified.length,
-      amount,
-      items: notified,
-      notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
+      settled: items.length,
+      amount: roundMoneySum(items.map((item) => item.amount)),
+      items,
+      notify,
     };
   }
 
@@ -331,37 +294,15 @@ export class MensalidadesService {
       ),
     );
 
-    const notifySummary = {
-      queued: 0,
-      sent: 0,
-      failed: 0,
-      skipped: 0,
-      total: 0,
-      note: undefined as string | undefined,
-    };
-    if (allocated.shouldNotify) {
-      const channels = configuredNotifyChannels();
-      if (!channels.length) {
-        notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
-      } else {
-        const db = await loadDb();
-        for (const tx of allocated.items) {
-          if (!tx.memberId) continue;
-          const notify = summarizeDeliveries(await notifyTransaction(db, tx, 'receipt', channels, userId));
-          notifySummary.queued += notify.queued;
-          notifySummary.sent += notify.sent;
-          notifySummary.failed += notify.failed;
-          notifySummary.skipped += notify.skipped;
-          notifySummary.total += notify.total;
-        }
-      }
-    }
+    const receipts = allocated.shouldNotify
+      ? await this.notifications.notifyReceipts(await loadDb(), allocated.items, userId)
+      : null;
 
     return {
       settled: allocated.items.length,
       amount: allocated.amount,
       items: allocated.items,
-      notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
+      notify: receipts && (receipts.total || receipts.note) ? receipts : undefined,
     };
   }
 
@@ -370,7 +311,7 @@ export class MensalidadesService {
     if (!parsed.success) {
       fail('Informe o ano, o tipo (cobrança ou comprovante) e os destinatários', HttpStatus.BAD_REQUEST);
     }
-    const channels = parsed.data.channels?.length ? parsed.data.channels : configuredNotifyChannels();
+    const channels = parsed.data.channels?.length ? parsed.data.channels : this.notifications.configuredChannels();
     if (!channels.length) {
       fail('Configure e-mail (MAIL_HOST) ou WhatsApp para disparar mensagens', HttpStatus.BAD_REQUEST);
     }
@@ -380,7 +321,7 @@ export class MensalidadesService {
     });
     const db = await loadDb();
     const txIds = collectMensalidadeNotifyIds(report, parsed.data);
-    return notifyMensalidadeTransactions(db, txIds, parsed.data.kind, channels, userId);
+    return notifyMensalidadeTransactions(db, txIds, parsed.data.kind, channels, userId, this.notifications);
   }
 
   async whatsappQueue(mode?: string) {

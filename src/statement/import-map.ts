@@ -8,7 +8,8 @@ import {
   parseSignedAmount,
   type CsvTable,
 } from '../shared/csv';
-import { aiConfigured, chatJson } from '../shared/openai';
+import type { LanguageModel } from '../shared/ai/language-model';
+import { languageModel } from '../shared/ai/openai-compatible';
 import { isTemplate } from './statement';
 import { appConfig } from '../shared/config';
 
@@ -284,30 +285,31 @@ const MEMBER_FIELDS: CanonicalField[] = [
 export async function remapImportCsv(
   csv: string,
   kind: ImportKind,
-  options?: { mapping?: FieldMapping; review?: boolean },
+  options?: { mapping?: FieldMapping; review?: boolean; model?: LanguageModel },
 ): Promise<RemapResult> {
+  const model = options?.model ?? languageModel;
   const headerIndex = detectHeaderIndex(csv, kind);
   const original = parseCsv(csv, headerIndex);
   const given = options?.mapping && Object.keys(options.mapping).length ? options.mapping : undefined;
   const withReview = options?.review !== false;
   if (!original.rows.length) {
-    return finishRemap(csv, original, false, given ?? {}, kind, headerIndex, withReview);
+    return finishRemap(csv, original, false, given ?? {}, kind, headerIndex, withReview, model);
   }
 
   if (given) {
     const remapped = applyMapping(original, given, kind);
-    return finishRemap(tableToCsv(remapped), remapped, false, given, kind, headerIndex, withReview);
+    return finishRemap(tableToCsv(remapped), remapped, false, given, kind, headerIndex, withReview, model);
   }
 
   if (kind === 'statement' && isTemplate(original.headers)) {
-    return finishRemap(tableToCsv(original), original, false, {}, kind, headerIndex, withReview);
+    return finishRemap(tableToCsv(original), original, false, {}, kind, headerIndex, withReview, model);
   }
 
   let mapping = heuristicMapping(original.headers, kind);
   let usedAi = false;
 
-  if (aiConfigured() && needsAi(mapping, kind)) {
-    const ai = await mapFieldsWithAi(csv, kind, headerIndex);
+  if (model.isConfigured() && needsAi(mapping, kind)) {
+    const ai = await mapFieldsWithAi(csv, kind, headerIndex, model);
     if (ai) {
       usedAi = true;
       const parsed = parseCsv(csv, ai.headerIndex);
@@ -315,13 +317,13 @@ export async function remapImportCsv(
       if (Object.keys(resolved).length) {
         mapping = { ...mapping, ...resolved };
         const remapped = applyMapping(parsed, mapping, kind);
-        return finishRemap(tableToCsv(remapped), remapped, usedAi, mapping, kind, ai.headerIndex, withReview);
+        return finishRemap(tableToCsv(remapped), remapped, usedAi, mapping, kind, ai.headerIndex, withReview, model);
       }
     }
   }
 
   const remapped = applyMapping(original, mapping, kind);
-  return finishRemap(tableToCsv(remapped), remapped, usedAi, mapping, kind, headerIndex, withReview);
+  return finishRemap(tableToCsv(remapped), remapped, usedAi, mapping, kind, headerIndex, withReview, model);
 }
 
 async function finishRemap(
@@ -332,9 +334,10 @@ async function finishRemap(
   kind: ImportKind,
   headerIndex: number,
   withReview: boolean,
+  model: LanguageModel,
 ): Promise<RemapResult> {
   const sample = buildImportSample(table, mapping, kind);
-  const review = withReview ? await reviewImportSample(sample, kind) : { usedAi: false, ok: true, summary: '' };
+  const review = withReview ? await reviewImportSample(sample, kind, model) : { usedAi: false, ok: true, summary: '' };
   return { csv, table, usedAi, mapping, sample, review, headerIndex };
 }
 
@@ -369,10 +372,14 @@ export function buildImportSample(table: CsvTable, mapping: FieldMapping, kind: 
   return { totalRows: table.rows.length, shown, columns, rows };
 }
 
-export async function reviewImportSample(sample: ImportSample, kind: ImportKind): Promise<SampleReview> {
+export async function reviewImportSample(
+  sample: ImportSample,
+  kind: ImportKind,
+  model: LanguageModel = languageModel,
+): Promise<SampleReview> {
   const heuristic = heuristicSampleReview(sample, kind);
-  if (appConfig.isUnitTest || !aiConfigured() || !sample.rows.length) return heuristic;
-  const ai = await chatJson<{ ok?: boolean; summary?: string }>(
+  if (appConfig.isUnitTest || !model.isConfigured() || !sample.rows.length) return heuristic;
+  const ai = await model.chatJson<{ ok?: boolean; summary?: string }>(
     'Você valida uma AMOSTRA de importação da tesouraria de um grupo escoteiro. Responda só JSON {"ok":true,"summary":"..."}. summary em português, 1 ou 2 frases, para o tesoureiro conferir se os campos batem com os exemplos. Não invente datas, valores ou nomes. Não peça para gravar se data, valor, nome ou e-mail parecerem coluna trocada.',
     {
       kind,
@@ -527,12 +534,13 @@ async function mapFieldsWithAi(
   csv: string,
   kind: ImportKind,
   headerIndex: number,
+  model: LanguageModel,
 ): Promise<{ headerIndex: number; fields: Record<string, string> } | null> {
   const lines = csvLines(csv)
     .filter((line) => line.trim())
     .slice(0, 12)
     .map((line) => csvCells(line).map((cell) => cell.slice(0, 80)));
-  const parsed = await chatJson<{
+  const parsed = await model.chatJson<{
     headerRow?: number;
     fields?: Record<string, string>;
   }>(

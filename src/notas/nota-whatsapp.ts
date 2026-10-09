@@ -1,7 +1,8 @@
 import { listUsers } from '../identity/users';
 import { todayISO } from '../shared/dates';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
-import { buildNotaKey, NOTA_ALLOWED_TYPES, NOTA_MAX_BYTES, s3Configured, uploadNotaObject } from '../storage/s3';
+import { buildNotaKey, NOTA_ALLOWED_TYPES, NOTA_MAX_BYTES, type FileStorage } from '../storage/file-storage';
+import { s3FileStorage } from '../storage/s3';
 import { digitsPhone, sendWhatsAppText, whatsappConfig, type WhatsAppIncomingMessage } from '../notifications/whatsapp';
 import { notaReply, reconcileNota } from './nota-intake';
 import { readNota } from './nota-reader';
@@ -27,7 +28,7 @@ function withoutNinthDigit(phone: string) {
   return phone.length === 13 && phone.startsWith('55') ? `${phone.slice(0, 4)}${phone.slice(5)}` : phone;
 }
 
-export async function processIncomingMessage(message: WhatsAppIncomingMessage) {
+export async function processIncomingMessage(message: WhatsAppIncomingMessage, storage: FileStorage = s3FileStorage) {
   if (seen.has(message.id)) return;
   seen.set(message.id, Date.now());
   for (const [key, at] of seen) if (Date.now() - at > 86_400_000) seen.delete(key);
@@ -82,10 +83,10 @@ export async function processIncomingMessage(message: WhatsAppIncomingMessage) {
     );
 
     if (result.needsUpload) {
-      if (s3Configured()) {
+      if (storage.isConfigured()) {
         const fileName = message.fileName || `nota-${nota.date || todayISO()}${extensionFor(contentType)}`;
         const key = buildNotaKey(result.tx.id, fileName, contentType);
-        await uploadNotaObject({ key, body: media.body, contentType, fileName });
+        await storage.upload({ key, body: media.body, contentType, fileName });
         await mutate((db) => {
           const tx = db.transactions.find((item) => item.id === result.tx.id);
           if (!tx) return;

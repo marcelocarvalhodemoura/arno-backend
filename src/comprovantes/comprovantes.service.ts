@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { fail } from '../shared/http/api';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
@@ -7,7 +7,7 @@ import { confirmReconciliation } from '../mensalidades/reconciliation';
 import { listOpenMensalidades } from '../mensalidades/mensalidades';
 import { todayISO } from '../shared/dates';
 import { isUnidentifiedName } from '../statement/statement';
-import { signedNotaUrl } from '../storage/s3';
+import { FILE_STORAGE, type FileStorage } from '../storage/file-storage';
 import { attachToCredit, retryWaitingProofs } from './proof-whatsapp';
 import { findProof, listProofs, updateProof, type ProofStatus } from './proof-store';
 import { BusinessRuleViolation } from '../shared/domain/errors';
@@ -19,6 +19,8 @@ const CANDIDATE_WINDOW_DAYS = 5;
 
 @Injectable()
 export class ComprovantesService {
+  constructor(@Inject(FILE_STORAGE) private readonly storage: FileStorage) {}
+
   async list(status?: string) {
     const wanted = (status ?? '')
       .split(',')
@@ -83,7 +85,7 @@ export class ComprovantesService {
     const proof = await findProof(id);
     if (!proof?.fileKey) fail('Comprovante sem arquivo guardado', HttpStatus.NOT_FOUND);
     return {
-      url: await signedNotaUrl(proof.fileKey, proof.fileName),
+      url: await this.storage.signedUrl(proof.fileKey, proof.fileName),
       fileName: proof.fileName ?? 'comprovante',
       contentType: proof.contentType ?? '',
     };
