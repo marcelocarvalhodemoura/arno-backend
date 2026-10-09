@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import './arrears.events';
 import { ArrearsController } from './arrears.controller';
 import { ArrearsService } from './arrears.service';
 

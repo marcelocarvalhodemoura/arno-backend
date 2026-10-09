@@ -1,3 +1,5 @@
+// O acordo de atrasados reage aos pagamentos por eventos de domínio.
+import '../arrears/arrears.events';
 import {
   allocateBankCreditToMensalidades,
   applyMensalidadeFee,
