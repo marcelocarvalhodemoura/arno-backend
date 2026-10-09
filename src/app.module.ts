@@ -16,9 +16,11 @@ import { BankingModule } from './banking/banking.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { ComprovantesModule } from './comprovantes/comprovantes.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
+    StorageModule,
     AuthModule,
     HealthModule,
     IdentityModule,

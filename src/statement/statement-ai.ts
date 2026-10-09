@@ -1,7 +1,11 @@
 import { findType, type SuggestedTx, type StatementCatalog } from './statement';
-import { aiConfigured, chatJson } from '../shared/openai';
+import type { LanguageModel } from '../shared/ai/language-model';
+import { languageModel } from '../shared/ai/openai-compatible';
 
-export { aiConfigured };
+/** A IA está disponível para enriquecer o extrato? */
+export function aiConfigured(model: LanguageModel = languageModel) {
+  return model.isConfigured();
+}
 
 type AiHit = {
   line: number;
@@ -16,13 +20,14 @@ type AiHit = {
 export async function enrichWithAi(
   rows: SuggestedTx[],
   catalog: StatementCatalog,
+  model: LanguageModel = languageModel,
 ): Promise<{ rows: SuggestedTx[]; used: boolean }> {
   const pending = rows.filter((row) => !row.error && row.confidence === 'low').slice(0, 40);
-  if (!aiConfigured() || pending.length === 0) return { rows, used: false };
+  if (!model.isConfigured() || pending.length === 0) return { rows, used: false };
 
   const types = catalog.movementTypes.filter((item) => item.active).map((item) => item.name);
   const members = catalog.members.filter((item) => item.status !== 'inactive').map((item) => item.name);
-  const parsed = await chatJson<{ rows?: AiHit[] }>(
+  const parsed = await model.chatJson<{ rows?: AiHit[] }>(
     'Você classifica lançamentos de extrato da tesouraria de um grupo escoteiro brasileiro. Responda só JSON no formato {"rows":[...]}. Use apenas tipos e associados da lista. Não invente valores nem datas.',
     {
       tipos: types,

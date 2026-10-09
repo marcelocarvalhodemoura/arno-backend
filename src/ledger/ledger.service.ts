@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { createTransaction, listTransactions, updateTransaction } from './transactions';
 import { closeMonth, monthLabel, purgeTrash, reopenMonth, restoreTransaction, trashTransaction } from './governance';
@@ -7,7 +7,8 @@ import { NotFound } from '../shared/domain/errors';
 import { errorMessage } from '../shared/http/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
 import { createTransactionBody, patchTransactionBody } from '../shared/http/schemas';
-import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from '../notifications/notify';
+import { NotificationDispatcher } from '../notifications/notification-dispatcher';
+import { summarizeDeliveries } from '../notifications/types';
 import {
   dismissReview,
   loadDb,
@@ -25,11 +26,10 @@ import { splitTransactionWithMensalidades } from '../mensalidades/mensalidades';
 import {
   assertNotaFile,
   buildNotaKey,
-  deleteNotaObject,
-  s3Configured,
-  signedNotaUrl,
-  uploadNotaObject,
-} from '../storage/s3';
+  FILE_STORAGE,
+  SIGNED_URL_TTL_SECONDS,
+  type FileStorage,
+} from '../storage/file-storage';
 
 const splitBody = z.object({
   parts: z
@@ -53,6 +53,11 @@ const splitBody = z.object({
 
 @Injectable()
 export class LedgerService {
+  constructor(
+    private readonly notifications: NotificationDispatcher,
+    @Inject(FILE_STORAGE) private readonly storage: FileStorage,
+  ) {}
+
   async list(query: { from?: string; to?: string; branch?: string; type?: string; nature?: string }) {
     const db = await loadDb();
     const users = await usersById();
@@ -88,10 +93,11 @@ export class LedgerService {
     const updated = await mutate((db) => updateTransaction(db, id, data, userId));
     if (!updated) throw new NotFound('Lançamento não encontrado');
     if (updated.shouldNotify && updated.tx.memberId) {
-      const channels = configuredNotifyChannels();
+      const channels = this.notifications.configuredChannels();
       if (channels.length) {
         const db = await loadDb();
-        const notify = summarizeDeliveries(await notifyTransaction(db, updated.tx, 'receipt', channels, userId));
+        const deliveries = await this.notifications.notifyTransaction(db, updated.tx, 'receipt', channels, userId);
+        const notify = summarizeDeliveries(deliveries);
         return { ...updated.tx, notify };
       }
     }
@@ -132,10 +138,10 @@ export class LedgerService {
   /** Esvazia a lixeira (admin) e apaga as notas anexadas no S3. */
   async emptyTrash() {
     const purged = await mutate((store) => purgeTrash(store, new Date(), 0));
-    if (s3Configured()) {
+    if (this.storage.isConfigured()) {
       for (const key of purged.map((item) => item.transaction.notaKey).filter(Boolean) as string[]) {
         try {
-          await deleteNotaObject(key);
+          await this.storage.remove(key);
         } catch {
           // objeto já removido ou S3 indisponível: o registro sai da lixeira mesmo assim
         }
@@ -192,7 +198,8 @@ export class LedgerService {
   }
 
   async uploadNota(id: string, file: Express.Multer.File | undefined, userId: string) {
-    if (!s3Configured()) fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
+    if (!this.storage.isConfigured())
+      fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
     if (!file) fail('Envie o arquivo da nota no campo file', HttpStatus.BAD_REQUEST);
     assertNotaFile(file);
 
@@ -206,7 +213,7 @@ export class LedgerService {
     const key = buildNotaKey(id, fileName, contentType);
 
     try {
-      await uploadNotaObject({
+      await this.storage.upload({
         key,
         body: file.buffer,
         contentType,
@@ -229,7 +236,7 @@ export class LedgerService {
 
     if (previousKey && previousKey !== key) {
       try {
-        await deleteNotaObject(previousKey);
+        await this.storage.remove(previousKey);
       } catch {
         // ignora falha ao limpar arquivo antigo
       }
@@ -245,19 +252,20 @@ export class LedgerService {
   }
 
   async getNota(id: string) {
-    if (!s3Configured()) fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
+    if (!this.storage.isConfigured())
+      fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
     const db = await loadDb();
     const tx = db.transactions.find((item) => item.id === id);
     if (!tx) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
     if (!tx.notaKey) fail('Este lançamento não tem nota anexada', HttpStatus.NOT_FOUND);
 
     try {
-      const url = await signedNotaUrl(tx.notaKey, tx.notaFileName);
+      const url = await this.storage.signedUrl(tx.notaKey, tx.notaFileName);
       return {
         url,
         fileName: tx.notaFileName ?? 'nota',
         contentType: tx.notaContentType ?? 'application/octet-stream',
-        expiresInSeconds: 15 * 60,
+        expiresInSeconds: SIGNED_URL_TTL_SECONDS,
       };
     } catch (error) {
       fail(errorMessage(error, 'Não foi possível gerar o link da nota'), HttpStatus.BAD_GATEWAY);
@@ -281,9 +289,9 @@ export class LedgerService {
       return true;
     });
 
-    if (s3Configured()) {
+    if (this.storage.isConfigured()) {
       try {
-        await deleteNotaObject(key);
+        await this.storage.remove(key);
       } catch {
         // metadados já removidos
       }
