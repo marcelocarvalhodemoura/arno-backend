@@ -28,6 +28,8 @@
     "test:int": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-int.json",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-e2e.json",
     "test:all": "yarn test:unit && yarn test:int && yarn test:e2e",
+    "test:bench": "BENCH=1 NODE_OPTIONS=--experimental-vm-modules jest --config ./test/jest-int.json bench",
+    "db:backup": "bash scripts/db-backup.sh",
     "precommit": "lint-staged && yarn test:unit && yarn test:int && yarn test:e2e",
     "prepare": "husky"
   },
