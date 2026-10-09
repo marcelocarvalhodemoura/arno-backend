@@ -22,6 +22,7 @@ import { countUsers } from '../../identity/users';
 import { assertClosedMonthsUntouched, diffTransactions, purgeTrash, type HistoryEntry } from '../../ledger/governance';
 import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types';
 import { DEFAULT_FEE_SCHEDULE } from '../../mensalidades/fee-table';
+import { appConfig } from '../config';
 
 let cache: DatabaseShape | null = null;
 
@@ -402,7 +403,7 @@ export async function resetDb(): Promise<DatabaseShape> {
 export async function seedIfEmpty(): Promise<void> {
   cache = null;
   if ((await countUsers()) === 0) {
-    const password = process.env.ADMIN_PASSWORD || randomBytes(12).toString('base64url');
+    const password = appConfig.admin.password || randomBytes(12).toString('base64url');
     const hash = await hashPassword(password);
     await prisma.user.create({
       data: {
@@ -418,7 +419,7 @@ export async function seedIfEmpty(): Promise<void> {
     await prisma.user.create({
       data: {
         id: id(),
-        username: process.env.ADMIN_USER ?? 'tesouraria',
+        username: appConfig.admin.user,
         name: 'Tesouraria do Grupo',
         email: 'tesouraria@arnofriedrich.org.br',
         passwordHash: hash,
@@ -426,7 +427,7 @@ export async function seedIfEmpty(): Promise<void> {
         origin: 'manual',
       },
     });
-    if (process.env.ADMIN_PASSWORD) {
+    if (appConfig.admin.password) {
       console.log('Usuários iniciais criados: admin e tesouraria (senha de ADMIN_PASSWORD)');
     } else {
       console.log(

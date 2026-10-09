@@ -8,6 +8,7 @@ import { catalogFromDb } from '../statement/interpret-upload';
 import { isUnidentifiedName, matchMember } from '../statement/statement';
 import { brl, formatDate } from '../notifications/templates';
 import type { ProofData } from './proof-reader';
+import { appConfig } from '../shared/config';
 
 /** Diferença máxima, em dias, entre a data do comprovante e o crédito no extrato (busca sem id do Pix). */
 const MATCH_WINDOW_DAYS = 2;
@@ -60,7 +61,7 @@ export function membersByPhone(db: DatabaseShape, phone: string) {
 }
 
 /** O recebedor precisa ser o Grupo. Só recusa quando o comprovante mostra claramente outro CNPJ. */
-export function payeeCheck(proof: ProofData, groupCnpj = process.env.GROUP_CNPJ ?? '') {
+export function payeeCheck(proof: ProofData, groupCnpj = appConfig.groupCnpj) {
   const expected = groupCnpj.replace(/\D/g, '');
   const document = proof.payeeDocument.replace(/\D/g, '');
   if (expected && document.length === 14) return document === expected ? 'ok' : 'other';

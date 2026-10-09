@@ -11,7 +11,7 @@ import {
   updateMemberAccount,
 } from './members';
 import { fail, parseDto } from '../shared/http/api';
-import { errorMessage } from '../shared/http/errors';
+import { NotFound } from '../shared/domain/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
 import { accountBody, createMemberBody, memberImportRow, patchMemberBody } from '../shared/http/schemas';
 import { mutate } from '../shared/persistence/finance-store';
@@ -44,24 +44,14 @@ export class MembersService {
 
   async create(body: unknown, userId: string) {
     const data = parseDto(createMemberBody, body);
-    try {
-      return await mutate((db) => createMember(db, data, userId));
-    } catch (error) {
-      const message = errorMessage(error, 'Não foi possível cadastrar');
-      fail(message, HttpStatus.BAD_REQUEST);
-    }
+    return mutate((db) => createMember(db, data, userId));
   }
 
   async update(id: string, body: unknown, userId: string) {
     const data = parseDto(patchMemberBody, body);
-    try {
-      const updated = await mutate((db) => updateMember(db, id, data, userId));
-      if (!updated) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
-      return updated;
-    } catch (error) {
-      const message = errorMessage(error, 'Não foi possível alterar');
-      fail(message, HttpStatus.BAD_REQUEST);
-    }
+    const updated = await mutate((db) => updateMember(db, id, data, userId));
+    if (!updated) throw new NotFound('Associado não encontrado');
+    return updated;
   }
 
   async addAccount(memberId: string, body: unknown, userId: string) {

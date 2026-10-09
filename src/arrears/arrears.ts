@@ -10,9 +10,11 @@ import type {
   Transaction,
 } from '../shared/types';
 import { roundMoney } from '../shared/types';
-import { dueDateForMonth, dueDayOf, MENSALIDADE_MONTHS, todayISO } from '../mensalidades/mensalidades';
+import { dueDateForMonth, dueDayOf, MENSALIDADE_MONTHS } from '../mensalidades/mensalidades';
+import { todayISO } from '../shared/dates';
 import { effectiveClubFeeIncluded, expectedMensalidadeAmount, scheduleOf } from '../mensalidades/fee-table';
 import { splitTransaction } from '../ledger/split';
+import { BusinessRuleViolation, NotFound } from '../shared/domain/errors';
 
 export const ARREARS_MOVEMENT_NAME = 'Acordo / dívida diluída';
 
@@ -34,7 +36,7 @@ const MONTH_NAMES = [
 
 export function parseYearMonth(value: string): { year: number; month: number } {
   const [y, m] = value.slice(0, 7).split('-').map(Number);
-  if (!y || !m || m < 1 || m > 12) throw new Error('Competência inválida (use YYYY-MM)');
+  if (!y || !m || m < 1 || m > 12) throw new BusinessRuleViolation('Competência inválida (use YYYY-MM)');
   return { year: y, month: m };
 }
 
@@ -60,7 +62,7 @@ export function planYearMonths(startYearMonth: string, totalCount: number): stri
       year += 1;
     }
   }
-  if (out.length < totalCount) throw new Error('Não foi possível montar o calendário de parcelas');
+  if (out.length < totalCount) throw new BusinessRuleViolation('Não foi possível montar o calendário de parcelas');
   return out;
 }
 
@@ -127,18 +129,18 @@ export function createArrearsPlan(
 ): MemberArrears {
   if (!db.memberArrears) db.memberArrears = [];
   const member = db.members.find((item) => item.id === input.memberId);
-  if (!member) throw new Error('Associado não encontrado');
+  if (!member) throw new NotFound('Associado não encontrado');
   const amount = roundMoney(input.amount);
   const installments = Math.floor(input.installments);
-  if (!(amount > 0)) throw new Error('Informe o valor da dívida');
-  if (installments < 2 || installments > 12) throw new Error('Parcelas: mínimo 2, máximo 12');
+  if (!(amount > 0)) throw new BusinessRuleViolation('Informe o valor da dívida');
+  if (installments < 2 || installments > 12) throw new BusinessRuleViolation('Parcelas: mínimo 2, máximo 12');
   parseYearMonth(input.startYearMonth);
   planYearMonths(input.startYearMonth, installments);
   if (input.chargeMode !== 'embed' && input.chargeMode !== 'separate') {
-    throw new Error('Modo de cobrança inválido');
+    throw new BusinessRuleViolation('Modo de cobrança inválido');
   }
   const open = db.memberArrears.find((item) => item.memberId === input.memberId && item.status === 'active');
-  if (open) throw new Error('Já existe um acordo ativo para este associado. Quite ou cancele antes.');
+  if (open) throw new BusinessRuleViolation('Já existe um acordo ativo para este associado. Quite ou cancele antes.');
 
   const installmentAmount = roundMoney(amount / installments);
   const plan: MemberArrears = {
@@ -164,8 +166,8 @@ export function createArrearsPlan(
 
 export function cancelArrearsPlan(db: DatabaseShape, planId: string, userId: string): MemberArrears {
   const plan = (db.memberArrears ?? []).find((item) => item.id === planId);
-  if (!plan) throw new Error('Acordo não encontrado');
-  if (plan.status !== 'active') throw new Error('Acordo já encerrado');
+  if (!plan) throw new NotFound('Acordo não encontrado');
+  if (plan.status !== 'active') throw new BusinessRuleViolation('Acordo já encerrado');
   if (plan.chargeMode === 'embed') {
     stripEmbedFromPendingMensalidades(db, plan, userId);
   }
@@ -184,8 +186,8 @@ export function settleArrearsPlan(
   opts?: { recordPayment?: boolean; paidAt?: string; method?: PaymentMethod; note?: string },
 ): MemberArrears {
   const plan = (db.memberArrears ?? []).find((item) => item.id === planId);
-  if (!plan) throw new Error('Acordo não encontrado');
-  if (plan.status !== 'active') throw new Error('Acordo já encerrado');
+  if (!plan) throw new NotFound('Acordo não encontrado');
+  if (plan.status !== 'active') throw new BusinessRuleViolation('Acordo já encerrado');
   const recordPayment = opts?.recordPayment !== false;
   if (recordPayment && plan.balance > 0) {
     return applyArrearsCashPayment(
@@ -356,16 +358,16 @@ export function applyArrearsCashPayment(
   userId: string,
 ): { plan: MemberArrears; transaction: Transaction; payment: ArrearsPayment } {
   const plan = (db.memberArrears ?? []).find((item) => item.id === planId);
-  if (!plan) throw new Error('Acordo não encontrado');
-  if (plan.status !== 'active') throw new Error('Acordo já encerrado');
+  if (!plan) throw new NotFound('Acordo não encontrado');
+  if (plan.status !== 'active') throw new BusinessRuleViolation('Acordo já encerrado');
   const amount = roundMoney(input.amount);
-  if (!(amount > 0)) throw new Error('Informe o valor do pagamento');
+  if (!(amount > 0)) throw new BusinessRuleViolation('Informe o valor do pagamento');
   if (amount > plan.balance + 0.001) {
-    throw new Error(`Valor maior que o saldo restante (${plan.balance.toFixed(2)})`);
+    throw new BusinessRuleViolation(`Valor maior que o saldo restante (${plan.balance.toFixed(2)})`);
   }
 
   const member = db.members.find((item) => item.id === plan.memberId);
-  if (!member) throw new Error('Associado não encontrado');
+  if (!member) throw new NotFound('Associado não encontrado');
   const paidAt = (input.paidAt ?? todayISO()).slice(0, 10);
   const method = input.method ?? 'pix';
   const movement = ensureArrearsMovementType(db, userId);
@@ -418,7 +420,7 @@ export function applyArrearsCashPayment(
 
 export function listArrearsPayments(db: DatabaseShape, planId: string) {
   const plan = (db.memberArrears ?? []).find((item) => item.id === planId);
-  if (!plan) throw new Error('Acordo não encontrado');
+  if (!plan) throw new NotFound('Acordo não encontrado');
   const payments = [...(plan.payments ?? [])].sort(
     (a, b) => b.paidAt.localeCompare(a.paidAt) || b.createdAt.localeCompare(a.createdAt),
   );
@@ -436,14 +438,14 @@ export function generateArrearsMonth(
   userId: string,
 ): Transaction {
   const plan = (db.memberArrears ?? []).find((item) => item.id === planId);
-  if (!plan) throw new Error('Acordo não encontrado');
-  if (plan.status !== 'active') throw new Error('Acordo encerrado');
+  if (!plan) throw new NotFound('Acordo não encontrado');
+  if (plan.status !== 'active') throw new BusinessRuleViolation('Acordo encerrado');
   if (plan.chargeMode !== 'separate') {
-    throw new Error('Geração de lançamento só no modo “lançamento à parte”');
+    throw new BusinessRuleViolation('Geração de lançamento só no modo “lançamento à parte”');
   }
   const ym = yearMonth.slice(0, 7);
   const amount = installmentForYearMonth(plan, ym);
-  if (!(amount > 0)) throw new Error('Não há parcela a gerar para esta competência');
+  if (!(amount > 0)) throw new BusinessRuleViolation('Não há parcela a gerar para esta competência');
   const existing = db.transactions.find(
     (tx) => tx.arrearsId === plan.id && tx.arrearsYearMonth === ym && tx.paymentStatus !== 'paid',
   );
@@ -451,10 +453,10 @@ export function generateArrearsMonth(
   const paidExisting = db.transactions.find(
     (tx) => tx.arrearsId === plan.id && tx.arrearsYearMonth === ym && tx.paymentStatus === 'paid',
   );
-  if (paidExisting) throw new Error('Parcela desta competência já está paga');
+  if (paidExisting) throw new BusinessRuleViolation('Parcela desta competência já está paga');
 
   const member = db.members.find((item) => item.id === plan.memberId);
-  if (!member) throw new Error('Associado não encontrado');
+  if (!member) throw new NotFound('Associado não encontrado');
   const { year, month } = parseYearMonth(ym);
   const movement = ensureArrearsMovementType(db, userId);
   const dueDay = dueDayOf(db);
@@ -487,9 +489,9 @@ export function generateArrearsDue(
   userId: string,
 ): Transaction[] {
   const plan = (db.memberArrears ?? []).find((item) => item.id === planId);
-  if (!plan) throw new Error('Acordo não encontrado');
+  if (!plan) throw new NotFound('Acordo não encontrado');
   if (plan.chargeMode !== 'separate') {
-    throw new Error('Geração em lote só no modo “lançamento à parte”');
+    throw new BusinessRuleViolation('Geração em lote só no modo “lançamento à parte”');
   }
   const limit = monthLimit.slice(0, 7);
   const created: Transaction[] = [];

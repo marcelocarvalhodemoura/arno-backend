@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { lateMonthlyFee, onTimeMonthlyFee, paysMensalidade, scheduleOf } from '../mensalidades/fee-table';
-import { dueDayOf, todayISO } from '../mensalidades/mensalidades';
+import { dueDayOf } from '../mensalidades/mensalidades';
+import { todayISO } from '../shared/dates';
 import type { DatabaseShape, Member, Transaction } from '../shared/types';
 import { YOUTH_BRANCHES } from '../shared/types';
 import type { NotifyKind } from './notify'; // type-only: avoids runtime cycle with notify.ts

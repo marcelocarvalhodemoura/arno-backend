@@ -1,5 +1,5 @@
 import { listUsers } from '../identity/users';
-import { todayISO } from '../mensalidades/mensalidades';
+import { todayISO } from '../shared/dates';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { buildNotaKey, NOTA_ALLOWED_TYPES, NOTA_MAX_BYTES, s3Configured, uploadNotaObject } from '../storage/s3';
 import { digitsPhone, sendWhatsAppText, whatsappConfig, type WhatsAppIncomingMessage } from '../notifications/whatsapp';
@@ -7,6 +7,7 @@ import { notaReply, reconcileNota } from './nota-intake';
 import { readNota } from './nota-reader';
 import { membersByPhone } from '../comprovantes/proof-intake';
 import { asksForHelp, looksLikeNota, processMemberText, processProof } from '../comprovantes/proof-whatsapp';
+import { appConfig } from '../shared/config';
 
 const HELP =
   'Olá! Envie a foto ou o PDF da nota fiscal (de preferência com o QR code visível). Na legenda você pode indicar o ramo, por exemplo "lobinho". Comprovantes de pagamento de associados também podem ser enviados aqui.';
@@ -15,11 +16,8 @@ const HELP =
 const seen = new Map<string, number>();
 
 export function allowedSender(from: string) {
-  const list = (process.env.WHATSAPP_ALLOWED_SENDERS ?? '')
-    .split(',')
-    .map((item) => digitsPhone(item))
-    .filter(Boolean);
-  if (!list.length) return process.env.NODE_ENV !== 'production';
+  const list = appConfig.whatsapp.allowedSenders.map((item) => digitsPhone(item)).filter(Boolean);
+  if (!list.length) return !appConfig.isProduction;
   const phone = digitsPhone(from);
   // Celulares do Brasil podem chegar com ou sem o nono dígito.
   return list.some((item) => item === phone || withoutNinthDigit(item) === withoutNinthDigit(phone));

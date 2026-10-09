@@ -2,7 +2,9 @@ import type { DatabaseShape } from '../shared/types';
 import { BRANCH_LABELS, roundMoney } from '../shared/types';
 import { digitsPhone } from '../notifications/whatsapp';
 import { brl, formatDate, GROUP_CNPJ } from '../notifications/templates';
-import { dueDayOf, listOpenMensalidades, todayISO } from './mensalidades';
+import { dueDayOf, listOpenMensalidades } from './mensalidades';
+import { todayISO } from '../shared/dates';
+import { appConfig } from '../shared/config';
 
 /**
  * Fila de cobrança pelo WhatsApp sem custo: o sistema monta a mensagem e o link wa.me, e a
@@ -83,8 +85,8 @@ function groupPix(amount: number, info: string) {
   return pixCopiaECola({
     key: GROUP_CNPJ.replace(/\D/g, ''),
     amount,
-    name: process.env.PIX_MERCHANT_NAME || 'GE ARNO FRIEDRICH',
-    city: process.env.PIX_MERCHANT_CITY || 'PORTO ALEGRE',
+    name: appConfig.pix.merchantName,
+    city: appConfig.pix.merchantCity,
     info,
   });
 }

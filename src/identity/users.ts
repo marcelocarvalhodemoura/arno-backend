@@ -3,6 +3,7 @@ import { prisma } from '../shared/db';
 import { hashPassword, isLegacyHash, verifyPassword } from '../shared/auth/password';
 import { id } from '../shared/id';
 import type { AppUser, RecordOrigin, UserRole } from '../shared/types';
+import { appConfig } from '../shared/config';
 
 function toUser(row: User): AppUser {
   return {
@@ -129,9 +130,9 @@ export async function replacePasswordHash(userId: string, passwordHash: string):
  * em texto entra de novo no processo.
  */
 export async function rehashLegacySeedUsers(): Promise<number> {
-  const password = process.env.ADMIN_PASSWORD;
+  const password = appConfig.admin.password;
   if (!password) return 0;
-  const usernames = [...new Set(['admin', process.env.ADMIN_USER ?? 'tesouraria'])];
+  const usernames = [...new Set(['admin', appConfig.admin.user])];
   let upgraded = 0;
   for (const username of usernames) {
     const found = await findUserByUsername(username);
@@ -152,10 +153,7 @@ export async function countUsers(): Promise<number> {
  * Roda na inicialização; quem já é super admin não muda. O usuário precisa entrar de novo para valer.
  */
 export async function promoteConfiguredSuperadmins(): Promise<string[]> {
-  const usernames = (process.env.SUPERADMIN_USERS ?? '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+  const usernames = appConfig.admin.superadminUsers.map((item) => item.toLowerCase());
   if (!usernames.length) return [];
   const rows = await prisma.user.findMany({
     where: { username: { in: usernames }, role: { not: 'superadmin' } },

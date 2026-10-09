@@ -2,6 +2,7 @@ import { prisma } from '../shared/db';
 import { sendMail } from './mail';
 import { sendWhatsAppText } from './whatsapp';
 import { isOutsideWindowError, OUTSIDE_WINDOW_ERROR, windowOpen } from './whatsapp-window';
+import { appConfig } from '../shared/config';
 
 type NotifyChannel = 'email' | 'whatsapp';
 
@@ -22,22 +23,22 @@ let processing: Promise<number> | null = null;
 let timer: ReturnType<typeof setInterval> | null = null;
 
 export function queueConcurrency() {
-  const value = Number(process.env.MAIL_QUEUE_CONCURRENCY ?? 3);
+  const value = appConfig.outbox.concurrency;
   return Number.isFinite(value) && value >= 1 ? Math.min(10, Math.floor(value)) : 3;
 }
 
 export function queueMaxAttempts() {
-  const value = Number(process.env.MAIL_QUEUE_MAX_ATTEMPTS ?? 5);
+  const value = appConfig.outbox.maxAttempts;
   return Number.isFinite(value) && value >= 1 ? Math.min(12, Math.floor(value)) : 5;
 }
 
 export function queuePollMs() {
-  const value = Number(process.env.MAIL_QUEUE_POLL_MS ?? 1500);
+  const value = appConfig.outbox.pollMs;
   return Number.isFinite(value) && value >= 250 ? Math.min(30_000, Math.floor(value)) : 1500;
 }
 
 export function sendGapMs() {
-  const value = Number(process.env.MAIL_SEND_GAP_MS ?? 150);
+  const value = appConfig.outbox.sendGapMs;
   return Number.isFinite(value) && value >= 0 ? Math.min(5_000, Math.floor(value)) : 150;
 }
 
@@ -102,7 +103,7 @@ async function finishRow(id: string, status: 'sent' | 'failed' | 'skipped' | 'qu
 }
 
 function whatsappMock() {
-  return process.env.WHATSAPP_MOCK === '1' || process.env.MAIL_MOCK === '1';
+  return appConfig.whatsapp.mock;
 }
 
 /** WhatsApp só sai dentro da janela gratuita de 24 h; fora dela a Meta recusa ou cobra. */
@@ -163,7 +164,7 @@ export async function processOutbox(maxBatches = 40) {
 }
 
 export function kickOutbox() {
-  if (process.env.VITEST) return;
+  if (appConfig.isUnitTest) return;
   void processOutbox().catch((error) => {
     console.error('Fila de mensagens:', error);
   });
