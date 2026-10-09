@@ -132,3 +132,29 @@ Bench depois da fase (banco de teste com ~3.300 lançamentos):
   O domínio do caixa (`src/ledger/transactions.ts`) não importa mais `arrears`. Resta `ledger.service.ts` usar
   `resolveArrearsTxMarker` para decorar a listagem (leitura).
 - Os handlers são registrados pelo `ArrearsModule`; specs que dependem dessa reação importam `arrears.events`.
+
+## Fase 5 — fim do TRUNCATE
+
+- **`mutate()` grava só o que mudou** (`src/shared/persistence/finance-writer.ts`). Antes: `TRUNCATE` de 14 tabelas e
+  regravação de tudo a cada escrita. Agora: as linhas antes e depois da operação são comparadas tabela por tabela e só
+  saem `DELETE`/`INSERT`/`UPDATE` das que mudaram (apaga filhas antes das mães, insere mães antes das filhas).
+  Funciona como o rastreamento de mudanças de um ORM, sem reescrever as funções de domínio.
+- **Proteção contra apagar em massa**: uma gravação que apagaria mais da metade de uma tabela (com mais de 20 linhas)
+  é recusada. Antes, um array esvaziado por bug apagava a tabela inteira sem aviso.
+- **Versão do financeiro no banco** (migração `20261009120000_finance_version`): gatilhos incrementam
+  `finance_version.version` a cada escrita em qualquer tabela financeira, por qualquer caminho (API, scripts, SQL).
+  - `loadDb()` confere a versão (uma consulta pequena) antes de usar o cache: outra instância da API ou um script que
+    gravou no banco não deixam mais leituras desatualizadas.
+  - `mutate()` parte da última gravação deste processo quando a versão não mudou, em vez de reler o banco inteiro.
+- **Reset do admin** sem `TRUNCATE`: apaga com `deleteMany` dentro de uma transação.
+- **Testes novos**: um `mutate()` sem mudança não altera o `xmin` de nenhuma tabela; editar um lançamento só regrava
+  a tabela de lançamentos; unidade do comparador e da proteção contra apagar em massa.
+
+O que continua: o `mutate()` segue como unidade de trabalho das operações que mexem em vários agregados de uma vez
+(mensalidades, acordos, importação de extrato, rateio). Quando outra escrita aconteceu desde a última dele, ainda relê
+o financeiro inteiro antes de aplicar a operação — é o custo que sobra no `PATCH /transactions/:id`.
+
+| Operação (bench)          | início                     | fase 3         | fase 5         |
+| ------------------------- | -------------------------- | -------------- | -------------- |
+| `POST /transactions`      | 414 ms                     | 12 ms          | 11 ms          |
+| `PATCH /transactions/:id` | 412 ms (1.290 lançamentos) | 906 ms (3.300) | 458 ms (4.000) |

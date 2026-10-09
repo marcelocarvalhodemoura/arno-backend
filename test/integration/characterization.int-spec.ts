@@ -6,7 +6,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp } from '../helpers/app';
 import { prisma } from '../../src/shared/db';
-import { invalidateCache } from '../../src/shared/persistence/finance-store';
+import { invalidateCache, mutate } from '../../src/shared/persistence/finance-store';
 import { TEST_ADMIN_USER, TEST_PASSWORD, TEST_TREASURER_USER } from './credentials';
 
 let app: INestApplication;
@@ -444,6 +444,47 @@ describe('Caracterização da API', () => {
   });
 
   describe('integridade da gravação', () => {
+    it('uma gravação pelo mutate() só toca as linhas que mudaram', async () => {
+      const tables = [
+        'members',
+        'member_guardians',
+        'member_accounts',
+        'movement_types',
+        'fees',
+        'projects',
+        'transactions',
+        'settings',
+        'fee_schedule_periods',
+      ];
+      const versions = async () => {
+        const result: Record<string, string> = {};
+        for (const table of tables) {
+          const [row] = await prisma.$queryRawUnsafe<{ v: string | null }[]>(
+            `SELECT md5(string_agg(xmin::text, ',' ORDER BY ctid)) AS v FROM ${table}`,
+          );
+          result[table] = row.v ?? '';
+        }
+        return result;
+      };
+      // Sem mudança nenhuma: nada é regravado.
+      const before = await versions();
+      await mutate(() => undefined);
+      expect(await versions()).toEqual(before);
+
+      // Editar um lançamento pelo mutate() (PATCH) regrava só a tabela de lançamentos.
+      const type = await ensureType(auth, 'Caracterização Entrada', 'income');
+      const created = await request(server).post('/api/transactions').set(auth).send(txBody(type.id));
+      const beforePatch = await versions();
+      const patched = await request(server)
+        .patch(`/api/transactions/${created.body.id}`)
+        .set(auth)
+        .send({ amount: 43 });
+      expect(patched.status).toBe(200);
+      const afterPatch = await versions();
+      expect({ ...afterPatch, transactions: '' }).toEqual({ ...beforePatch, transactions: '' });
+      expect(afterPatch.transactions).not.toBe(beforePatch.transactions);
+    });
+
     it('criar, anexar nota, excluir e restaurar lançamento não regrava as outras tabelas', async () => {
       // xmin muda quando a linha é regravada (TRUNCATE + INSERT); sem regravação, continua o mesmo.
       const versions = async () =>
