@@ -1,5 +1,5 @@
 import { listUsers } from '../identity/users';
-import { todayISO } from '../mensalidades/mensalidades';
+import { todayISO } from '../shared/dates';
 import { fold } from '../shared/csv';
 import { mutate } from '../shared/persistence/finance-store';
 import type { Member } from '../shared/types';

@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import type { Transporter } from 'nodemailer';
 import { logoFilePath, LOGO_CID, valoresFilePath, VALORES_CID } from './templates';
+import { appConfig } from '../shared/config';
 
 export type MailSendResult = {
   ok: boolean;
@@ -23,14 +24,12 @@ function mailAttachments(html?: string) {
 let transporter: Transporter | null = null;
 
 export function mailConfigured() {
-  if (process.env.MAIL_MOCK === '1') return true;
-  const host = process.env.MAIL_HOST?.trim() ?? '';
-  const from = process.env.MAIL_FROM?.trim() ?? '';
-  return Boolean(host && from);
+  if (appConfig.mail.mock) return true;
+  return Boolean(appConfig.mail.host && appConfig.mail.from);
 }
 
 export function mailFrom() {
-  return process.env.MAIL_FROM?.trim() || 'tesouraria@arnofriedrich.org.br';
+  return appConfig.mail.from || 'tesouraria@arnofriedrich.org.br';
 }
 
 export function resetMailTransport() {
@@ -45,33 +44,31 @@ export function resetMailTransport() {
 }
 
 function queueConcurrency() {
-  const value = Number(process.env.MAIL_QUEUE_CONCURRENCY ?? 3);
+  const value = appConfig.outbox.concurrency;
   return Number.isFinite(value) && value >= 1 ? Math.min(10, Math.floor(value)) : 3;
 }
 
 async function getTransporter() {
   if (transporter) return transporter;
   const nodemailer = await import('nodemailer');
-  const port = Number(process.env.MAIL_PORT ?? 587);
-  const secure = process.env.MAIL_SECURE === '1' || port === 465;
+  const { mail } = appConfig;
+  const port = mail.port;
+  const secure = mail.secure || port === 465;
   transporter = nodemailer.createTransport({
-    host: process.env.MAIL_HOST,
+    host: mail.host,
     port,
     secure,
     pool: true,
     maxConnections: queueConcurrency(),
     maxMessages: 200,
-    auth:
-      process.env.MAIL_USER && process.env.MAIL_PASS
-        ? { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS }
-        : undefined,
+    auth: mail.user && mail.pass ? { user: mail.user, pass: mail.pass } : undefined,
   });
   return transporter;
 }
 
 export async function sendMail(to: string, subject: string, text: string, html?: string): Promise<MailSendResult> {
   if (!to.trim()) return { ok: false, skipped: true, error: 'Destinatário sem e-mail' };
-  if (process.env.MAIL_MOCK === '1') return { ok: true, skipped: false };
+  if (appConfig.mail.mock) return { ok: true, skipped: false };
   if (!mailConfigured()) {
     return {
       ok: false,

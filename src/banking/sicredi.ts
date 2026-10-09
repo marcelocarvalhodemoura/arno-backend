@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import https from 'node:https';
 import { URL } from 'node:url';
+import { appConfig } from '../shared/config';
 
 export type PixPayer = {
   nome?: string;
@@ -31,17 +32,18 @@ type TokenCache = { accessToken: string; expiresAt: number };
 let tokenCache: TokenCache | null = null;
 
 export function sicrediConfig() {
-  const mock = process.env.SICREDI_MOCK === '1' || process.env.SICREDI_MOCK === 'true';
-  const clientId = process.env.SICREDI_CLIENT_ID?.trim() ?? '';
-  const clientSecret = process.env.SICREDI_CLIENT_SECRET?.trim() ?? '';
-  const certPath = process.env.SICREDI_CERT_PATH?.trim() ?? '';
-  const keyPath = process.env.SICREDI_KEY_PATH?.trim() ?? '';
-  const caPath = process.env.SICREDI_CA_PATH?.trim() ?? '';
-  const pixKey = process.env.SICREDI_PIX_KEY?.trim() ?? '';
-  const apiBase = (process.env.SICREDI_API_BASE ?? 'https://api-pix.sicredi.com.br/api/v2').replace(/\/$/, '');
-  const oauthUrl = process.env.SICREDI_OAUTH_URL ?? 'https://api-pix.sicredi.com.br/oauth/token';
-  const webhookToken = process.env.SICREDI_WEBHOOK_TOKEN?.trim() ?? '';
-  const publicUrl = (process.env.PUBLIC_URL ?? '').replace(/\/$/, '');
+  const { sicredi } = appConfig;
+  const mock = sicredi.mock;
+  const clientId = sicredi.clientId;
+  const clientSecret = sicredi.clientSecret;
+  const certPath = sicredi.certPath;
+  const keyPath = sicredi.keyPath;
+  const caPath = sicredi.caPath;
+  const pixKey = sicredi.pixKey;
+  const apiBase = sicredi.apiBase;
+  const oauthUrl = sicredi.oauthUrl;
+  const webhookToken = sicredi.webhookToken;
+  const publicUrl = appConfig.publicUrl;
   const live = Boolean(clientId && clientSecret && certPath && keyPath);
   return {
     mock,

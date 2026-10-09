@@ -40,10 +40,6 @@ export class ClubRemittanceService {
 
   async register(body: unknown, userId: string) {
     const data = parseDto(registerBody, body, 'Informe ano, mês e opcionalmente a data do repasse');
-    try {
-      return await mutate((db) => registerClubRemittance(db, data, userId));
-    } catch (err) {
-      fail(err instanceof Error ? err.message : 'Não foi possível registrar o repasse', HttpStatus.BAD_REQUEST);
-    }
+    return mutate((db) => registerClubRemittance(db, data, userId));
   }
 }

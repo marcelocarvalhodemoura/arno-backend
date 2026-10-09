@@ -2,6 +2,7 @@ import { planDuplicateRemovals } from '../statement/cleanup-duplicates';
 import { isUnidentifiedName } from '../statement/statement';
 import type { DatabaseShape, Transaction, TrashedTransaction } from '../shared/types';
 import { trashTransaction } from './governance';
+import { BusinessRuleViolation, NotFound } from '../shared/domain/errors';
 
 export function duplicateKey(ids: string[]): string {
   return `dup:${[...ids].sort().join(',')}`;
@@ -53,13 +54,14 @@ export function findDuplicateGroups(db: DatabaseShape, dismissed: Set<string>) {
 
 /** Manda as cópias para a lixeira. A cópia nunca pode ser parte de rateio. */
 export function resolveDuplicate(db: DatabaseShape, keepId: string, dropIds: string[], userId: string) {
-  if (!db.transactions.some((tx) => tx.id === keepId)) throw new Error('Lançamento mantido não encontrado');
+  if (!db.transactions.some((tx) => tx.id === keepId)) throw new NotFound('Lançamento mantido não encontrado');
   const trashed: TrashedTransaction[] = [];
   for (const txId of dropIds) {
     if (txId === keepId) continue;
     const tx = db.transactions.find((item) => item.id === txId);
     if (!tx) continue;
-    if (tx.splitGroupId) throw new Error('Partes de rateio não são excluídas por aqui; altere o rateio');
+    if (tx.splitGroupId)
+      throw new BusinessRuleViolation('Partes de rateio não são excluídas por aqui; altere o rateio');
     const entry = trashTransaction(db, txId, userId);
     if (entry) trashed.push(entry);
   }

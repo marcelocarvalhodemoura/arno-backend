@@ -1,3 +1,4 @@
+import { dayAfterISO, lastDayOfMonth, nextMonthStart, pad2, todayISO } from '../shared/dates';
 import { createdAudit, updatedAudit } from '../shared/audit';
 import {
   applyOfficialFee,
@@ -35,17 +36,11 @@ import {
 } from '../arrears/arrears';
 import { stampPaidAt } from '../ledger/transactions';
 import { splitTransaction, type SplitPart } from '../ledger/split';
+import { BusinessRuleViolation, NotFound } from '../shared/domain/errors';
 
 export const MENSALIDADE_MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11];
 
 export type MensalidadeSettleTiming = 'on_time' | 'late';
-
-/** Dia seguinte (ISO YYYY-MM-DD) para forçar cálculo do valor com atraso. */
-export function dayAfterISO(date: string): string {
-  const [y, m, d] = date.split('-').map(Number);
-  const next = new Date(Date.UTC(y, m - 1, d + 1));
-  return next.toISOString().slice(0, 10);
-}
 
 export function mensalidadeAmountForTiming(
   profile: Parameters<typeof expectedMensalidadeAmount>[0],
@@ -74,32 +69,13 @@ const MONTH_NAMES = [
   'dezembro',
 ];
 
-export function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-export function todayISO(now = new Date()): string {
-  return now.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-}
-
 export function dueDayOf(db: Pick<DatabaseShape, 'settings'>): number {
   return resolveMensalidadeDueDay(db.settings.mensalidadeDueDay);
-}
-
-export function lastDayOfMonth(year: number, month: number): number {
-  return new Date(year, month, 0).getDate();
 }
 
 export function dueDateForMonth(year: number, month: number, dueDay?: number): string {
   const day = Math.min(resolveMensalidadeDueDay(dueDay), lastDayOfMonth(year, month));
   return `${year}-${pad2(month)}-${pad2(day)}`;
-}
-
-export function nextMonthStart(today: string): string {
-  const year = Number(today.slice(0, 4));
-  const month = Number(today.slice(5, 7));
-  if (month === 12) return `${year + 1}-01-01`;
-  return `${year}-${pad2(month + 1)}-01`;
 }
 
 export function firstOwedMonth(year: number, joinedAt: string): number | null {
@@ -354,9 +330,10 @@ export function setMensalidadeClubFee(
 ): Transaction | null {
   const tx = db.transactions.find((item) => item.id === transactionId);
   if (!tx || !isMensalidadeTx(db, tx)) return null;
-  if (tx.paymentStatus === 'paid') throw new Error('Mensalidade já paga não pode alterar a taxa do clube');
+  if (tx.paymentStatus === 'paid')
+    throw new BusinessRuleViolation('Mensalidade já paga não pode alterar a taxa do clube');
   const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
-  if (!member) throw new Error('Mensalidade sem associado');
+  if (!member) throw new BusinessRuleViolation('Mensalidade sem associado');
   tx.clubFeeIncluded = clubFeeIncluded;
   Object.assign(tx, updatedAudit(userId));
   syncPendingMensalidadeEmbedLink(db, tx, member, tx.date.slice(0, 10), userId, today);
@@ -408,9 +385,9 @@ export function settleMensalidade(
 ): { tx: Transaction; shouldNotify: boolean } | null {
   const tx = db.transactions.find((item) => item.id === input.transactionId);
   if (!tx || !isMensalidadeTx(db, tx)) return null;
-  if (tx.paymentStatus === 'paid') throw new Error('Mensalidade já está paga');
+  if (tx.paymentStatus === 'paid') throw new BusinessRuleViolation('Mensalidade já está paga');
   const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
-  if (!member) throw new Error('Mensalidade sem associado');
+  if (!member) throw new BusinessRuleViolation('Mensalidade sem associado');
   const dueDate = tx.date.slice(0, 10);
   const clubFeeIncluded = effectiveClubFeeIncluded(member, tx.clubFeeIncluded);
   const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing, scheduleOf(db));
@@ -468,7 +445,7 @@ export function settleMensalidades(
   today = todayISO(),
 ): { items: { tx: Transaction; shouldNotify: boolean }[] } {
   const unique = [...new Set(input.transactionIds.map((item) => item.trim()).filter(Boolean))];
-  if (!unique.length) throw new Error('Informe ao menos uma mensalidade');
+  if (!unique.length) throw new BusinessRuleViolation('Informe ao menos uma mensalidade');
   const items: { tx: Transaction; shouldNotify: boolean }[] = [];
   for (const transactionId of unique) {
     const settled = settleMensalidade(
@@ -482,7 +459,7 @@ export function settleMensalidades(
       userId,
       today,
     );
-    if (!settled) throw new Error('Mensalidade não encontrada');
+    if (!settled) throw new NotFound('Mensalidade não encontrada');
     items.push(settled);
   }
   return { items };
@@ -621,14 +598,14 @@ function parseAllocateMonths(yearMonths: string[]): AllocateMensalidadeMonth[] {
   const seen = new Set<string>();
   for (const raw of yearMonths) {
     const match = /^(\d{4})-(\d{2})$/.exec(raw.trim());
-    if (!match) throw new Error(`Competência inválida: ${raw}`);
+    if (!match) throw new BusinessRuleViolation(`Competência inválida: ${raw}`);
     const year = Number(match[1]);
     const month = Number(match[2]);
     if (!MENSALIDADE_MONTHS.includes(month)) {
-      throw new Error(`Mensalidade só cobre março a novembro (${raw})`);
+      throw new BusinessRuleViolation(`Mensalidade só cobre março a novembro (${raw})`);
     }
     const key = `${year}-${String(month).padStart(2, '0')}`;
-    if (seen.has(key)) throw new Error(`Competência repetida: ${key}`);
+    if (seen.has(key)) throw new BusinessRuleViolation(`Competência repetida: ${key}`);
     seen.add(key);
     parsed.push({ year, month });
   }
@@ -646,16 +623,16 @@ export function previewAllocateMensalidades(
   },
 ) {
   const member = db.members.find((item) => item.id === input.memberId);
-  if (!member || !paysMensalidade(member)) throw new Error('Associado inválido para mensalidade');
+  if (!member || !paysMensalidade(member)) throw new BusinessRuleViolation('Associado inválido para mensalidade');
   const months = parseAllocateMonths(input.yearMonths);
-  if (months.length < 2) throw new Error('Selecione ao menos dois meses para o rateio');
+  if (months.length < 2) throw new BusinessRuleViolation('Selecione ao menos dois meses para o rateio');
   const dueDay = dueDayOf(db);
   const items = months.map(({ year, month }) => {
     const dueDate = dueDateForMonth(year, month, dueDay);
     const existing = mensalidadeForMonth(db, member.id, year, month);
-    if (!existing) throw new Error(`Não há mensalidade em aberto de ${MONTH_NAMES[month]} ${year}`);
+    if (!existing) throw new BusinessRuleViolation(`Não há mensalidade em aberto de ${MONTH_NAMES[month]} ${year}`);
     if (existing.paymentStatus === 'paid') {
-      throw new Error(`Mensalidade de ${MONTH_NAMES[month]} ${year} já está paga`);
+      throw new BusinessRuleViolation(`Mensalidade de ${MONTH_NAMES[month]} ${year} já está paga`);
     }
     const clubFeeIncluded = effectiveClubFeeIncluded(member, existing?.clubFeeIncluded);
     const base = mensalidadeAmountForTiming(member, dueDate, clubFeeIncluded, input.timing, scheduleOf(db));
@@ -705,17 +682,19 @@ export function allocateBankCreditToMensalidades(
   userId: string,
 ): { items: Transaction[]; amount: number; shouldNotify: boolean } {
   const credit = db.transactions.find((item) => item.id === input.transactionId);
-  if (!credit) throw new Error('Lançamento não encontrado');
-  if (credit.type !== 'income') throw new Error('Só entradas podem baixar mensalidades');
+  if (!credit) throw new NotFound('Lançamento não encontrado');
+  if (credit.type !== 'income') throw new BusinessRuleViolation('Só entradas podem baixar mensalidades');
   if ((credit.paymentStatus ?? 'paid') !== 'paid') {
-    throw new Error('O lançamento do extrato precisa estar pago');
+    throw new BusinessRuleViolation('O lançamento do extrato precisa estar pago');
   }
   if (credit.splitGroupId) {
-    throw new Error('Este lançamento já foi rateado; exclua o rateio antes de baixar mensalidades');
+    throw new BusinessRuleViolation('Este lançamento já foi rateado; exclua o rateio antes de baixar mensalidades');
   }
   const creditType = db.movementTypes.find((item) => item.id === credit.movementTypeId);
   if (creditType && !isMensalidadeName(creditType.name) && !isUnidentifiedName(creditType.name)) {
-    throw new Error('Só créditos de mensalidade (ou ainda não identificados) podem ser rateados em mensalidades');
+    throw new BusinessRuleViolation(
+      'Só créditos de mensalidade (ou ainda não identificados) podem ser rateados em mensalidades',
+    );
   }
 
   const preview = previewAllocateMensalidades(db, {
@@ -725,7 +704,7 @@ export function allocateBankCreditToMensalidades(
   });
   const creditAmount = roundMoney(credit.amount);
   if (preview.total !== creditAmount) {
-    throw new Error(
+    throw new BusinessRuleViolation(
       `A soma das mensalidades (${preview.total.toFixed(2)}) precisa ser igual ao Pix (${creditAmount.toFixed(2)})`,
     );
   }
@@ -808,7 +787,7 @@ export function splitTransactionWithMensalidades(
   userId: string,
 ): Transaction[] {
   const credit = db.transactions.find((item) => item.id === txId);
-  if (!credit) throw new Error('Lançamento não encontrado');
+  if (!credit) throw new NotFound('Lançamento não encontrado');
   const groupPeers = credit.splitGroupId
     ? db.transactions.filter((item) => item.splitGroupId === credit.splitGroupId)
     : [credit];
@@ -832,19 +811,21 @@ export function splitTransactionWithMensalidades(
       return { ...base, date: sourceDate, branch: primary.branch, nature: primary.nature };
     }
     const label = `Parte ${index + 1}`;
-    if (!part.memberId) throw new Error(`${label}: informe o associado da mensalidade`);
+    if (!part.memberId) throw new BusinessRuleViolation(`${label}: informe o associado da mensalidade`);
     const member = db.members.find((item) => item.id === part.memberId);
-    if (!member) throw new Error(`${label}: associado inválido`);
+    if (!member) throw new BusinessRuleViolation(`${label}: associado inválido`);
     const match = /^(\d{4})-(\d{2})$/.exec(competence?.trim() ?? '');
-    if (!match) throw new Error(`${label}: informe o mês (competência) que a mensalidade quita`);
+    if (!match) throw new BusinessRuleViolation(`${label}: informe o mês (competência) que a mensalidade quita`);
     const year = Number(match[1]);
     const month = Number(match[2]);
     if (!MENSALIDADE_MONTHS.includes(month)) {
-      throw new Error(`${label}: mensalidade só cobre março a novembro`);
+      throw new BusinessRuleViolation(`${label}: mensalidade só cobre março a novembro`);
     }
     const key = `${member.id}:${yearMonth(year, month)}`;
     if (seen.has(key)) {
-      throw new Error(`${label}: ${MONTH_NAMES[month]} ${year} de ${member.name} já está em outra parte`);
+      throw new BusinessRuleViolation(
+        `${label}: ${MONTH_NAMES[month]} ${year} de ${member.name} já está em outra parte`,
+      );
     }
     seen.add(key);
 
@@ -856,14 +837,18 @@ export function splitTransactionWithMensalidades(
         isMensalidadeTx(db, tx),
     );
     if (existing.some((tx) => tx.paymentStatus === 'paid')) {
-      throw new Error(`${label}: mensalidade de ${MONTH_NAMES[month]} ${year} de ${member.name} já está paga`);
+      throw new BusinessRuleViolation(
+        `${label}: mensalidade de ${MONTH_NAMES[month]} ${year} de ${member.name} já está paga`,
+      );
     }
     // Só quita cobrança que já existe; ao alterar o rateio, o mês da própria parte também vale.
     const ownMonth = groupPeers.some(
       (tx) => tx.memberId === member.id && tx.date.startsWith(yearMonth(year, month)) && isMensalidadeTx(db, tx),
     );
     if (!existing.length && !ownMonth) {
-      throw new Error(`${label}: não há mensalidade em aberto de ${MONTH_NAMES[month]} ${year} para ${member.name}`);
+      throw new BusinessRuleViolation(
+        `${label}: não há mensalidade em aberto de ${MONTH_NAMES[month]} ${year} para ${member.name}`,
+      );
     }
     for (const pending of existing) {
       if (pending.splitGroupId) {
@@ -937,7 +922,7 @@ export function splitTransactionWithMensalidades(
  */
 export function listOpenMensalidades(db: DatabaseShape, memberId: string, today = todayISO()) {
   const member = db.members.find((item) => item.id === memberId);
-  if (!member) throw new Error('Associado não encontrado');
+  if (!member) throw new NotFound('Associado não encontrado');
   return db.transactions
     .filter(
       (tx) =>

@@ -64,13 +64,7 @@ export class ArrearsService {
   }
 
   async get(id: string) {
-    return mutate((db) => {
-      try {
-        return listArrearsPayments(db, id);
-      } catch (err) {
-        fail(err instanceof Error ? err.message : 'Acordo não encontrado', HttpStatus.NOT_FOUND);
-      }
-    });
+    return mutate((db) => listArrearsPayments(db, id));
   }
 
   async create(body: unknown, userId: string) {
@@ -78,71 +72,37 @@ export class ArrearsService {
     if (!parsed.success) {
       fail('Informe associado, valor, parcelas (2–12), competência inicial e modo de cobrança', HttpStatus.BAD_REQUEST);
     }
-    return mutate((db) => {
-      try {
-        return createArrearsPlan(db, parsed.data, userId);
-      } catch (err) {
-        fail(err instanceof Error ? err.message : 'Não foi possível criar o acordo', HttpStatus.BAD_REQUEST);
-      }
-    });
+    return mutate((db) => createArrearsPlan(db, parsed.data, userId));
   }
 
   async cancel(id: string, userId: string) {
-    return mutate((db) => {
-      try {
-        return cancelArrearsPlan(db, id, userId);
-      } catch (err) {
-        fail(err instanceof Error ? err.message : 'Não foi possível cancelar o acordo', HttpStatus.BAD_REQUEST);
-      }
-    });
+    return mutate((db) => cancelArrearsPlan(db, id, userId));
   }
 
   async settle(id: string, body: unknown, userId: string) {
     const parsed = settleBody.safeParse(body ?? {});
     if (!parsed.success) fail('Dados de quitação inválidos', HttpStatus.BAD_REQUEST);
-    return mutate((db) => {
-      try {
-        return settleArrearsPlan(db, id, userId, parsed.data);
-      } catch (err) {
-        fail(err instanceof Error ? err.message : 'Não foi possível quitar o acordo', HttpStatus.BAD_REQUEST);
-      }
-    });
+    return mutate((db) => settleArrearsPlan(db, id, userId, parsed.data));
   }
 
   async pay(id: string, body: unknown, userId: string) {
     const parsed = paymentBody.safeParse(body);
     if (!parsed.success) fail('Informe o valor do pagamento', HttpStatus.BAD_REQUEST);
-    return mutate((db) => {
-      try {
-        return applyArrearsCashPayment(db, id, parsed.data, userId);
-      } catch (err) {
-        fail(err instanceof Error ? err.message : 'Não foi possível registrar o pagamento', HttpStatus.BAD_REQUEST);
-      }
-    });
+    return mutate((db) => applyArrearsCashPayment(db, id, parsed.data, userId));
   }
 
   async generateMonth(id: string, body: unknown, userId: string) {
     const parsed = yearMonthBody.safeParse(body);
     if (!parsed.success) fail('Informe a competência (YYYY-MM)', HttpStatus.BAD_REQUEST);
-    return mutate((db) => {
-      try {
-        return generateArrearsMonth(db, id, parsed.data.yearMonth, userId);
-      } catch (err) {
-        fail(err instanceof Error ? err.message : 'Não foi possível gerar a parcela', HttpStatus.BAD_REQUEST);
-      }
-    });
+    return mutate((db) => generateArrearsMonth(db, id, parsed.data.yearMonth, userId));
   }
 
   async generateDue(id: string, body: unknown, userId: string) {
     const parsed = dueBody.safeParse(body);
     if (!parsed.success) fail('Informe o mês limite (YYYY-MM)', HttpStatus.BAD_REQUEST);
     return mutate((db) => {
-      try {
-        const created = generateArrearsDue(db, id, parsed.data.monthLimit, userId);
-        return { created: created.length, items: created };
-      } catch (err) {
-        fail(err instanceof Error ? err.message : 'Não foi possível gerar as parcelas', HttpStatus.BAD_REQUEST);
-      }
+      const created = generateArrearsDue(db, id, parsed.data.monthLimit, userId);
+      return { created: created.length, items: created };
     });
   }
 }

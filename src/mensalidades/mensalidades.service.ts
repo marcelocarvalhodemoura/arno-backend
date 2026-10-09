@@ -142,11 +142,7 @@ export class MensalidadesService {
   }
 
   async memberProfile(memberId: string) {
-    try {
-      return memberProfile(await loadDb(), memberId);
-    } catch (err) {
-      fail(err instanceof Error ? err.message : 'Associado não encontrado', HttpStatus.NOT_FOUND);
-    }
+    return memberProfile(await loadDb(), memberId);
   }
 
   async assembly(from?: string, to?: string) {
@@ -176,11 +172,7 @@ export class MensalidadesService {
   async confirmReconciliation(body: unknown, userId: string) {
     const parsed = z.object({ creditId: z.string().min(1), pendingId: z.string().min(1) }).safeParse(body);
     if (!parsed.success) fail('Informe o crédito e a mensalidade', HttpStatus.BAD_REQUEST);
-    try {
-      return await mutate((db) => confirmReconciliation(db, parsed.data.creditId, parsed.data.pendingId, userId));
-    } catch (err) {
-      fail(err instanceof Error ? err.message : 'Não foi possível conciliar', HttpStatus.BAD_REQUEST);
-    }
+    return mutate((db) => confirmReconciliation(db, parsed.data.creditId, parsed.data.pendingId, userId));
   }
 
   async dismissReconciliation(body: unknown, userId: string) {
@@ -199,11 +191,7 @@ export class MensalidadesService {
 
   async open(memberId: string | undefined) {
     if (!memberId) fail('Informe o associado', HttpStatus.BAD_REQUEST);
-    try {
-      return listOpenMensalidades(await loadDb(), memberId);
-    } catch (err) {
-      fail(err instanceof Error ? err.message : 'Associado não encontrado', HttpStatus.NOT_FOUND);
-    }
+    return listOpenMensalidades(await loadDb(), memberId);
   }
 
   async setClubFee(body: unknown, userId: string) {
@@ -212,14 +200,9 @@ export class MensalidadesService {
       fail('Informe a mensalidade e se a taxa do clube entra ou não', HttpStatus.BAD_REQUEST);
     }
     return mutate((db) => {
-      try {
-        const tx = setMensalidadeClubFee(db, parsed.data.transactionId, parsed.data.clubFeeIncluded, userId);
-        if (!tx) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
-        return tx;
-      } catch (err) {
-        if (err && typeof err === 'object' && 'status' in err) throw err;
-        fail(err instanceof Error ? err.message : 'Não foi possível alterar a taxa do clube', HttpStatus.BAD_REQUEST);
-      }
+      const tx = setMensalidadeClubFee(db, parsed.data.transactionId, parsed.data.clubFeeIncluded, userId);
+      if (!tx) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
+      return tx;
     });
   }
 
@@ -245,84 +228,79 @@ export class MensalidadesService {
       : parsed.data.transactionId
         ? [parsed.data.transactionId]
         : [];
-    try {
-      const settled = await mutate((db) => {
-        if (ids.length === 1) {
-          const one = settleMensalidade(
-            db,
-            {
-              transactionId: ids[0],
-              timing: parsed.data.timing,
-              paidAt: parsed.data.paidAt,
-              notifyReceipt: parsed.data.notifyReceipt !== false,
-            },
-            userId,
-          );
-          return one ? { items: [one] } : null;
-        }
-        return settleMensalidades(
+    const settled = await mutate((db) => {
+      if (ids.length === 1) {
+        const one = settleMensalidade(
           db,
           {
-            transactionIds: ids,
+            transactionId: ids[0],
             timing: parsed.data.timing,
             paidAt: parsed.data.paidAt,
             notifyReceipt: parsed.data.notifyReceipt !== false,
           },
           userId,
         );
-      });
-      if (!settled?.items.length) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
-
-      const channels = configuredNotifyChannels();
-      const notified: Transaction[] = [];
-      const notifySummary = {
-        queued: 0,
-        sent: 0,
-        failed: 0,
-        skipped: 0,
-        total: 0,
-        note: undefined as string | undefined,
-      };
-
-      for (const item of settled.items) {
-        if (!item.shouldNotify || !item.tx.memberId) {
-          notified.push(item.tx);
-          continue;
-        }
-        if (!channels.length) {
-          notifySummary.skipped += 1;
-          notifySummary.total += 1;
-          notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
-          notified.push(item.tx);
-          continue;
-        }
-        const db = await loadDb();
-        const notify = summarizeDeliveries(await notifyTransaction(db, item.tx, 'receipt', channels, userId));
-        notifySummary.queued += notify.queued;
-        notifySummary.sent += notify.sent;
-        notifySummary.failed += notify.failed;
-        notifySummary.skipped += notify.skipped;
-        notifySummary.total += notify.total;
-        notified.push({ ...item.tx });
+        return one ? { items: [one] } : null;
       }
+      return settleMensalidades(
+        db,
+        {
+          transactionIds: ids,
+          timing: parsed.data.timing,
+          paidAt: parsed.data.paidAt,
+          notifyReceipt: parsed.data.notifyReceipt !== false,
+        },
+        userId,
+      );
+    });
+    if (!settled?.items.length) fail('Mensalidade não encontrada', HttpStatus.NOT_FOUND);
 
-      const amount = roundMoneySum(settled.items.map((item) => item.tx.amount));
-      if (ids.length === 1) {
-        return {
-          ...notified[0],
-          notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
-        };
+    const channels = configuredNotifyChannels();
+    const notified: Transaction[] = [];
+    const notifySummary = {
+      queued: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      note: undefined as string | undefined,
+    };
+
+    for (const item of settled.items) {
+      if (!item.shouldNotify || !item.tx.memberId) {
+        notified.push(item.tx);
+        continue;
       }
+      if (!channels.length) {
+        notifySummary.skipped += 1;
+        notifySummary.total += 1;
+        notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
+        notified.push(item.tx);
+        continue;
+      }
+      const db = await loadDb();
+      const notify = summarizeDeliveries(await notifyTransaction(db, item.tx, 'receipt', channels, userId));
+      notifySummary.queued += notify.queued;
+      notifySummary.sent += notify.sent;
+      notifySummary.failed += notify.failed;
+      notifySummary.skipped += notify.skipped;
+      notifySummary.total += notify.total;
+      notified.push({ ...item.tx });
+    }
+
+    const amount = roundMoneySum(settled.items.map((item) => item.tx.amount));
+    if (ids.length === 1) {
       return {
-        settled: notified.length,
-        amount,
-        items: notified,
+        ...notified[0],
         notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
       };
-    } catch (err) {
-      if (err && typeof err === 'object' && 'status' in err) throw err;
-      fail(err instanceof Error ? err.message : 'Não foi possível registrar o pagamento', HttpStatus.BAD_REQUEST);
     }
+    return {
+      settled: notified.length,
+      amount,
+      items: notified,
+      notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
+    };
   }
 
   async allocatePreview(body: unknown) {
@@ -330,12 +308,7 @@ export class MensalidadesService {
     if (!parsed.success) {
       fail('Informe o associado, pontual/atraso e ao menos dois meses (AAAA-MM)', HttpStatus.BAD_REQUEST);
     }
-    try {
-      return previewAllocateMensalidades(await loadDb(), parsed.data);
-    } catch (err) {
-      if (err && typeof err === 'object' && 'status' in err) throw err;
-      fail(err instanceof Error ? err.message : 'Não foi possível calcular o rateio', HttpStatus.BAD_REQUEST);
-    }
+    return previewAllocateMensalidades(await loadDb(), parsed.data);
   }
 
   async allocate(body: unknown, userId: string) {
@@ -343,58 +316,53 @@ export class MensalidadesService {
     if (!parsed.success) {
       fail('Informe o lançamento, o associado, pontual/atraso e ao menos dois meses (AAAA-MM)', HttpStatus.BAD_REQUEST);
     }
-    try {
-      const allocated = await mutate((db) =>
-        allocateBankCreditToMensalidades(
-          db,
-          {
-            transactionId: parsed.data.transactionId,
-            memberId: parsed.data.memberId,
-            timing: parsed.data.timing,
-            yearMonths: parsed.data.yearMonths,
-            paidAt: parsed.data.paidAt,
-            notifyReceipt: parsed.data.notifyReceipt !== false,
-          },
-          userId,
-        ),
-      );
+    const allocated = await mutate((db) =>
+      allocateBankCreditToMensalidades(
+        db,
+        {
+          transactionId: parsed.data.transactionId,
+          memberId: parsed.data.memberId,
+          timing: parsed.data.timing,
+          yearMonths: parsed.data.yearMonths,
+          paidAt: parsed.data.paidAt,
+          notifyReceipt: parsed.data.notifyReceipt !== false,
+        },
+        userId,
+      ),
+    );
 
-      const notifySummary = {
-        queued: 0,
-        sent: 0,
-        failed: 0,
-        skipped: 0,
-        total: 0,
-        note: undefined as string | undefined,
-      };
-      if (allocated.shouldNotify) {
-        const channels = configuredNotifyChannels();
-        if (!channels.length) {
-          notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
-        } else {
-          const db = await loadDb();
-          for (const tx of allocated.items) {
-            if (!tx.memberId) continue;
-            const notify = summarizeDeliveries(await notifyTransaction(db, tx, 'receipt', channels, userId));
-            notifySummary.queued += notify.queued;
-            notifySummary.sent += notify.sent;
-            notifySummary.failed += notify.failed;
-            notifySummary.skipped += notify.skipped;
-            notifySummary.total += notify.total;
-          }
+    const notifySummary = {
+      queued: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      total: 0,
+      note: undefined as string | undefined,
+    };
+    if (allocated.shouldNotify) {
+      const channels = configuredNotifyChannels();
+      if (!channels.length) {
+        notifySummary.note = 'Configure MAIL_HOST (ou MAIL_MOCK=1) para enviar o recibo';
+      } else {
+        const db = await loadDb();
+        for (const tx of allocated.items) {
+          if (!tx.memberId) continue;
+          const notify = summarizeDeliveries(await notifyTransaction(db, tx, 'receipt', channels, userId));
+          notifySummary.queued += notify.queued;
+          notifySummary.sent += notify.sent;
+          notifySummary.failed += notify.failed;
+          notifySummary.skipped += notify.skipped;
+          notifySummary.total += notify.total;
         }
       }
-
-      return {
-        settled: allocated.items.length,
-        amount: allocated.amount,
-        items: allocated.items,
-        notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
-      };
-    } catch (err) {
-      if (err && typeof err === 'object' && 'status' in err) throw err;
-      fail(err instanceof Error ? err.message : 'Não foi possível ratear as mensalidades', HttpStatus.BAD_REQUEST);
     }
+
+    return {
+      settled: allocated.items.length,
+      amount: allocated.amount,
+      items: allocated.items,
+      notify: notifySummary.total || notifySummary.note ? notifySummary : undefined,
+    };
   }
 
   async notify(body: unknown, userId: string) {

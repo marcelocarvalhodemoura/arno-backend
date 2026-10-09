@@ -106,9 +106,8 @@ describe('Caracterização da API', () => {
         .patch(`/api/transactions/${missing}`)
         .set(auth)
         .send({ description: 'Inexistente' });
-      // Comportamento atual: o 404 lançado dentro do try do service é capturado e devolvido como 400.
-      expect(patched.status).toBe(400);
-      expect(patched.body.error).toBe('Http Exception');
+      expect(patched.status).toBe(404);
+      expect(patched.body.error).toBe('Lançamento não encontrado');
 
       const removed = await request(server).delete(`/api/transactions/${missing}`).set(auth);
       expect(removed.status).toBe(404);

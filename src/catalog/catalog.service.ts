@@ -11,7 +11,7 @@ import {
   updateMovementType,
 } from './catalog';
 import { fail, parseDto } from '../shared/http/api';
-import { errorMessage } from '../shared/http/errors';
+import { NotFound } from '../shared/domain/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
 import { audience, branch, direction } from '../shared/http/schemas';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
@@ -82,22 +82,14 @@ export class CatalogService {
 
   async createMovementType(body: unknown, userId: string) {
     const data = parseDto(createMovementTypeBody, body);
-    try {
-      return await mutate((db) => createMovementType(db, data, userId));
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível criar'), HttpStatus.CONFLICT);
-    }
+    return mutate((db) => createMovementType(db, data, userId));
   }
 
   async updateMovementType(id: string, body: unknown, userId: string) {
     const data = parseDto(patchMovementTypeBody, body);
-    try {
-      const updated = await mutate((db) => updateMovementType(db, id, data, userId));
-      if (!updated) fail('Tipo não encontrado', HttpStatus.NOT_FOUND);
-      return updated;
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível alterar'), HttpStatus.CONFLICT);
-    }
+    const updated = await mutate((db) => updateMovementType(db, id, data, userId));
+    if (!updated) throw new NotFound('Tipo não encontrado');
+    return updated;
   }
 
   async listFees(userId: string) {
@@ -110,22 +102,14 @@ export class CatalogService {
 
   async createFee(body: unknown, userId: string) {
     const data = parseDto(createFeeBody, body);
-    try {
-      return await mutate((db) => createFee(db, data, userId));
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível criar'), HttpStatus.CONFLICT);
-    }
+    return mutate((db) => createFee(db, data, userId));
   }
 
   async updateFee(id: string, body: unknown, userId: string) {
     const data = parseDto(patchFeeBody, body);
-    try {
-      const updated = await mutate((db) => updateFee(db, id, data, userId));
-      if (!updated) fail('Taxa não encontrada', HttpStatus.NOT_FOUND);
-      return updated;
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível alterar'), HttpStatus.CONFLICT);
-    }
+    const updated = await mutate((db) => updateFee(db, id, data, userId));
+    if (!updated) throw new NotFound('Taxa não encontrada');
+    return updated;
   }
 
   async deleteFee(id: string) {

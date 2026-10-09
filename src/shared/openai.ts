@@ -1,8 +1,9 @@
+import { appConfig } from './config';
 // Qualquer provedor compatível com a API da OpenAI (OpenAI, Groq, OpenRouter, Ollama):
 // basta trocar OPENAI_BASE_URL e OPENAI_MODEL no .env.
 
 export function aiConfigured() {
-  return Boolean(process.env.OPENAI_API_KEY?.trim());
+  return Boolean(appConfig.openai.apiKey);
 }
 
 type ContentPart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } };
@@ -12,10 +13,10 @@ async function completeJson<T>(
   messages: ChatMessage[],
   options: { timeoutMs: number; maxTokens?: number },
 ): Promise<T | null> {
-  const key = process.env.OPENAI_API_KEY?.trim();
+  const key = appConfig.openai.apiKey;
   if (!key) return null;
-  const base = (process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1').replace(/\/$/, '');
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const base = appConfig.openai.baseUrl;
+  const model = appConfig.openai.model;
   try {
     const response = await fetch(`${base}/chat/completions`, {
       method: 'POST',

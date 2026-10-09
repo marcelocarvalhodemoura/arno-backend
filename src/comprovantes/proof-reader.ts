@@ -3,6 +3,7 @@ import { extractImages, getDocumentProxy } from 'unpdf';
 import { fold } from '../shared/csv';
 import { aiConfigured, visionJson } from '../shared/openai';
 import { extractPdfText } from '../statement/statement-pdf';
+import { appConfig } from '../shared/config';
 
 export type ProofKind = 'pix' | 'ted' | 'boleto' | 'deposito' | 'nota_fiscal' | 'outro';
 /** pdf = regras sobre o texto do PDF; ia = modelo de linguagem (foto, print ou PDF difícil). */
@@ -52,7 +53,7 @@ const PAYEE_LABELS =
 const FIELD_LABELS =
   /^(nome|cpf|cnpj|instituicao|banco|agencia|conta|chave|tipo|valor|data|id|identificador|autenticacao|tarifa|descricao|mensagem|situacao|status)\b/;
 
-export const AI_MAX_PER_DAY = () => Number(process.env.AI_DAILY_LIMIT ?? 200);
+export const AI_MAX_PER_DAY = () => appConfig.openai.dailyLimit;
 const usage = { day: '', count: 0 };
 
 /**

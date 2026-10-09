@@ -12,8 +12,9 @@ import {
   periodFor,
   scheduleOf,
 } from '../mensalidades/fee-table';
-import { todayISO } from '../mensalidades/mensalidades';
+import { todayISO } from '../shared/dates';
 import { isMensalidadeName } from '../statement/statement';
+import { BusinessRuleViolation } from '../shared/domain/errors';
 
 export const CLUB_REMITTANCE_MOVEMENT_NAME = 'Repasse Lindóia Tênis Clube';
 
@@ -222,10 +223,12 @@ export function registerClubRemittance(
 ): { remittance: Transaction; preview: ClubRemittancePreview } {
   const preview = buildClubRemittancePreview(db, input.year, input.month);
   if (preview.remittance) {
-    throw new Error(`O repasse de ${pad2(input.month)}/${input.year} já foi registrado`);
+    throw new BusinessRuleViolation(`O repasse de ${pad2(input.month)}/${input.year} já foi registrado`);
   }
   if (preview.total <= 0) {
-    throw new Error('Não há taxa do clube a repassar neste mês (nenhuma mensalidade paga com a taxa incluída)');
+    throw new BusinessRuleViolation(
+      'Não há taxa do clube a repassar neste mês (nenhuma mensalidade paga com a taxa incluída)',
+    );
   }
 
   const movement = ensureClubRemittanceType(db, userId);

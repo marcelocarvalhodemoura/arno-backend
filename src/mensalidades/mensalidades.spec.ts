@@ -8,7 +8,6 @@ import {
   firstOwedMonth,
   listOpenMensalidades,
   mensalidadeAmountForTiming,
-  nextMonthStart,
   previewAllocateMensalidades,
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
@@ -16,6 +15,7 @@ import {
   splitTransactionWithMensalidades,
   syncMensalidades,
 } from './mensalidades';
+import { nextMonthStart } from '../shared/dates';
 import type { DatabaseShape, Member, MovementType, Transaction } from '../shared/types';
 import { createdAudit } from '../shared/audit';
 
