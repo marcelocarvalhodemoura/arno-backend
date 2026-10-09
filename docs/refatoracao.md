@@ -158,3 +158,19 @@ o financeiro inteiro antes de aplicar a operação — é o custo que sobra no `
 | ------------------------- | -------------------------- | -------------- | -------------- |
 | `POST /transactions`      | 414 ms                     | 12 ms          | 11 ms          |
 | `PATCH /transactions/:id` | 412 ms (1.290 lançamentos) | 906 ms (3.300) | 458 ms (4.000) |
+
+## Fase 6 — contrato compartilhado com o frontend
+
+- **`src/contract/`**: tipos, constantes e regras que backend e frontend usam, sem nenhuma dependência fora da pasta
+  (um teste garante isso):
+  - `types.ts` — 59 tipos e constantes que estavam duplicados e idênticos nos dois lados (ramos, papéis, tipos de
+    movimentação, associados, acordos, relatórios, dashboard...). `shared/types.ts` reexporta.
+  - `fee-rules.ts` — cálculo da mensalidade (período vigente, valor especial de família, no prazo/atraso, clube,
+    diluição, valores oficiais). `mensalidades/fee-table.ts` reexporta e guarda só o que depende do banco.
+  - `money.ts`, `competencia.ts`, `errors.ts` — `Money` e `Competencia` (os de `shared/domain` reexportam).
+    `ContractViolation` responde 400, como os erros de domínio.
+- **No frontend**: `src/contract/` é uma cópia gerada por `npm run sync:contract` (lê `../arno-backend` ou
+  `ARNO_BACKEND_DIR`). Cada arquivo leva o hash do conteúdo; `npm run check:contract` (no CI) e um teste unitário
+  falham se alguém editar a cópia à mão.
+- **Fluxo para mudar uma regra**: altere em `arno-backend/src/contract`, rode `npm run sync:contract` no frontend e
+  publique os dois PRs.
