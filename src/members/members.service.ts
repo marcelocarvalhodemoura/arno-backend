@@ -7,14 +7,22 @@ import {
   importMembers,
   addMemberAccount,
   removeMemberAccount,
+  setMemberStatus,
+  statusHistoryOf,
   updateMember,
   updateMemberAccount,
 } from './members';
 import { fail, parseDto } from '../shared/http/api';
 import { errorMessage } from '../shared/http/errors';
-import { usersById, withAuthors } from '../shared/http/presenters';
-import { accountBody, createMemberBody, memberImportRow, patchMemberBody } from '../shared/http/schemas';
-import { mutate } from '../shared/persistence/finance-store';
+import { authorOf, usersById, withAuthors } from '../shared/http/presenters';
+import {
+  accountBody,
+  createMemberBody,
+  memberImportRow,
+  memberStatusBody,
+  patchMemberBody,
+} from '../shared/http/schemas';
+import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { IMPORT_CHUNK_SIZE } from '../shared/types';
 
 const importMembersBody = z.object({
@@ -62,6 +70,25 @@ export class MembersService {
       const message = errorMessage(error, 'Não foi possível alterar');
       fail(message, HttpStatus.BAD_REQUEST);
     }
+  }
+
+  async setStatus(id: string, body: unknown, userId: string) {
+    const { status, reason } = parseDto(memberStatusBody, body);
+    const updated = await mutate((db) => setMemberStatus(db, id, status, reason, userId)).catch((error) => {
+      fail(errorMessage(error, 'Não foi possível alterar a situação'), HttpStatus.BAD_REQUEST);
+    });
+    if (!updated) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    return updated;
+  }
+
+  async statusHistory(id: string) {
+    const db = await loadDb();
+    if (!db.members.some((member) => member.id === id)) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    const users = await usersById();
+    return statusHistoryOf(db, id).map((entry) => ({
+      ...entry,
+      byUser: authorOf(users, entry.byId ?? undefined),
+    }));
   }
 
   async addAccount(memberId: string, body: unknown, userId: string) {

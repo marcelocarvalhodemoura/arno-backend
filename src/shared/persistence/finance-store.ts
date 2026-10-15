@@ -13,6 +13,7 @@ import type {
   MemberAccount,
   MemberArrears,
   MemberGuardian,
+  MemberStatusHistory,
   MovementType,
   RecordOrigin,
   Settings,
@@ -72,7 +73,7 @@ function asTimestamp(value: string | null | undefined): Date | null {
 
 async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
   await client.$executeRawUnsafe(
-    'TRUNCATE transactions, member_arrears, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings, transaction_trash, month_closings, fee_schedule_periods RESTART IDENTITY',
+    'TRUNCATE transactions, member_arrears, member_status_history, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings, transaction_trash, month_closings, fee_schedule_periods RESTART IDENTITY',
   );
 
   if (db.movementTypes.length) {
@@ -208,6 +209,20 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         createdById: plan.createdBy ?? null,
         updatedAt: asTimestamp(plan.updatedAt),
         updatedById: plan.updatedBy ?? null,
+      })),
+    });
+  }
+
+  if (db.memberStatusHistory?.length) {
+    await client.memberStatusHistory.createMany({
+      data: db.memberStatusHistory.map((entry) => ({
+        id: entry.id,
+        memberId: entry.memberId,
+        at: new Date(entry.at),
+        byId: entry.byId ?? null,
+        fromStatus: entry.fromStatus ?? null,
+        toStatus: entry.toStatus,
+        reason: entry.reason,
       })),
     });
   }
@@ -458,6 +473,7 @@ function emptyFinance(): DatabaseShape {
     memberSiblings: [],
     memberAccounts: [],
     memberArrears: [],
+    memberStatusHistory: [],
     movementTypes: [],
     fees: [],
     projects: [],
@@ -489,6 +505,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     trash,
     closings,
     feePeriods,
+    statusHistory,
   ] = await Promise.all([
     sql.member.findMany({ orderBy: { name: 'asc' } }),
     sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
@@ -504,6 +521,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     sql.transactionTrash.findMany({ orderBy: { deletedAt: 'desc' } }),
     sql.monthClosing.findMany({ orderBy: { yearMonth: 'asc' } }),
     sql.feeSchedulePeriod.findMany({ orderBy: { startMonth: 'asc' } }),
+    sql.memberStatusHistory.findMany({ orderBy: { at: 'desc' } }),
   ]);
 
   const itemsByProject = new Map<string, FinancialProject['items']>();
@@ -531,6 +549,15 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     memberSiblings: siblings.map(mapSibling),
     memberAccounts: accounts.map(mapAccount),
     memberArrears: arrears.map(mapArrears),
+    memberStatusHistory: statusHistory.map((row) => ({
+      id: row.id,
+      memberId: row.memberId,
+      at: row.at.toISOString(),
+      byId: row.byId ?? null,
+      fromStatus: (row.fromStatus as MemberStatusHistory['fromStatus']) ?? null,
+      toStatus: row.toStatus as MemberStatusHistory['toStatus'],
+      reason: row.reason,
+    })),
     movementTypes: types.map(mapMovementType),
     fees: fees.map(mapFee),
     projects: projects.map((row) => ({

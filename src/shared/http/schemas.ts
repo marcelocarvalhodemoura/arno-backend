@@ -109,10 +109,14 @@ export const patchMemberBody = z.object({
   feeOverride: z.number().min(0).nullable().optional(),
   chiefChild: z.boolean().optional(),
   siblingIds: z.array(z.string().min(1)).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
   joinedAt: z.string().optional(),
   clubeLtc: z.boolean().optional(),
   guardians: z.array(guardianInput).optional(),
+});
+
+export const memberStatusBody = z.object({
+  status: z.enum(['active', 'inactive']),
+  reason: z.string().trim().min(3, 'Informe a justificativa (mínimo 3 caracteres)'),
 });
 
 export const createTransactionBody = z.object({
@@ -163,6 +167,7 @@ export const patchTransactionBody = z.object({
 export type GuardianInput = z.infer<typeof guardianInput>;
 export type CreateMemberInput = z.infer<typeof createMemberBody>;
 export type PatchMemberInput = z.infer<typeof patchMemberBody>;
+export type MemberStatusInput = z.infer<typeof memberStatusBody>;
 export type AccountInput = z.infer<typeof accountBody>;
 export type CreateTransactionInput = z.infer<typeof createTransactionBody>;
 export type PatchTransactionInput = z.infer<typeof patchTransactionBody>;

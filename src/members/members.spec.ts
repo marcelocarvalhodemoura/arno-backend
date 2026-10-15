@@ -3,7 +3,10 @@ import {
   assertYouthGuardians,
   cleanedGuardians,
   createMember,
+  memberHasOpenDebt,
+  setMemberStatus,
   siblingIdsOf,
+  statusHistoryOf,
   updateMember,
 } from './members';
 import type { DatabaseShape } from '../shared/types';
@@ -359,5 +362,112 @@ describe('members', () => {
         'u1',
       ),
     ).toThrow(/responsável/);
+  });
+
+  describe('member status (inactivate/reactivate)', () => {
+    const makeDirigente = (db: DatabaseShape) =>
+      createMember(
+        db,
+        {
+          name: 'Caio Dias',
+          email: 'caio@example.com',
+          phone: '51999990002',
+          branch: 'senior',
+          role: 'dirigente',
+          joinedAt: '2026-03-01',
+          clubeLtc: false,
+        },
+        'u1',
+      );
+
+    it('records a history entry with reason and author in both directions', () => {
+      const db = emptyDb();
+      const member = makeDirigente(db);
+
+      setMemberStatus(db, member.id, 'inactive', '  Saiu do grupo  ', 'u1');
+      expect(member.status).toBe('inactive');
+      setMemberStatus(db, member.id, 'active', 'Voltou ao grupo', 'u2');
+      expect(member.status).toBe('active');
+
+      const history = statusHistoryOf(db, member.id);
+      expect(history).toHaveLength(2);
+      expect(history[0]).toMatchObject({
+        fromStatus: 'inactive',
+        toStatus: 'active',
+        reason: 'Voltou ao grupo',
+        byId: 'u2',
+      });
+      expect(history[1]).toMatchObject({
+        fromStatus: 'active',
+        toStatus: 'inactive',
+        reason: 'Saiu do grupo',
+        byId: 'u1',
+      });
+    });
+
+    it('requires a justification', () => {
+      const db = emptyDb();
+      const member = makeDirigente(db);
+      expect(() => setMemberStatus(db, member.id, 'inactive', '  ', 'u1')).toThrow(/justificativa/i);
+      expect(statusHistoryOf(db, member.id)).toHaveLength(0);
+    });
+
+    it('rejects a no-op transition to the same status', () => {
+      const db = emptyDb();
+      const member = makeDirigente(db);
+      expect(() => setMemberStatus(db, member.id, 'active', 'já está ativo', 'u1')).toThrow(/já está ativo/i);
+    });
+
+    it('blocks inactivation when there is an open arrears balance', () => {
+      const db = emptyDb();
+      const member = makeDirigente(db);
+      (db.memberArrears ??= []).push({
+        id: 'arr1',
+        memberId: member.id,
+        originalAmount: 300,
+        balance: 120,
+        installmentAmount: 60,
+        totalCount: 5,
+        remainingCount: 2,
+        startYearMonth: '2026-01',
+        chargeMode: 'separate',
+        note: '',
+        status: 'active',
+        origin: 'manual',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+      expect(memberHasOpenDebt(db, member.id)).toBe(true);
+      expect(() => setMemberStatus(db, member.id, 'inactive', 'tentativa', 'u1')).toThrow(/acordo de atraso/i);
+      expect(member.status).toBe('active');
+      expect(statusHistoryOf(db, member.id)).toHaveLength(0);
+    });
+
+    it('allows inactivation when the arrears plan is already settled', () => {
+      const db = emptyDb();
+      const member = makeDirigente(db);
+      (db.memberArrears ??= []).push({
+        id: 'arr2',
+        memberId: member.id,
+        originalAmount: 300,
+        balance: 0,
+        installmentAmount: 60,
+        totalCount: 5,
+        remainingCount: 0,
+        startYearMonth: '2026-01',
+        chargeMode: 'separate',
+        note: '',
+        status: 'settled',
+        origin: 'manual',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+      expect(memberHasOpenDebt(db, member.id)).toBe(false);
+      expect(() => setMemberStatus(db, member.id, 'inactive', 'quitou e saiu', 'u1')).not.toThrow();
+      expect(member.status).toBe('inactive');
+    });
+
+    it('returns null for an unknown member', () => {
+      const db = emptyDb();
+      expect(setMemberStatus(db, 'nope', 'inactive', 'x', 'u1')).toBeNull();
+    });
   });
 });

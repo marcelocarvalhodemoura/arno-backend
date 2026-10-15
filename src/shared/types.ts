@@ -357,6 +357,17 @@ export interface MemberArrears {
   updatedBy?: string;
 }
 
+/** Uma mudança de situação do associado (ativo↔inativo), com quem/quando/por quê. */
+export interface MemberStatusHistory {
+  id: string;
+  memberId: string;
+  at: string;
+  byId?: string | null;
+  fromStatus?: MemberStatus | null;
+  toStatus: MemberStatus;
+  reason: string;
+}
+
 export interface BankMovement {
   id: string;
   provider: BankProvider;
@@ -550,6 +561,7 @@ export interface DatabaseShape {
   memberSiblings: MemberSibling[];
   memberAccounts: MemberAccount[];
   memberArrears?: MemberArrears[];
+  memberStatusHistory?: MemberStatusHistory[];
   movementTypes: MovementType[];
   fees: Fee[];
   transactions: Transaction[];
