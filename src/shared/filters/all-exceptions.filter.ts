@@ -1,6 +1,7 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
 import { DomainError } from '../domain/errors';
+import { ContractViolation } from '../../contract/errors';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -12,7 +13,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       response.status(status).json(typeof body === 'string' ? { error: body } : body);
       return;
     }
-    if (exception instanceof DomainError) {
+    if (exception instanceof DomainError || exception instanceof ContractViolation) {
       response.status(exception.status).json({ error: exception.message });
       return;
     }
