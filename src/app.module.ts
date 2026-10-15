@@ -17,9 +17,11 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { ComprovantesModule } from './comprovantes/comprovantes.module';
 import { StorageModule } from './storage/storage.module';
+import { PersistenceModule } from './shared/persistence/persistence.module';
 
 @Module({
   imports: [
+    PersistenceModule,
     StorageModule,
     AuthModule,
     HealthModule,

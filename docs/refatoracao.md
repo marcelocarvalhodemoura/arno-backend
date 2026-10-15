@@ -87,3 +87,31 @@ O domínio passa a depender de interfaces; os detalhes (S3, provedor de IA, e-ma
 - `LedgerService`, `MensalidadesService`, `ComprovantesService` e `NotificationsService` recebem as dependências pelo
   construtor. Código que ainda não passa pelo container do Nest (webhooks do WhatsApp, sincronização do Sicredi) usa
   as instâncias padrão `notificationDispatcher`, `s3FileStorage` e `languageModel`, ou recebe a dependência por parâmetro.
+
+## Fase 3 — repositório de lançamentos
+
+- **`UnitOfWork`** (`src/shared/persistence/unit-of-work.ts`): uma transação do banco compartilhada pelos repositórios
+  (`AsyncLocalStorage`). Pega a **mesma trava** do `mutate()` (`src/shared/persistence/lock.ts`), então uma gravação
+  pontual nunca corre junto com uma regravação completa, e invalida o cache do `mutate()` ao terminar.
+- **`TransactionRepository`** (porta em `src/ledger/domain/`, adaptador Prisma em `src/ledger/infra/`): grava **só o
+  lançamento** (`add`, `save`, `moveToTrash`, `restoreFromTrash`), aplica a regra de mês fechado e registra o histórico.
+  `loadContext` traz só o recorte do financeiro que as regras precisam (tipos, associados, responsáveis, meses fechados),
+  o que permite reaproveitar as funções de domínio existentes sem ler o banco inteiro.
+- **Mapeadores** de lançamento, lixeira e fechamento em `src/ledger/infra/transaction.mapper.ts` (antes, dentro do
+  `finance-store`), usados pelo repositório e pelo `mutate()`.
+- **Migrados para o repositório**: criar lançamento, excluir (lixeira), restaurar, anexar/remover/abrir nota.
+  Editar, ratear, resolver duplicados e fechar mês continuam no `mutate()` até as fases 4 e 5.
+- **Lixeira**: um job a cada 6 h apaga o que passou de 30 dias (`src/ledger/trash-purge.ts`); antes isso só acontecia
+  de carona em alguma gravação.
+- **Correção de cache**: uma leitura lenta do `loadDb()` podia gravar no cache um financeiro desatualizado depois de uma
+  escrita (era a causa da instabilidade nos testes de configuração). Agora cada escrita incrementa uma versão, e a
+  leitura só entra no cache se nenhuma escrita aconteceu enquanto ela rodava.
+- **Teste novo**: criar, excluir e restaurar lançamento não muda o `xmin` de `members`, `movement_types` e `settings`
+  (prova de que essas tabelas não foram regravadas).
+
+Bench depois da fase (banco de teste com ~3.300 lançamentos):
+
+| Operação                  | antes                           | depois                                           |
+| ------------------------- | ------------------------------- | ------------------------------------------------ |
+| `POST /transactions`      | 414 ms (com ~1.290 lançamentos) | **12 ms**                                        |
+| `PATCH /transactions/:id` | 412 ms (com ~1.290 lançamentos) | 906 ms (ainda no `mutate()`, cresce com o banco) |

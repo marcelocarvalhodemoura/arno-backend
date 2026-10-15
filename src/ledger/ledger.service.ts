@@ -1,7 +1,9 @@
 import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import { createTransaction, listTransactions, updateTransaction } from './transactions';
-import { closeMonth, monthLabel, purgeTrash, reopenMonth, restoreTransaction, trashTransaction } from './governance';
+import { closeMonth, monthLabel, purgeTrash, reopenMonth, restoreTransaction } from './governance';
+import { TRANSACTION_REPOSITORY, type TransactionRepository } from './domain/transaction.repository';
+import { UnitOfWork } from '../shared/persistence/unit-of-work';
 import { fail, parseDto } from '../shared/http/api';
 import { NotFound } from '../shared/domain/errors';
 import { errorMessage } from '../shared/http/errors';
@@ -56,6 +58,8 @@ export class LedgerService {
   constructor(
     private readonly notifications: NotificationDispatcher,
     @Inject(FILE_STORAGE) private readonly storage: FileStorage,
+    @Inject(TRANSACTION_REPOSITORY) private readonly transactions: TransactionRepository,
+    private readonly uow: UnitOfWork,
   ) {}
 
   async list(query: { from?: string; to?: string; branch?: string; type?: string; nature?: string }) {
@@ -85,7 +89,15 @@ export class LedgerService {
 
   async create(body: unknown, userId: string) {
     const data = parseDto(createTransactionBody, body);
-    return mutate((db) => createTransaction(db, data, userId));
+    return this.uow.run(async () => {
+      const context = await this.transactions.loadContext({
+        movementTypeIds: [data.movementTypeId],
+        guardiansOfMemberIds: [data.memberId],
+      });
+      const tx = createTransaction(context, data, userId);
+      await this.transactions.add(tx);
+      return tx;
+    });
   }
 
   async update(id: string, body: unknown, userId: string) {
@@ -106,9 +118,12 @@ export class LedgerService {
 
   /** Excluir manda para a lixeira (30 dias). A nota no S3 fica até a lixeira ser esvaziada. */
   async remove(id: string, userId: string) {
-    const entry = await mutate((store) => trashTransaction(store, id, userId));
-    if (!entry) throw new NotFound('Lançamento não encontrado');
-    return { trashId: entry.id };
+    return this.uow.run(async () => {
+      const tx = await this.transactions.findById(id);
+      if (!tx) throw new NotFound('Lançamento não encontrado');
+      const entry = await this.transactions.moveToTrash(tx, userId);
+      return { trashId: entry.id };
+    });
   }
 
   async listTrash() {
@@ -127,11 +142,23 @@ export class LedgerService {
   }
 
   async restore(trashId: string) {
-    const db = await loadDb();
-    const entry = (db.trash ?? []).find((item) => item.id === trashId);
-    if (!entry) throw new NotFound('Item não encontrado na lixeira');
-    return mutate((store) => restoreTransaction(store, trashId), {
-      restoredIds: new Set([entry.transaction.id]),
+    return this.uow.run(async () => {
+      const entry = await this.transactions.findTrashed(trashId);
+      if (!entry) throw new NotFound('Item não encontrado na lixeira');
+      const trashed = entry.transaction;
+      const context = await this.transactions.loadContext({
+        movementTypeIds: [trashed.movementTypeId],
+        memberIds: [trashed.memberId],
+        memberAccountIds: [trashed.memberAccountId],
+        memberGuardianIds: [trashed.memberGuardianId],
+        projectIds: [trashed.projectId],
+      });
+      const current = await this.transactions.findById(trashed.id);
+      context.transactions = current ? [current] : [];
+      context.trash = [entry];
+      const tx = restoreTransaction(context, trashId);
+      await this.transactions.restoreFromTrash(entry, tx);
+      return tx;
     });
   }
 
@@ -203,11 +230,10 @@ export class LedgerService {
     if (!file) fail('Envie o arquivo da nota no campo file', HttpStatus.BAD_REQUEST);
     assertNotaFile(file);
 
-    const db = await loadDb();
-    const tx = db.transactions.find((item) => item.id === id);
-    if (!tx) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
+    const found = await this.transactions.findById(id);
+    if (!found) throw new NotFound('Lançamento não encontrado');
 
-    const previousKey = tx.notaKey;
+    const previousKey = found.notaKey;
     const fileName = file.originalname?.trim() || 'nota';
     const contentType = file.mimetype;
     const key = buildNotaKey(id, fileName, contentType);
@@ -223,16 +249,17 @@ export class LedgerService {
       fail(errorMessage(error, 'Não foi possível enviar a nota ao armazenamento'), HttpStatus.BAD_GATEWAY);
     }
 
-    const updated = await mutate((store) => {
-      const current = store.transactions.find((item) => item.id === id);
-      if (!current) return null;
-      current.notaKey = key;
-      current.notaFileName = fileName;
-      current.notaContentType = contentType;
-      Object.assign(current, updatedAudit(userId));
+    const updated = await this.uow.run(async () => {
+      const current = await this.transactions.findById(id);
+      if (!current) throw new NotFound('Lançamento não encontrado');
+      Object.assign(
+        current,
+        { notaKey: key, notaFileName: fileName, notaContentType: contentType },
+        updatedAudit(userId),
+      );
+      await this.transactions.save(current);
       return current;
     });
-    if (!updated) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
 
     if (previousKey && previousKey !== key) {
       try {
@@ -254,10 +281,9 @@ export class LedgerService {
   async getNota(id: string) {
     if (!this.storage.isConfigured())
       fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
-    const db = await loadDb();
-    const tx = db.transactions.find((item) => item.id === id);
-    if (!tx) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
-    if (!tx.notaKey) fail('Este lançamento não tem nota anexada', HttpStatus.NOT_FOUND);
+    const tx = await this.transactions.findById(id);
+    if (!tx) throw new NotFound('Lançamento não encontrado');
+    if (!tx.notaKey) throw new NotFound('Este lançamento não tem nota anexada');
 
     try {
       const url = await this.storage.signedUrl(tx.notaKey, tx.notaFileName);
@@ -273,20 +299,17 @@ export class LedgerService {
   }
 
   async removeNota(id: string, userId: string) {
-    const db = await loadDb();
-    const tx = db.transactions.find((item) => item.id === id);
-    if (!tx) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
-    if (!tx.notaKey) fail('Este lançamento não tem nota anexada', HttpStatus.NOT_FOUND);
-
-    const key = tx.notaKey;
-    await mutate((store) => {
-      const current = store.transactions.find((item) => item.id === id);
-      if (!current) return false;
-      delete current.notaKey;
-      delete current.notaFileName;
-      delete current.notaContentType;
-      Object.assign(current, updatedAudit(userId));
-      return true;
+    const key = await this.uow.run(async () => {
+      const tx = await this.transactions.findById(id);
+      if (!tx) throw new NotFound('Lançamento não encontrado');
+      if (!tx.notaKey) throw new NotFound('Este lançamento não tem nota anexada');
+      const removed = tx.notaKey;
+      delete tx.notaKey;
+      delete tx.notaFileName;
+      delete tx.notaContentType;
+      Object.assign(tx, updatedAudit(userId));
+      await this.transactions.save(tx);
+      return removed;
     });
 
     if (this.storage.isConfigured()) {

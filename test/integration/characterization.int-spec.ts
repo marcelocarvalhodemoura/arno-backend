@@ -444,6 +444,28 @@ describe('Caracterização da API', () => {
   });
 
   describe('integridade da gravação', () => {
+    it('criar, anexar nota, excluir e restaurar lançamento não regrava as outras tabelas', async () => {
+      // xmin muda quando a linha é regravada (TRUNCATE + INSERT); sem regravação, continua o mesmo.
+      const versions = async () =>
+        prisma.$queryRaw<{ table: string; xmin: string }[]>`
+          SELECT 'members' AS table, min(xmin::text) AS xmin FROM members
+          UNION ALL SELECT 'movement_types', min(xmin::text) FROM movement_types
+          UNION ALL SELECT 'settings', min(xmin::text) FROM settings`;
+      const type = await ensureType(auth, 'Caracterização Entrada', 'income');
+      const before = await versions();
+
+      const created = await request(server).post('/api/transactions').set(auth).send(txBody(type.id));
+      expect(created.status).toBe(201);
+      const removed = await request(server).delete(`/api/transactions/${created.body.id}`).set(auth);
+      expect(removed.status).toBe(200);
+      const restored = await request(server).post(`/api/trash/${removed.body.trashId}/restore`).set(auth);
+      expect(restored.status).toBe(200);
+
+      expect(await versions()).toEqual(before);
+      const history = await request(server).get(`/api/transactions/${created.body.id}/history`).set(auth);
+      expect(history.body.map((row: { kind: string }) => row.kind)).toEqual(['restored', 'deleted', 'created']);
+    });
+
     it('uma escrita não apaga dados de outras tabelas', async () => {
       const before = {
         members: await prisma.member.count(),
