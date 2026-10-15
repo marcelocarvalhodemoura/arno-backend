@@ -66,3 +66,24 @@ Gera `backups/<banco>-<data>.dump`, restaura num banco temporário e compara as 
   notificações não importam mais `mensalidades` só por causa de datas.
 - **Value objects** `Money` (centavos inteiros, `allocate` sem perder centavo) e `Competencia` (AAAA-MM), com testes.
   A adoção no domínio acontece na fase 4.
+
+## Fase 2 — interfaces para a infraestrutura
+
+O domínio passa a depender de interfaces; os detalhes (S3, provedor de IA, e-mail, WhatsApp) ficam nos adaptadores.
+
+| Porta (interface)                                     | Adaptador de produção             | Adaptador de teste    | Injeção                                                           |
+| ----------------------------------------------------- | --------------------------------- | --------------------- | ----------------------------------------------------------------- |
+| `FileStorage` (`src/storage/file-storage.ts`)         | `S3FileStorage`                   | `InMemoryFileStorage` | token `FILE_STORAGE` (`StorageModule`, global)                    |
+| `NotificationChannel` (`src/notifications/channels/`) | `EmailChannel`, `WhatsAppChannel` | canais falsos no spec | lista passada ao `NotificationDispatcher`                         |
+| `OutboxWriter` (`src/notifications/outbox-writer.ts`) | `prismaOutboxWriter`              | `FakeOutbox` no spec  | construtor do `NotificationDispatcher`                            |
+| `LanguageModel` (`src/shared/ai/language-model.ts`)   | `OpenAiCompatibleModel`           | `noLanguageModel`     | parâmetro das funções de leitura (extrato, planilha, comprovante) |
+
+- **`NotificationDispatcher`** (`NotificationsModule`, global) substitui o `if (channel === 'email') … if (channel === 'whatsapp')`.
+  Um canal novo é uma classe nova que implementa `NotificationChannel`; o dispatcher não muda. O fallback para e-mail
+  fora da janela de 24 h do WhatsApp ficou num lugar só.
+- **`notifyReceipts`** junta o resumo de recibos que estava duplicado em `MensalidadesService.settle` e `.allocate`.
+  Diferença mínima: no rateio sem nenhum canal configurado, o resumo agora conta os recibos pulados (`skipped`),
+  como já fazia a quitação.
+- `LedgerService`, `MensalidadesService`, `ComprovantesService` e `NotificationsService` recebem as dependências pelo
+  construtor. Código que ainda não passa pelo container do Nest (webhooks do WhatsApp, sincronização do Sicredi) usa
+  as instâncias padrão `notificationDispatcher`, `s3FileStorage` e `languageModel`, ou recebe a dependência por parâmetro.

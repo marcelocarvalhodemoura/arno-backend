@@ -1,7 +1,8 @@
 import sharp from 'sharp';
 import { extractImages, getDocumentProxy } from 'unpdf';
 import { fold } from '../shared/csv';
-import { aiConfigured, visionJson } from '../shared/openai';
+import type { LanguageModel } from '../shared/ai/language-model';
+import { languageModel } from '../shared/ai/openai-compatible';
 import { extractPdfText } from '../statement/statement-pdf';
 import { appConfig } from '../shared/config';
 
@@ -63,32 +64,36 @@ const usage = { day: '', count: 0 };
  * 3. foto ou print → IA com a imagem.
  * Sem IA configurada, devolve o que as regras conseguiram (pode vir com valor 0).
  */
-export async function readProof(buffer: Buffer, contentType: string): Promise<ProofData> {
-  if (contentType !== 'application/pdf') return readImage(buffer);
+export async function readProof(
+  buffer: Buffer,
+  contentType: string,
+  model: LanguageModel = languageModel,
+): Promise<ProofData> {
+  if (contentType !== 'application/pdf') return readImage(buffer, model);
 
   const text = await extractPdfText(new Uint8Array(buffer)).catch(() => '');
   const parsed = parseProofText(text);
   if (isComplete(parsed)) return parsed;
   if (text.trim()) {
-    const ai = await askAi({ text });
+    const ai = await askAi(model, { text });
     const merged = ai ? merge(parsed, ai, text) : parsed;
     if (isComplete(merged)) return merged;
   }
   const page = await pdfPageImage(buffer);
   if (!page) return parsed;
-  const fromImage = await readImage(page);
+  const fromImage = await readImage(page, model);
   // O que o texto já tinha (ex.: id do Pix) continua valendo.
   return merge(parsed, toAi(fromImage), text || fromImage.rawText);
 }
 
-async function readImage(buffer: Buffer) {
+async function readImage(buffer: Buffer, model: LanguageModel) {
   const image = await sharp(buffer)
     .rotate()
     .resize({ width: 1400, height: 2400, fit: 'inside', withoutEnlargement: true })
     .flatten({ background: '#ffffff' })
     .jpeg({ quality: 85 })
     .toBuffer();
-  const ai = await askAi({ imageDataUrl: `data:image/jpeg;base64,${image.toString('base64')}` });
+  const ai = await askAi(model, { imageDataUrl: `data:image/jpeg;base64,${image.toString('base64')}` });
   return ai ? merge(emptyProof('ia'), ai, '') : emptyProof('ia');
 }
 
@@ -248,8 +253,8 @@ type AiProof = {
   recebedorDocumento?: string;
 };
 
-async function askAi(input: { text?: string; imageDataUrl?: string }): Promise<AiProof | null> {
-  if (!aiConfigured()) return null;
+async function askAi(model: LanguageModel, input: { text?: string; imageDataUrl?: string }): Promise<AiProof | null> {
+  if (!model.isConfigured()) return null;
   const today = new Date().toISOString().slice(0, 10);
   if (usage.day !== today) Object.assign(usage, { day: today, count: 0 });
   if (usage.count >= AI_MAX_PER_DAY()) {
@@ -257,7 +262,7 @@ async function askAi(input: { text?: string; imageDataUrl?: string }): Promise<A
     return null;
   }
   usage.count += 1;
-  return visionJson<AiProof>(SYSTEM, {
+  return model.visionJson<AiProof>(SYSTEM, {
     text: input.text
       ? `Texto extraído do comprovante:\n${input.text.slice(0, 6000)}`
       : 'Extraia os dados deste comprovante.',

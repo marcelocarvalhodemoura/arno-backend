@@ -3,7 +3,8 @@ import { todayISO } from '../shared/dates';
 import { fold } from '../shared/csv';
 import { mutate } from '../shared/persistence/finance-store';
 import type { Member } from '../shared/types';
-import { buildProofKey, s3Configured, uploadNotaObject } from '../storage/s3';
+import { buildProofKey, type FileStorage } from '../storage/file-storage';
+import { s3FileStorage } from '../storage/s3';
 import { extractPdfText } from '../statement/statement-pdf';
 import { decodeQr } from '../notas/nota-reader';
 import { sendWhatsAppText, type WhatsAppIncomingMessage } from '../notifications/whatsapp';
@@ -165,15 +166,16 @@ async function storeFile(
   media: { body: Buffer; contentType: string },
   fileName: string | undefined,
   creditId?: string,
+  storage: FileStorage = s3FileStorage,
 ) {
-  if (!s3Configured()) {
+  if (!storage.isConfigured()) {
     console.warn('WhatsApp comprovante: AWS_S3_BUCKET não configurado, arquivo não foi guardado');
     return;
   }
   try {
     const name = fileName || `comprovante-${proof.date || todayISO()}${extensionFor(media.contentType)}`;
     const key = buildProofKey(proof.id, name, media.contentType);
-    await uploadNotaObject({ key, body: media.body, contentType: media.contentType, fileName: name });
+    await storage.upload({ key, body: media.body, contentType: media.contentType, fileName: name });
     const updated = await updateProof(proof.id, { fileKey: key, fileName: name, contentType: media.contentType });
     if (creditId) await attachToCredit(updated, creditId);
   } catch (error) {

@@ -1,11 +1,6 @@
 import type { DatabaseShape, MensalidadeReport } from '../shared/types';
-import {
-  notifyTransaction,
-  summarizeDeliveries,
-  type NotifyChannel,
-  type NotifyDelivery,
-  type NotifyKind,
-} from '../notifications/notify';
+import { notificationDispatcher, type NotificationDispatcher } from '../notifications/notification-dispatcher';
+import { summarizeDeliveries, type NotifyChannel, type NotifyDelivery, type NotifyKind } from '../notifications/types';
 
 export function collectMensalidadeNotifyIds(
   report: MensalidadeReport,
@@ -39,12 +34,13 @@ export async function notifyMensalidadeTransactions(
   kind: NotifyKind,
   channels: NotifyChannel[],
   userId: string,
+  dispatcher: NotificationDispatcher = notificationDispatcher,
 ) {
   const deliveries: NotifyDelivery[] = [];
   for (const txId of txIds) {
     const tx = db.transactions.find((item) => item.id === txId);
     if (!tx) continue;
-    deliveries.push(...(await notifyTransaction(db, tx, kind, channels, userId)));
+    deliveries.push(...(await dispatcher.notifyTransaction(db, tx, kind, channels, userId)));
   }
   return { ...summarizeDeliveries(deliveries), deliveries };
 }
