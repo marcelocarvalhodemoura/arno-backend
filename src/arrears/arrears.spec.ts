@@ -1,3 +1,5 @@
+// O acordo de atrasados reage aos pagamentos por eventos de domínio.
+import './arrears.events';
 import type { DatabaseShape, Member } from '../shared/types';
 import { roundMoney } from '../shared/types';
 import { createdAudit } from '../shared/audit';

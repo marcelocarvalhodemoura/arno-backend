@@ -1,3 +1,5 @@
+import { domainEvents } from '../shared/domain/domain-events';
+import { transactionPaid } from '../ledger/domain/events';
 import { dayAfterISO, lastDayOfMonth, nextMonthStart, pad2, todayISO } from '../shared/dates';
 import { createdAudit, updatedAudit } from '../shared/audit';
 import {
@@ -29,7 +31,6 @@ import type {
 import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
 import {
   embedMetaForCell,
-  registerArrearsInstallmentPaid,
   stampMensalidadeEmbedLink,
   syncMensalidadeArrearsEmbed,
   yearMonthKey,
@@ -410,23 +411,31 @@ export function settleMensalidade(
     stampPaidAt(arrearsPart, arrearsMovement?.name ?? 'Acordo', 'paid', paidAt, today);
     Object.assign(arrearsPart, updatedAudit(userId));
     if (arrearsPart.arrearsId && arrearsPart.arrearsYearMonth) {
-      registerArrearsInstallmentPaid(db, arrearsPart.arrearsId, arrearsPart.arrearsYearMonth, userId, {
-        source: 'mensalidade',
-        transactionId: arrearsPart.id,
-        method: arrearsPart.method,
-        paidAt: arrearsPart.paidAt ?? paidAt,
-      });
+      domainEvents.publish(
+        transactionPaid({
+          transactionId: arrearsPart.id,
+          method: arrearsPart.method,
+          paidAt: arrearsPart.paidAt ?? paidAt,
+          userId,
+          arrears: { planId: arrearsPart.arrearsId, yearMonth: arrearsPart.arrearsYearMonth, source: 'mensalidade' },
+        }),
+        db,
+      );
     }
   } else if (embed.arrearsPlanId && embed.extra > 0) {
     // Legado: mensalidade plana com parcela embutida (sem rateio).
     tx.amount = roundMoney(base + embed.extra);
     stampMensalidadeEmbedLink(tx, embed.arrearsPlanId);
-    registerArrearsInstallmentPaid(db, embed.arrearsPlanId, ym, userId, {
-      source: 'mensalidade',
-      transactionId: tx.id,
-      method: tx.method,
-      paidAt: tx.paidAt ?? paidAt,
-    });
+    domainEvents.publish(
+      transactionPaid({
+        transactionId: tx.id,
+        method: tx.method,
+        paidAt: tx.paidAt ?? paidAt,
+        userId,
+        arrears: { planId: embed.arrearsPlanId, yearMonth: ym, source: 'mensalidade' },
+      }),
+      db,
+    );
   }
 
   return { tx, shouldNotify };
@@ -753,12 +762,16 @@ export function allocateBankCreditToMensalidades(
     tx.method = credit.method ?? tx.method ?? 'pix';
     if (meta.arrearsPlanId && meta.arrearsInstallment) {
       stampMensalidadeEmbedLink(tx, meta.arrearsPlanId);
-      registerArrearsInstallmentPaid(db, meta.arrearsPlanId, meta.yearMonth, userId, {
-        source: 'mensalidade',
-        transactionId: tx.id,
-        method: tx.method,
-        paidAt,
-      });
+      domainEvents.publish(
+        transactionPaid({
+          transactionId: tx.id,
+          method: tx.method,
+          paidAt,
+          userId,
+          arrears: { planId: meta.arrearsPlanId, yearMonth: meta.yearMonth, source: 'mensalidade' },
+        }),
+        db,
+      );
     }
     Object.assign(tx, updatedAudit(userId));
   }
@@ -902,12 +915,16 @@ export function splitTransactionWithMensalidades(
       // Só baixa a parcela do acordo se a parte cobre mensalidade + parcela.
       if (withEmbed.some((amount) => Math.abs(amount - tx.amount) < 0.01)) {
         stampMensalidadeEmbedLink(tx, embed.arrearsPlanId);
-        registerArrearsInstallmentPaid(db, embed.arrearsPlanId, meta.yearMonth, userId, {
-          source: 'mensalidade',
-          transactionId: tx.id,
-          method: tx.method,
-          paidAt,
-        });
+        domainEvents.publish(
+          transactionPaid({
+            transactionId: tx.id,
+            method: tx.method,
+            paidAt,
+            userId,
+            arrears: { planId: embed.arrearsPlanId, yearMonth: meta.yearMonth, source: 'mensalidade' },
+          }),
+          db,
+        );
       }
     }
     Object.assign(tx, updatedAudit(userId));

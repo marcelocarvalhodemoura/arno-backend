@@ -1,9 +1,11 @@
+import { domainEvents } from '../shared/domain/domain-events';
+import { transactionPaid } from '../ledger/domain/events';
 import { updatedAudit } from '../shared/audit';
 import type { DatabaseShape, Transaction } from '../shared/types';
 import { roundMoney } from '../shared/types';
 import { catalogFromDb } from '../statement/interpret-upload';
 import { isMensalidadeName, isUnidentifiedName, matchMember } from '../statement/statement';
-import { registerArrearsInstallmentPaid, yearMonthKey } from '../arrears/arrears';
+import { yearMonthKey } from '../arrears/arrears';
 import { ensureMensalidadeType, listOpenMensalidades } from './mensalidades';
 import { todayISO } from '../shared/dates';
 import { NotFound } from '../shared/domain/errors';
@@ -138,12 +140,16 @@ export function confirmReconciliation(db: DatabaseShape, creditId: string, pendi
   // Mensalidade com parcela de acordo embutida: a parcela também é dada como paga.
   if (pending.arrearsId && !pending.arrearsYearMonth) {
     credit.arrearsId = pending.arrearsId;
-    registerArrearsInstallmentPaid(db, pending.arrearsId, yearMonthKey(year, month), userId, {
-      source: 'mensalidade',
-      transactionId: credit.id,
-      method: credit.method,
-      paidAt,
-    });
+    domainEvents.publish(
+      transactionPaid({
+        transactionId: credit.id,
+        method: credit.method,
+        paidAt,
+        userId,
+        arrears: { planId: pending.arrearsId, yearMonth: yearMonthKey(year, month), source: 'mensalidade' },
+      }),
+      db,
+    );
   }
   return credit;
 }
