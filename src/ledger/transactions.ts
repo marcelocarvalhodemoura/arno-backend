@@ -4,9 +4,10 @@ import type { BranchId, DatabaseShape, Transaction } from '../shared/types';
 import { roundMoney } from '../shared/types';
 import type { CreateTransactionInput, PatchTransactionInput } from '../shared/http/schemas';
 import { resolveGuardianId } from '../members/members';
-import { todayISO } from '../mensalidades/mensalidades';
+import { todayISO } from '../shared/dates';
 import { isMensalidadeName, sicrediPayer } from '../statement/statement';
 import { registerArrearsInstallmentPaid, dissolveMensalidadeArrearsSplitIfSeparate } from '../arrears/arrears';
+import { BusinessRuleViolation } from '../shared/domain/errors';
 
 export function stampPaidAt(
   tx: Transaction,
@@ -47,9 +48,9 @@ export function listTransactions(
 
 export function createTransaction(db: DatabaseShape, input: CreateTransactionInput, userId: string): Transaction {
   const movement = db.movementTypes.find((item) => item.id === input.movementTypeId);
-  if (!movement || !movement.active) throw new Error('Tipo de movimentação inválido');
+  if (!movement || !movement.active) throw new BusinessRuleViolation('Tipo de movimentação inválido');
   if (movement.direction !== 'both' && movement.direction !== input.type) {
-    throw new Error('Este tipo não aceita essa direção (entrada/saída)');
+    throw new BusinessRuleViolation('Este tipo não aceita essa direção (entrada/saída)');
   }
   const memberGuardianId = resolveGuardianId(db, input.memberId, input.memberGuardianId);
   const { paidAt, paymentStatus, ...data } = input;
@@ -93,12 +94,13 @@ export function updateTransaction(
   const nextType = type ?? tx.type;
   const nextMovementId = movementTypeId ?? tx.movementTypeId;
   const movement = db.movementTypes.find((item) => item.id === nextMovementId);
-  if (!movement) throw new Error('Tipo de movimentação inválido');
+  if (!movement) throw new BusinessRuleViolation('Tipo de movimentação inválido');
   const sameKind = nextType === tx.type && nextMovementId === tx.movementTypeId;
   if (!sameKind) {
-    if (!movement.active) throw new Error('Este tipo está inativo. Escolha outro tipo de movimentação.');
+    if (!movement.active)
+      throw new BusinessRuleViolation('Este tipo está inativo. Escolha outro tipo de movimentação.');
     if (movement.direction !== 'both' && movement.direction !== nextType) {
-      throw new Error('Este tipo não aceita essa direção (entrada/saída). Troque o tipo ou a direção.');
+      throw new BusinessRuleViolation('Este tipo não aceita essa direção (entrada/saída). Troque o tipo ou a direção.');
     }
   }
   Object.assign(tx, rest, { type: nextType, movementTypeId: nextMovementId }, updatedAudit(userId));

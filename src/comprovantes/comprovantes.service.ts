@@ -4,11 +4,13 @@ import { fail } from '../shared/http/api';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { learnPayerAccount } from '../ledger/transactions';
 import { confirmReconciliation } from '../mensalidades/reconciliation';
-import { listOpenMensalidades, todayISO } from '../mensalidades/mensalidades';
+import { listOpenMensalidades } from '../mensalidades/mensalidades';
+import { todayISO } from '../shared/dates';
 import { isUnidentifiedName } from '../statement/statement';
 import { signedNotaUrl } from '../storage/s3';
 import { attachToCredit, retryWaitingProofs } from './proof-whatsapp';
 import { findProof, listProofs, updateProof, type ProofStatus } from './proof-store';
+import { BusinessRuleViolation } from '../shared/domain/errors';
 
 const STATUSES: ProofStatus[] = ['waiting', 'matched', 'already', 'review', 'rejected', 'discarded'];
 
@@ -101,28 +103,24 @@ export class ComprovantesService {
       fail('Comprovante já conciliado', HttpStatus.CONFLICT);
     const { creditId, pendingId } = parsed.data;
     let memberId = '';
-    try {
-      await mutate((db) => {
-        if (!pendingId) {
-          const credit = db.transactions.find((tx) => tx.id === creditId);
-          const type = credit && db.movementTypes.find((item) => item.id === credit.movementTypeId);
-          if (credit && (!type || isUnidentifiedName(type.name))) {
-            throw new Error('O crédito ainda está "A identificar"; escolha a mensalidade');
-          }
-          memberId = credit?.memberId ?? '';
-          return;
+    await mutate((db) => {
+      if (!pendingId) {
+        const credit = db.transactions.find((tx) => tx.id === creditId);
+        const type = credit && db.movementTypes.find((item) => item.id === credit.movementTypeId);
+        if (credit && (!type || isUnidentifiedName(type.name))) {
+          throw new BusinessRuleViolation('O crédito ainda está "A identificar"; escolha a mensalidade');
         }
-        const credit = confirmReconciliation(db, creditId, pendingId, userId);
-        memberId = credit.memberId ?? '';
-        const pixLine = (credit.notes ?? '')
-          .split('\n')
-          .reverse()
-          .find((line) => line.startsWith('Pix: '));
-        learnPayerAccount(db, { ...credit, description: pixLine ? pixLine.slice(5) : credit.description }, userId);
-      });
-    } catch (err) {
-      fail(err instanceof Error ? err.message : 'Não foi possível conciliar', HttpStatus.BAD_REQUEST);
-    }
+        memberId = credit?.memberId ?? '';
+        return;
+      }
+      const credit = confirmReconciliation(db, creditId, pendingId, userId);
+      memberId = credit.memberId ?? '';
+      const pixLine = (credit.notes ?? '')
+        .split('\n')
+        .reverse()
+        .find((line) => line.startsWith('Pix: '));
+      learnPayerAccount(db, { ...credit, description: pixLine ? pixLine.slice(5) : credit.description }, userId);
+    });
     const updated = await updateProof(id, {
       status: 'matched',
       reason: pendingId ? 'Conferido pela tesouraria' : 'Conferido pela tesouraria (rateio em vários meses)',

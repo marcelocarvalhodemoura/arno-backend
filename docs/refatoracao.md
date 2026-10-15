@@ -51,3 +51,18 @@ PG_DOCKER_IMAGE=postgres:16-alpine yarn db:backup --verify   # quando o pg_dump 
 
 Gera `backups/<banco>-<data>.dump`, restaura num banco temporário e compara as contagens das tabelas principais.
 **Rodar contra produção antes de publicar as fases 3 e 5.**
+
+## Fase 1 — fundações
+
+- **Erros de domínio** (`src/shared/domain/errors.ts`): `BusinessRuleViolation` (400), `NotFound` (404), `Conflict` (409).
+  O `AllExceptionsFilter` responde `{ error }` com o status de cada um. Os services deixaram de ter try/catch só para
+  traduzir erro; os que sobraram envolvem infraestrutura (S3, Sicredi, leitura de extrato).
+- **Correções que vieram junto**: editar lançamento ou associado inexistente agora responde 404 (antes, 400 "Http Exception").
+  Mensagens de "não encontrado" vindas do domínio passam a responder 404 em todos os endpoints.
+  Erros inesperados (bug) passam a responder 500 "Erro interno" em vez de 400 com a mensagem técnica.
+- **`AppConfig`** (`src/shared/config.ts`): único ponto de leitura de `process.env` (exceto `migrate.ts`, que repassa o
+  ambiente ao Prisma). Na subida, avisa se `AUTH_SECRET` está faltando em produção.
+- **Datas** em `src/shared/dates.ts` (`todayISO`, `pad2`, `lastDayOfMonth`, `dayAfterISO`, `nextMonthStart`): o ledger e as
+  notificações não importam mais `mensalidades` só por causa de datas.
+- **Value objects** `Money` (centavos inteiros, `allocate` sem perder centavo) e `Competencia` (AAAA-MM), com testes.
+  A adoção no domínio acontece na fase 4.

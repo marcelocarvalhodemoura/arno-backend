@@ -4,7 +4,9 @@ import { roundMoney } from '../shared/types';
 import { catalogFromDb } from '../statement/interpret-upload';
 import { isMensalidadeName, isUnidentifiedName, matchMember } from '../statement/statement';
 import { registerArrearsInstallmentPaid, yearMonthKey } from '../arrears/arrears';
-import { ensureMensalidadeType, listOpenMensalidades, todayISO } from './mensalidades';
+import { ensureMensalidadeType, listOpenMensalidades } from './mensalidades';
+import { todayISO } from '../shared/dates';
+import { NotFound } from '../shared/domain/errors';
 
 const MONTHS = [
   '',
@@ -95,7 +97,7 @@ export function reconciliationSuggestions(
 /** Confirma a sugestão: o crédito pago vira a mensalidade daquele mês e a cobrança pendente sai. */
 export function confirmReconciliation(db: DatabaseShape, creditId: string, pendingId: string, userId: string) {
   const credit = db.transactions.find((tx) => tx.id === creditId);
-  if (!credit || !needsReview(db, credit)) throw new Error('Crédito não encontrado ou já identificado');
+  if (!credit || !needsReview(db, credit)) throw new NotFound('Crédito não encontrado ou já identificado');
   const pending = db.transactions.find((tx) => tx.id === pendingId);
   const pendingType = db.movementTypes.find((item) => item.id === pending?.movementTypeId);
   if (
@@ -104,7 +106,7 @@ export function confirmReconciliation(db: DatabaseShape, creditId: string, pendi
     !isMensalidadeName(pendingType?.name ?? '') ||
     !pending.memberId
   ) {
-    throw new Error('Mensalidade pendente não encontrada');
+    throw new NotFound('Mensalidade pendente não encontrada');
   }
   const member = db.members.find((item) => item.id === pending.memberId)!;
   const movement = ensureMensalidadeType(db, userId);

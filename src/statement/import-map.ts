@@ -10,6 +10,7 @@ import {
 } from '../shared/csv';
 import { aiConfigured, chatJson } from '../shared/openai';
 import { isTemplate } from './statement';
+import { appConfig } from '../shared/config';
 
 export type ImportKind = 'members' | 'statement';
 
@@ -370,7 +371,7 @@ export function buildImportSample(table: CsvTable, mapping: FieldMapping, kind: 
 
 export async function reviewImportSample(sample: ImportSample, kind: ImportKind): Promise<SampleReview> {
   const heuristic = heuristicSampleReview(sample, kind);
-  if (process.env.VITEST || !aiConfigured() || !sample.rows.length) return heuristic;
+  if (appConfig.isUnitTest || !aiConfigured() || !sample.rows.length) return heuristic;
   const ai = await chatJson<{ ok?: boolean; summary?: string }>(
     'Você valida uma AMOSTRA de importação da tesouraria de um grupo escoteiro. Responda só JSON {"ok":true,"summary":"..."}. summary em português, 1 ou 2 frases, para o tesoureiro conferir se os campos batem com os exemplos. Não invente datas, valores ou nomes. Não peça para gravar se data, valor, nome ou e-mail parecerem coluna trocada.',
     {

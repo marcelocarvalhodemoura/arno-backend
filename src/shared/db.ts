@@ -1,17 +1,18 @@
 import { PrismaClient } from '@prisma/client';
 import './env';
+import { appConfig } from './config';
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
+    log: appConfig.isDevelopment ? ['error', 'warn'] : ['error'],
   });
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+if (!appConfig.isProduction) globalForPrisma.prisma = prisma;
 
-export const DATABASE_URL = process.env.DATABASE_URL ?? '';
+export const DATABASE_URL = appConfig.databaseUrl;
 
 export async function waitForDb(retries = 30): Promise<void> {
   let lastError: unknown;

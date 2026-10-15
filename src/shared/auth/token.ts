@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { UserRole } from '../types';
+import { appConfig } from '../config';
 
-const SECRET = () => process.env.AUTH_SECRET ?? 'arno-friedrich-tesouraria-2026';
+const SECRET = () => appConfig.authSecret;
 
 export interface AuthPayload {
   user: string;

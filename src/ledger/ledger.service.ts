@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { createTransaction, listTransactions, updateTransaction } from './transactions';
 import { closeMonth, monthLabel, purgeTrash, reopenMonth, restoreTransaction, trashTransaction } from './governance';
 import { fail, parseDto } from '../shared/http/api';
+import { NotFound } from '../shared/domain/errors';
 import { errorMessage } from '../shared/http/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
 import { createTransactionBody, patchTransactionBody } from '../shared/http/schemas';
@@ -79,42 +80,29 @@ export class LedgerService {
 
   async create(body: unknown, userId: string) {
     const data = parseDto(createTransactionBody, body);
-    try {
-      return await mutate((db) => createTransaction(db, data, userId));
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível lançar'), HttpStatus.BAD_REQUEST);
-    }
+    return mutate((db) => createTransaction(db, data, userId));
   }
 
   async update(id: string, body: unknown, userId: string) {
     const data = parseDto(patchTransactionBody, body);
-    try {
-      const updated = await mutate((db) => updateTransaction(db, id, data, userId));
-      if (!updated) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
-      if (updated.shouldNotify && updated.tx.memberId) {
-        const channels = configuredNotifyChannels();
-        if (channels.length) {
-          const db = await loadDb();
-          const notify = summarizeDeliveries(await notifyTransaction(db, updated.tx, 'receipt', channels, userId));
-          return { ...updated.tx, notify };
-        }
+    const updated = await mutate((db) => updateTransaction(db, id, data, userId));
+    if (!updated) throw new NotFound('Lançamento não encontrado');
+    if (updated.shouldNotify && updated.tx.memberId) {
+      const channels = configuredNotifyChannels();
+      if (channels.length) {
+        const db = await loadDb();
+        const notify = summarizeDeliveries(await notifyTransaction(db, updated.tx, 'receipt', channels, userId));
+        return { ...updated.tx, notify };
       }
-      return updated.tx;
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível alterar'), HttpStatus.BAD_REQUEST);
     }
+    return updated.tx;
   }
 
   /** Excluir manda para a lixeira (30 dias). A nota no S3 fica até a lixeira ser esvaziada. */
   async remove(id: string, userId: string) {
-    try {
-      const entry = await mutate((store) => trashTransaction(store, id, userId));
-      if (!entry) fail('Lançamento não encontrado', HttpStatus.NOT_FOUND);
-      return { trashId: entry.id };
-    } catch (error) {
-      if (error && typeof error === 'object' && 'status' in error) throw error;
-      fail(errorMessage(error, 'Não foi possível excluir o lançamento'), HttpStatus.BAD_REQUEST);
-    }
+    const entry = await mutate((store) => trashTransaction(store, id, userId));
+    if (!entry) throw new NotFound('Lançamento não encontrado');
+    return { trashId: entry.id };
   }
 
   async listTrash() {
@@ -135,14 +123,10 @@ export class LedgerService {
   async restore(trashId: string) {
     const db = await loadDb();
     const entry = (db.trash ?? []).find((item) => item.id === trashId);
-    if (!entry) fail('Item não encontrado na lixeira', HttpStatus.NOT_FOUND);
-    try {
-      return await mutate((store) => restoreTransaction(store, trashId), {
-        restoredIds: new Set([entry.transaction.id]),
-      });
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível restaurar'), HttpStatus.BAD_REQUEST);
-    }
+    if (!entry) throw new NotFound('Item não encontrado na lixeira');
+    return mutate((store) => restoreTransaction(store, trashId), {
+      restoredIds: new Set([entry.transaction.id]),
+    });
   }
 
   /** Esvazia a lixeira (admin) e apaga as notas anexadas no S3. */
@@ -174,17 +158,13 @@ export class LedgerService {
   async resolveDuplicate(body: unknown, userId: string) {
     const parsed = z.object({ keepId: z.string().min(1), dropIds: z.array(z.string().min(1)).min(1) }).safeParse(body);
     if (!parsed.success) fail('Informe o lançamento mantido e as cópias', HttpStatus.BAD_REQUEST);
-    try {
-      const trashed = await mutate((store) => resolveDuplicate(store, parsed.data.keepId, parsed.data.dropIds, userId));
-      // Linhas do extrato que apontavam para a cópia passam a apontar para o lançamento mantido.
-      await prisma.bankMovement.updateMany({
-        where: { transactionId: { in: parsed.data.dropIds } },
-        data: { transactionId: parsed.data.keepId },
-      });
-      return { trashed: trashed.map((item) => item.id) };
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível resolver o duplicado'), HttpStatus.BAD_REQUEST);
-    }
+    const trashed = await mutate((store) => resolveDuplicate(store, parsed.data.keepId, parsed.data.dropIds, userId));
+    // Linhas do extrato que apontavam para a cópia passam a apontar para o lançamento mantido.
+    await prisma.bankMovement.updateMany({
+      where: { transactionId: { in: parsed.data.dropIds } },
+      data: { transactionId: parsed.data.keepId },
+    });
+    return { trashed: trashed.map((item) => item.id) };
   }
 
   async history(id: string) {
@@ -202,11 +182,7 @@ export class LedgerService {
   async closeMonth(body: unknown, userId: string) {
     const parsed = z.object({ yearMonth: z.string().regex(/^\d{4}-\d{2}$/) }).safeParse(body);
     if (!parsed.success) fail('Informe o mês (AAAA-MM)', HttpStatus.BAD_REQUEST);
-    try {
-      return await mutate((store) => closeMonth(store, parsed.data.yearMonth, userId));
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível fechar o mês'), HttpStatus.BAD_REQUEST);
-    }
+    return mutate((store) => closeMonth(store, parsed.data.yearMonth, userId));
   }
 
   async reopenMonth(yearMonth: string) {
@@ -218,11 +194,7 @@ export class LedgerService {
   async uploadNota(id: string, file: Express.Multer.File | undefined, userId: string) {
     if (!s3Configured()) fail('Armazenamento de notas não configurado (AWS_S3_BUCKET)', HttpStatus.SERVICE_UNAVAILABLE);
     if (!file) fail('Envie o arquivo da nota no campo file', HttpStatus.BAD_REQUEST);
-    try {
-      assertNotaFile(file);
-    } catch (error) {
-      fail(errorMessage(error, 'Arquivo inválido'), HttpStatus.BAD_REQUEST);
-    }
+    assertNotaFile(file);
 
     const db = await loadDb();
     const tx = db.transactions.find((item) => item.id === id);
@@ -323,10 +295,6 @@ export class LedgerService {
     if (!parsed.success) {
       fail('Informe pelo menos duas partes com valor, tipo e descrição', HttpStatus.BAD_REQUEST);
     }
-    try {
-      return await mutate((db) => splitTransactionWithMensalidades(db, id, parsed.data.parts, userId));
-    } catch (error) {
-      fail(errorMessage(error, 'Não foi possível ratear o lançamento'), HttpStatus.BAD_REQUEST);
-    }
+    return mutate((db) => splitTransactionWithMensalidades(db, id, parsed.data.parts, userId));
   }
 }

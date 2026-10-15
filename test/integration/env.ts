@@ -14,5 +14,6 @@ process.env.AUTH_SECRET ??= 'test-secret';
 process.env.ADMIN_USER = TEST_TREASURER_USER;
 process.env.ADMIN_PASSWORD = TEST_PASSWORD;
 process.env.MAIL_MOCK = '1';
-// Testes não chamam IA de verdade, mesmo com a chave no .env local.
-delete process.env.OPENAI_API_KEY;
+// Testes não chamam IA de verdade, mesmo com a chave no .env local. Vazio (e não `delete`) porque o
+// carregador do .env roda de novo no registro de módulos de cada arquivo de teste e só preenche o que falta.
+process.env.OPENAI_API_KEY = '';

@@ -1,6 +1,7 @@
 import { id } from '../shared/id';
 import type { DatabaseShape, MonthClosing, Transaction, TrashedTransaction } from '../shared/types';
 import { roundMoney } from '../shared/types';
+import { BusinessRuleViolation, NotFound } from '../shared/domain/errors';
 
 export const TRASH_DAYS = 30;
 
@@ -43,12 +44,12 @@ export function trashTransaction(
 
 export function restoreTransaction(db: DatabaseShape, trashId: string): Transaction {
   const entry = (db.trash ?? []).find((item) => item.id === trashId);
-  if (!entry) throw new Error('Item não encontrado na lixeira');
+  if (!entry) throw new NotFound('Item não encontrado na lixeira');
   if (db.transactions.some((item) => item.id === entry.transaction.id)) {
-    throw new Error('Este lançamento já está no caixa');
+    throw new BusinessRuleViolation('Este lançamento já está no caixa');
   }
   if (!db.movementTypes.some((item) => item.id === entry.transaction.movementTypeId)) {
-    throw new Error('O tipo deste lançamento foi removido; recrie o tipo antes de restaurar');
+    throw new BusinessRuleViolation('O tipo deste lançamento foi removido; recrie o tipo antes de restaurar');
   }
   const tx = { ...entry.transaction };
   if (tx.memberId && !db.members.some((item) => item.id === tx.memberId)) delete tx.memberId;
@@ -122,7 +123,7 @@ export function assertClosedMonthsUntouched(before: Map<string, Transaction>, db
     const lateSettlement = !prevLocked && prev?.paymentStatus === 'pending';
     if (!prevLocked && lateSettlement) continue;
     const month = (prevLocked ?? nextLocked)!;
-    throw new Error(
+    throw new BusinessRuleViolation(
       `${monthLabel(month)} está fechado: lançamentos pagos desse mês não podem ser alterados. Peça ao admin para reabrir o mês.`,
     );
   }
@@ -149,10 +150,10 @@ export function monthTotals(db: DatabaseShape, yearMonth: string) {
 }
 
 export function closeMonth(db: DatabaseShape, yearMonth: string, userId: string, now = new Date()): MonthClosing {
-  if (!/^\d{4}-\d{2}$/.test(yearMonth)) throw new Error('Mês inválido (use AAAA-MM)');
-  if (closedMonthSet(db).has(yearMonth)) throw new Error(`${monthLabel(yearMonth)} já está fechado`);
+  if (!/^\d{4}-\d{2}$/.test(yearMonth)) throw new BusinessRuleViolation('Mês inválido (use AAAA-MM)');
+  if (closedMonthSet(db).has(yearMonth)) throw new BusinessRuleViolation(`${monthLabel(yearMonth)} já está fechado`);
   const today = now.toISOString().slice(0, 7);
-  if (yearMonth >= today) throw new Error('Só é possível fechar meses que já terminaram');
+  if (yearMonth >= today) throw new BusinessRuleViolation('Só é possível fechar meses que já terminaram');
   const closing: MonthClosing = {
     yearMonth,
     closedAt: now.toISOString(),

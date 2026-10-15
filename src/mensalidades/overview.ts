@@ -2,7 +2,9 @@ import type { DatabaseShape } from '../shared/types';
 import { BRANCH_LABELS, roundMoney } from '../shared/types';
 import { isMensalidadeName, isUnidentifiedName } from '../statement/statement';
 import { cashBalance } from '../reports/finance';
-import { buildMensalidadeReport, isMensalidadeYearGenerated, listOpenMensalidades, todayISO } from './mensalidades';
+import { buildMensalidadeReport, isMensalidadeYearGenerated, listOpenMensalidades } from './mensalidades';
+import { todayISO } from '../shared/dates';
+import { NotFound } from '../shared/domain/errors';
 
 function typeName(db: DatabaseShape, movementTypeId: string) {
   return db.movementTypes.find((item) => item.id === movementTypeId)?.name ?? '';
@@ -51,7 +53,7 @@ export function nextSteps(
 /** Tudo de um associado num lugar: em aberto, acordos, pagos no ano e últimos lançamentos. */
 export function memberProfile(db: DatabaseShape, memberId: string, today = todayISO()) {
   const member = db.members.find((item) => item.id === memberId);
-  if (!member) throw new Error('Associado não encontrado');
+  if (!member) throw new NotFound('Associado não encontrado');
   const year = Number(today.slice(0, 4));
   const open = listOpenMensalidades(db, memberId, today);
   const mine = db.transactions.filter((tx) => tx.memberId === memberId);

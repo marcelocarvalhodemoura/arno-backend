@@ -106,7 +106,10 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
-    "watchman": false
+    "watchman": false,
+    "setupFiles": [
+      "<rootDir>/../test/unit/env.ts"
+    ]
   },
   "lint-staged": {
     "*.{ts,js,json,md,yml,yaml}": "prettier --write"

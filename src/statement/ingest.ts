@@ -5,6 +5,7 @@ import { id } from '../shared/id';
 import { isMensalidadeName, isUnidentifiedName } from './statement';
 import type { DatabaseShape, ImportSource, RecordOrigin, Transaction } from '../shared/types';
 import { roundMoney } from '../shared/types';
+import { BusinessRuleViolation } from '../shared/domain/errors';
 
 export type IngestRow = {
   date: string;
@@ -37,9 +38,9 @@ function isMensalidadeMovement(db: DatabaseShape, movementTypeId: string) {
 
 function resolveGuardianId(db: DatabaseShape, memberId: string | undefined, guardianId: string | undefined) {
   if (!guardianId) return undefined;
-  if (!memberId) throw new Error('Informe o associado do responsável');
+  if (!memberId) throw new BusinessRuleViolation('Informe o associado do responsável');
   const guardian = (db.memberGuardians ?? []).find((item) => item.id === guardianId && item.memberId === memberId);
-  if (!guardian) throw new Error('Responsável não pertence a este associado');
+  if (!guardian) throw new BusinessRuleViolation('Responsável não pertence a este associado');
   return guardian.id;
 }
 
@@ -291,9 +292,9 @@ export function ingestTransactions(
 
   for (const row of rows) {
     const movement = db.movementTypes.find((item) => item.id === row.movementTypeId);
-    if (!movement || !movement.active) throw new Error('Tipo de movimentação inválido');
+    if (!movement || !movement.active) throw new BusinessRuleViolation('Tipo de movimentação inválido');
     if (movement.direction !== 'both' && movement.direction !== row.type) {
-      throw new Error(`O tipo ${movement.name} não aceita essa direção`);
+      throw new BusinessRuleViolation(`O tipo ${movement.name} não aceita essa direção`);
     }
     const memberGuardianId = resolveGuardianId(db, row.memberId, row.memberGuardianId);
     const amount = roundMoney(row.amount);

@@ -1,7 +1,7 @@
-import { HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { fail, parseDto } from '../shared/http/api';
-import { errorMessage } from '../shared/http/errors';
+import { parseDto } from '../shared/http/api';
+import { NotFound } from '../shared/domain/errors';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { createFeePeriod, deleteFeePeriod, sortedSchedule, updateFeePeriod } from './fee-schedule';
 
@@ -36,34 +36,20 @@ export class FeeScheduleService {
 
   async create(body: unknown, userId: string) {
     const data = parseDto(periodBody, body, 'Composição inválida');
-    return this.write(async () => {
-      await mutate((db) => createFeePeriod(db, data, userId));
-    }, 'Não foi possível criar o período');
+    await mutate((db) => createFeePeriod(db, data, userId));
+    return this.list();
   }
 
   async update(id: string, body: unknown, userId: string) {
     const data = parseDto(periodBody, body, 'Composição inválida');
-    return this.write(async () => {
-      const updated = await mutate((db) => updateFeePeriod(db, id, data, userId));
-      if (!updated) fail('Período não encontrado', HttpStatus.NOT_FOUND);
-    }, 'Não foi possível alterar o período');
+    const updated = await mutate((db) => updateFeePeriod(db, id, data, userId));
+    if (!updated) throw new NotFound('Período não encontrado');
+    return this.list();
   }
 
   async remove(id: string, userId: string) {
-    return this.write(async () => {
-      const removed = await mutate((db) => deleteFeePeriod(db, id, userId));
-      if (!removed) fail('Período não encontrado', HttpStatus.NOT_FOUND);
-    }, 'Não foi possível excluir o período');
-  }
-
-  /** Grava e devolve a tabela inteira, já ordenada. */
-  private async write(fn: () => Promise<void>, fallback: string) {
-    try {
-      await fn();
-    } catch (error) {
-      if (error instanceof HttpException) throw error;
-      fail(errorMessage(error, fallback), HttpStatus.BAD_REQUEST);
-    }
+    const removed = await mutate((db) => deleteFeePeriod(db, id, userId));
+    if (!removed) throw new NotFound('Período não encontrado');
     return this.list();
   }
 }

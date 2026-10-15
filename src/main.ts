@@ -9,8 +9,10 @@ import { promoteConfiguredSuperadmins, rehashLegacySeedUsers } from './identity/
 import { startOutboxWorker } from './notifications/outbox';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
 import { setupSwagger } from './shared/swagger/setup-swagger';
+import { appConfig } from './shared/config';
 
 async function bootstrap() {
+  for (const warning of appConfig.warnings()) console.warn(`Configuração: ${warning}`);
   await waitForDb();
   await migrate();
   await seedIfEmpty();
@@ -29,7 +31,7 @@ async function bootstrap() {
 
   startOutboxWorker();
 
-  const port = Number(process.env.PORT ?? 4000);
+  const port = appConfig.port;
   await app.listen(port);
   console.log(`Tesouraria API em http://127.0.0.1:${port}`);
   console.log(`Swagger em http://127.0.0.1:${port}/api/docs`);

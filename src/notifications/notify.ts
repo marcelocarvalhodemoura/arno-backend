@@ -7,6 +7,7 @@ import type { DatabaseShape, Transaction } from '../shared/types';
 import { composeNotifyMessage } from './templates';
 import { whatsappStatus } from './whatsapp';
 import { OUTSIDE_WINDOW_ERROR, windowOpen } from './whatsapp-window';
+import { appConfig } from '../shared/config';
 
 export type NotifyKind = 'charge' | 'receipt';
 export type NotifyChannel = 'email' | 'whatsapp';
@@ -23,7 +24,7 @@ export type NotifyDelivery = {
 export function notifyStatus() {
   return {
     email: mailConfigured(),
-    whatsapp: whatsappStatus().configured || process.env.WHATSAPP_MOCK === '1' || process.env.MAIL_MOCK === '1',
+    whatsapp: whatsappStatus().configured || appConfig.whatsapp.mock,
   };
 }
 
@@ -151,7 +152,7 @@ export async function notifyTransaction(
         await skip('whatsapp', '(sem telefone)', 'Associado sem telefone cadastrado');
         continue;
       }
-      const mock = process.env.WHATSAPP_MOCK === '1' || process.env.MAIL_MOCK === '1';
+      const mock = appConfig.whatsapp.mock;
       for (const target of targets) {
         if (mock || (await windowOpen(target.phone))) {
           await queue('whatsapp', target.phone, target.name);

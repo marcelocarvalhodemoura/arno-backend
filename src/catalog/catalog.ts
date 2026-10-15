@@ -4,6 +4,7 @@ import type { DatabaseShape, Fee, MovementType, Settings } from '../shared/types
 import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
 import { refreshPendingMensalidadeSchedule } from '../mensalidades/mensalidades';
 import { ensureOfficialMensalidadeFees } from '../mensalidades/fee-table';
+import { Conflict } from '../shared/domain/errors';
 
 export function patchSettings(
   db: DatabaseShape,
@@ -36,7 +37,7 @@ export function createMovementType(
   userId: string,
 ): MovementType {
   if (db.movementTypes.some((item) => item.name.toLowerCase() === input.name.toLowerCase())) {
-    throw new Error('Tipo já cadastrado');
+    throw new Conflict('Tipo já cadastrado');
   }
   const type: MovementType = {
     id: id(),
@@ -73,7 +74,7 @@ export function updateMovementType(
     const clash = db.movementTypes.some(
       (other) => other.id !== type.id && other.name.toLowerCase() === input.name!.toLowerCase(),
     );
-    if (clash) throw new Error('Tipo já cadastrado');
+    if (clash) throw new Conflict('Tipo já cadastrado');
   }
   Object.assign(type, input, updatedAudit(userId));
   if (input.pixKey !== undefined) type.pixKey = input.pixKey.trim();
@@ -82,7 +83,7 @@ export function updateMovementType(
 
 export function createFee(db: DatabaseShape, input: { name: string; amount: number }, userId: string): Fee {
   if (db.fees.some((fee) => fee.name.toLowerCase() === input.name.toLowerCase())) {
-    throw new Error('Taxa já cadastrada');
+    throw new Conflict('Taxa já cadastrada');
   }
   const fee: Fee = {
     id: id(),
@@ -106,7 +107,7 @@ export function updateFee(
     input.name &&
     db.fees.some((item) => item.id !== fee.id && item.name.toLowerCase() === input.name!.toLowerCase())
   ) {
-    throw new Error('Taxa já cadastrada');
+    throw new Conflict('Taxa já cadastrada');
   }
   if (input.name !== undefined) fee.name = input.name;
   if (input.amount !== undefined) fee.amount = roundMoney(input.amount);

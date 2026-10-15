@@ -4,7 +4,9 @@ import type { DatabaseShape, FeeComposition, FeeSchedulePeriod } from '../shared
 import { roundMoney } from '../shared/types';
 import { siblingIdsOf } from '../members/members';
 import { baseOf, familyTotalOf, scheduleOf, specialFamilyFee } from './fee-table';
-import { applyMensalidadeFee, todayISO } from './mensalidades';
+import { applyMensalidadeFee } from './mensalidades';
+import { todayISO } from '../shared/dates';
+import { BusinessRuleViolation } from '../shared/domain/errors';
 
 export type FeePeriodInput = {
   startMonth: string;
@@ -34,23 +36,27 @@ function cleanComposition(parts: FeeComposition): FeeComposition {
 function cleanInput(input: FeePeriodInput) {
   const startMonth = input.startMonth.trim();
   const endMonth = input.endMonth?.trim() || null;
-  if (!YEAR_MONTH.test(startMonth)) throw new Error('Mês de início inválido (use AAAA-MM)');
-  if (endMonth && !YEAR_MONTH.test(endMonth)) throw new Error('Mês de fim inválido (use AAAA-MM)');
-  if (endMonth && endMonth < startMonth) throw new Error('O mês de fim não pode ser antes do início');
+  if (!YEAR_MONTH.test(startMonth)) throw new BusinessRuleViolation('Mês de início inválido (use AAAA-MM)');
+  if (endMonth && !YEAR_MONTH.test(endMonth)) throw new BusinessRuleViolation('Mês de fim inválido (use AAAA-MM)');
+  if (endMonth && endMonth < startMonth) throw new BusinessRuleViolation('O mês de fim não pode ser antes do início');
 
   const regular = cleanComposition(input.regular);
   const pioneer = cleanComposition(input.pioneer);
-  if (!(baseOf(regular) > 0)) throw new Error('A mensalidade normal precisa de um valor maior que zero');
-  if (!(baseOf(pioneer) > 0)) throw new Error('A mensalidade do pioneiro precisa de um valor maior que zero');
+  if (!(baseOf(regular) > 0))
+    throw new BusinessRuleViolation('A mensalidade normal precisa de um valor maior que zero');
+  if (!(baseOf(pioneer) > 0))
+    throw new BusinessRuleViolation('A mensalidade do pioneiro precisa de um valor maior que zero');
 
   const familyNonMember = input.familyNonMember ? cleanComposition(input.familyNonMember) : null;
   const familyMember = input.familyMember ? cleanComposition(input.familyMember) : null;
   if (Boolean(familyNonMember) !== Boolean(familyMember)) {
-    throw new Error('Informe o valor especial de família para não sócio e para sócio, ou deixe os dois sem valor');
+    throw new BusinessRuleViolation(
+      'Informe o valor especial de família para não sócio e para sócio, ou deixe os dois sem valor',
+    );
   }
   for (const family of [familyNonMember, familyMember]) {
     if (family && !(familyTotalOf(family) > 0))
-      throw new Error('O valor especial de família precisa ser maior que zero');
+      throw new BusinessRuleViolation('O valor especial de família precisa ser maior que zero');
   }
 
   return {
@@ -66,7 +72,7 @@ function cleanInput(input: FeePeriodInput) {
 
 function assertUniqueStart(schedule: FeeSchedulePeriod[], startMonth: string, ignoreId?: string) {
   if (schedule.some((period) => period.id !== ignoreId && period.startMonth === startMonth)) {
-    throw new Error(`Já existe um período começando em ${startMonth}`);
+    throw new BusinessRuleViolation(`Já existe um período começando em ${startMonth}`);
   }
 }
 
@@ -125,7 +131,7 @@ export function deleteFeePeriod(db: DatabaseShape, periodId: string, userId: str
   const schedule = ensureSchedule(db);
   const index = schedule.findIndex((item) => item.id === periodId);
   if (index < 0) return false;
-  if (schedule.length === 1) throw new Error('A tabela precisa de pelo menos um período');
+  if (schedule.length === 1) throw new BusinessRuleViolation('A tabela precisa de pelo menos um período');
   schedule.splice(index, 1);
   reapplySchedule(db, userId, today);
   return true;

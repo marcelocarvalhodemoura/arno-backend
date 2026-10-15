@@ -31,6 +31,7 @@ import {
   cancelUnpaidMensalidades,
   refreshPendingMensalidadeSchedule,
 } from '../mensalidades/mensalidades';
+import { BusinessRuleViolation, NotFound } from '../shared/domain/errors';
 
 function normalizeFeeOverride(db: DatabaseShape, value: number | null | undefined, clubeLtc?: boolean): number | null {
   return resolveFeeOverride({ feeOverride: value == null ? null : value, clubeLtc }, scheduleOf(db));
@@ -42,7 +43,7 @@ export function siblingIdsOf(db: DatabaseShape, memberId: string): string[] {
 
 export function assertFamilyDiscountXor(chiefChild: boolean, siblingIds: string[]) {
   if (chiefChild && siblingIds.length > 0) {
-    throw new Error('Escolha só uma opção: filho de chefe ou irmão(s) no grupo');
+    throw new BusinessRuleViolation('Escolha só uma opção: filho de chefe ou irmão(s) no grupo');
   }
 }
 
@@ -72,9 +73,9 @@ export function replaceSiblings(db: DatabaseShape, memberId: string, siblingIds:
   );
   for (const siblingId of unique) {
     const sibling = db.members.find((item) => item.id === siblingId);
-    if (!sibling) throw new Error('Irmão vinculado não encontrado');
+    if (!sibling) throw new NotFound('Irmão vinculado não encontrado');
     if (sibling.chiefChild) {
-      throw new Error(`Não é possível vincular ${sibling.name}: já marcado como filho de chefe`);
+      throw new BusinessRuleViolation(`Não é possível vincular ${sibling.name}: já marcado como filho de chefe`);
     }
   }
 
@@ -146,7 +147,7 @@ export function applyFamilyDiscount(
   }
 
   if (input.chiefChild === true && input.siblingIds !== undefined && input.siblingIds.length > 0) {
-    throw new Error('Escolha só uma opção: filho de chefe ou irmão(s) no grupo');
+    throw new BusinessRuleViolation('Escolha só uma opção: filho de chefe ou irmão(s) no grupo');
   }
 
   let chiefChild = input.chiefChild ?? Boolean(member.chiefChild);
@@ -206,14 +207,14 @@ function guardiansOf(db: DatabaseShape, memberId: string) {
 
 function assertContactEmail(member: { branch: string; role: string; email: string }) {
   if (member.email) return;
-  throw new Error(
+  throw new BusinessRuleViolation(
     ownsContactEmail(member) ? 'Informe o e-mail do associado' : 'Informe o e-mail de pelo menos um responsável',
   );
 }
 
 export function assertYouthGuardians(role: string, count: number) {
   if (role === 'jovem' && count < 1) {
-    throw new Error('Informe pelo menos um responsável do jovem');
+    throw new BusinessRuleViolation('Informe pelo menos um responsável do jovem');
   }
 }
 
@@ -269,9 +270,9 @@ export function replaceGuardians(
 
 export function resolveGuardianId(db: DatabaseShape, memberId: string | undefined, guardianId: string | undefined) {
   if (!guardianId) return undefined;
-  if (!memberId) throw new Error('Informe o associado do responsável');
+  if (!memberId) throw new BusinessRuleViolation('Informe o associado do responsável');
   const guardian = (db.memberGuardians ?? []).find((item) => item.id === guardianId && item.memberId === memberId);
-  if (!guardian) throw new Error('Responsável não pertence a este associado');
+  if (!guardian) throw new BusinessRuleViolation('Responsável não pertence a este associado');
   return guardian.id;
 }
 

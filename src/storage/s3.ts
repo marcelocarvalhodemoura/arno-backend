@@ -1,7 +1,9 @@
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { BusinessRuleViolation } from '../shared/domain/errors';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
+import { appConfig } from '../shared/config';
 
 const ALLOWED_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']);
 
@@ -10,17 +12,17 @@ const MAX_BYTES = 10 * 1024 * 1024;
 let client: S3Client | null = null;
 
 export function s3Configured() {
-  return Boolean(process.env.AWS_S3_BUCKET?.trim());
+  return Boolean(appConfig.s3.bucket);
 }
 
 function bucket() {
-  const name = process.env.AWS_S3_BUCKET?.trim();
+  const name = appConfig.s3.bucket;
   if (!name) throw new Error('AWS_S3_BUCKET não configurado');
   return name;
 }
 
 function region() {
-  return process.env.AWS_REGION?.trim() || process.env.AWS_DEFAULT_REGION?.trim() || 'us-east-1';
+  return appConfig.s3.region;
 }
 
 function s3() {
@@ -33,10 +35,10 @@ function s3() {
 export function assertNotaFile(file: { mimetype?: string; size?: number; originalname?: string }) {
   const type = file.mimetype?.toLowerCase() ?? '';
   if (!ALLOWED_CONTENT_TYPES.has(type)) {
-    throw new Error('Envie a nota em PDF ou imagem (JPEG, PNG, WebP ou GIF)');
+    throw new BusinessRuleViolation('Envie a nota em PDF ou imagem (JPEG, PNG, WebP ou GIF)');
   }
-  if ((file.size ?? 0) <= 0) throw new Error('Arquivo vazio');
-  if ((file.size ?? 0) > MAX_BYTES) throw new Error('A nota pode ter no máximo 10 MB');
+  if ((file.size ?? 0) <= 0) throw new BusinessRuleViolation('Arquivo vazio');
+  if ((file.size ?? 0) > MAX_BYTES) throw new BusinessRuleViolation('A nota pode ter no máximo 10 MB');
 }
 
 function safeExtension(fileName: string, contentType: string) {

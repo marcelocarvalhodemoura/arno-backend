@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import { appConfig } from '../shared/config';
 
 export type WhatsAppStatus = {
   configured: boolean;
@@ -42,12 +43,13 @@ type WhatsAppChangeValue = {
 };
 
 export function whatsappConfig() {
-  const token = process.env.WHATSAPP_TOKEN?.trim() ?? '';
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID?.trim() ?? '';
-  const businessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID?.trim() ?? '';
-  const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN?.trim() ?? '';
-  const financeNumber = process.env.WHATSAPP_FINANCE_NUMBER?.trim() ?? '';
-  const publicUrl = (process.env.PUBLIC_URL ?? '').replace(/\/$/, '');
+  const { whatsapp } = appConfig;
+  const token = whatsapp.token;
+  const phoneNumberId = whatsapp.phoneNumberId;
+  const businessAccountId = whatsapp.businessAccountId;
+  const verifyToken = whatsapp.verifyToken;
+  const financeNumber = whatsapp.financeNumber;
+  const publicUrl = appConfig.publicUrl;
   return {
     token,
     phoneNumberId,
@@ -175,7 +177,7 @@ export function digitsPhone(phone: string) {
 export async function sendWhatsAppText(to: string, body: string) {
   const phone = digitsPhone(to);
   if (!phone) return { ok: false, skipped: true, error: 'Destinatário sem telefone' };
-  if (process.env.WHATSAPP_MOCK === '1' || process.env.MAIL_MOCK === '1') {
+  if (appConfig.whatsapp.mock) {
     return { ok: true, skipped: false };
   }
   const { token, phoneNumberId } = whatsappConfig();
