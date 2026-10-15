@@ -441,6 +441,20 @@ model TransactionHistory {
   @@map("transaction_history")
 }
 
+/// Trilha de mudanças de situação do associado (ativo/inativo) com justificativa obrigatória.
+model MemberStatusHistory {
+  id         String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  memberId   String   @map("member_id") @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz(6)
+  byId       String?  @map("by_id") @db.Uuid
+  fromStatus String?  @map("from_status")
+  toStatus   String   @map("to_status")
+  reason     String
+
+  @@index([memberId, at])
+  @@map("member_status_history")
+}
+
 /// Sugestões que a tesouraria já revisou (duplicados mantidos, conciliações recusadas).
 model ReviewDismissal {
   key         String   @id

@@ -36,7 +36,7 @@ export type RecordOrigin = 'manual' | 'integration' | 'sicredi';
 
 /** Formato da integração que originou o lançamento (CSV/PDF do extrato ou Pix Sicredi). */
 export type ImportSource = 'csv' | 'pdf' | 'sicredi';
-export type BankProvider = 'sicredi';
+export type BankProvider = 'sicredi' | 'pluggy';
 export type BankMovementStatus = 'new' | 'matched' | 'imported';
 
 /** Linhas por requisição de importação. O front fatia arquivos maiores. */
@@ -357,6 +357,17 @@ export interface MemberArrears {
   updatedBy?: string;
 }
 
+/** Uma mudança de situação do associado (ativo↔inativo), com quem/quando/por quê. */
+export interface MemberStatusHistory {
+  id: string;
+  memberId: string;
+  at: string;
+  byId?: string | null;
+  fromStatus?: MemberStatus | null;
+  toStatus: MemberStatus;
+  reason: string;
+}
+
 export interface BankMovement {
   id: string;
   provider: BankProvider;
@@ -550,6 +561,7 @@ export interface DatabaseShape {
   memberSiblings: MemberSibling[];
   memberAccounts: MemberAccount[];
   memberArrears?: MemberArrears[];
+  memberStatusHistory?: MemberStatusHistory[];
   movementTypes: MovementType[];
   fees: Fee[];
   transactions: Transaction[];

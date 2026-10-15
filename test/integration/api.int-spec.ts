@@ -486,7 +486,10 @@ describe('API integration', () => {
         extra.guardians?.some((guardian: { name: string }) => guardian.name === 'JOANA EXEMPLO') &&
         extra.status !== 'inactive'
       ) {
-        await request(server).patch(`/api/members/${extra.id}`).set(auth).send({ status: 'inactive' });
+        await request(server)
+          .patch(`/api/members/${extra.id}/status`)
+          .set(auth)
+          .send({ status: 'inactive', reason: 'Limpeza do teste' });
       }
     }
     if (
@@ -622,9 +625,9 @@ describe('API integration', () => {
     expect(launched.every((item: { paymentStatus: string }) => item.paymentStatus === 'pending')).toBe(true);
 
     const inactivated = await request(server)
-      .patch(`/api/members/${created.body.id}`)
+      .patch(`/api/members/${created.body.id}/status`)
       .set(auth)
-      .send({ status: 'inactive' });
+      .send({ status: 'inactive', reason: 'Saiu do grupo' });
     expect(inactivated.status).toBe(200);
 
     const afterLeave = await request(server).get('/api/mensalidades?year=2026').set(auth);
