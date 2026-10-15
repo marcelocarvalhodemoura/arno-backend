@@ -9,9 +9,6 @@
   "maxWorkers": 1,
   "testTimeout": 60000,
   "transform": {
-    "^.+\\.(t|j)s$": [
-      "ts-jest",
-      { "tsconfig": "tsconfig.spec.json" }
-    ]
+    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "tsconfig.spec.json" }]
   }
 }

@@ -513,3 +513,11 @@ model PaymentProof {
   @@index([phone])
   @@map("payment_proofs")
 }
+
+/// Versão do financeiro; os gatilhos incrementam a cada escrita nas tabelas financeiras.
+model FinanceVersion {
+  id      Int    @id @default(1)
+  version BigInt @default(0)
+
+  @@map("finance_version")
+}
