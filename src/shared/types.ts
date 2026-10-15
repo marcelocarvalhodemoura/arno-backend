@@ -36,7 +36,7 @@ export type RecordOrigin = 'manual' | 'integration' | 'sicredi';
 
 /** Formato da integração que originou o lançamento (CSV/PDF do extrato ou Pix Sicredi). */
 export type ImportSource = 'csv' | 'pdf' | 'sicredi';
-export type BankProvider = 'sicredi';
+export type BankProvider = 'sicredi' | 'pluggy';
 export type BankMovementStatus = 'new' | 'matched' | 'imported';
 
 /** Linhas por requisição de importação. O front fatia arquivos maiores. */
