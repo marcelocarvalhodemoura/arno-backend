@@ -201,6 +201,38 @@ export interface Fee {
   updatedBy?: string;
 }
 
+/**
+ * Divisão congelada de uma mensalidade paga: para onde foi cada real, com a regra do dia do pagamento.
+ * `group` é só o operacional; diluição, acréscimo por atraso e parcela de dívida também vão para o caixa do grupo.
+ * `expected` = soma das partes; `difference` = valor recebido − esperado (pagamento a menos ou a mais).
+ */
+export interface MensalidadeAllocation {
+  transactionId: string;
+  memberId: string;
+  /** Início (YYYY-MM) do período da composição usado. */
+  periodStart: string;
+  source: MensalidadeFormula['source'];
+  /** Ramo e sócio Lindóia do associado no dia do cálculo. */
+  memberBranch: YouthBranchId;
+  clubeLtc: boolean;
+  late: boolean;
+  clubFeeIncluded: boolean;
+  group: number;
+  branch: number;
+  snack: number;
+  club: number;
+  dilution: number;
+  lateFee: number;
+  arrears: number;
+  expected: number;
+  received: number;
+  difference: number;
+  pendingSplit: boolean;
+  /** Dados do lançamento usados no cálculo; se mudarem, a divisão é refeita. */
+  basis: string;
+  computedAt: string;
+}
+
 export interface Member {
   id: string;
   name: string;
@@ -556,6 +588,8 @@ export interface DatabaseShape {
   monthClosings?: MonthClosing[];
   /** Vazio/ausente = tabela padrão (DEFAULT_FEE_SCHEDULE). */
   feeSchedule?: FeeSchedulePeriod[];
+  /** Divisão congelada das mensalidades pagas (uma por lançamento). */
+  allocations?: MensalidadeAllocation[];
   members: Member[];
   memberGuardians: MemberGuardian[];
   memberSiblings: MemberSibling[];
@@ -591,6 +625,8 @@ export interface CustomReportQuery {
   types: TxType[];
   natures: TxNature[];
   movementTypeIds: string[];
+  /** Só lançamentos destes associados (vazio = todos). */
+  memberIds?: string[];
   groupBy: ReportGroupBy;
 }
 

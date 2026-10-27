@@ -51,6 +51,7 @@ export class ReportsController {
         types: { type: 'array', items: { type: 'string' } },
         natures: { type: 'array', items: { type: 'string' } },
         movementTypeIds: { type: 'array', items: { type: 'string' } },
+        memberIds: { type: 'array', items: { type: 'string' } },
         groupBy: {
           type: 'string',
           enum: ['none', 'month', 'branch', 'movementType', 'nature', 'account'],

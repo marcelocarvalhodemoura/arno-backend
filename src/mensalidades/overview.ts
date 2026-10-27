@@ -2,6 +2,7 @@ import type { DatabaseShape } from '../shared/types';
 import { BRANCH_LABELS, roundMoney } from '../shared/types';
 import { isMensalidadeName, isUnidentifiedName } from '../statement/statement';
 import { cashBalance } from '../reports/finance';
+import { buildMoneyMap } from '../branch-ledger/branch-ledger';
 import { buildMensalidadeReport, isMensalidadeYearGenerated, listOpenMensalidades, todayISO } from './mensalidades';
 
 function typeName(db: DatabaseShape, movementTypeId: string) {
@@ -108,25 +109,13 @@ export function memberProfile(db: DatabaseShape, memberId: string, today = today
   };
 }
 
-/** Prestação de contas do período: saldos, entradas e saídas por ramo e inadimplência de mensalidades. */
+/** Prestação de contas do período: saldos, para onde foi cada real (grupo, ramos, lanche, clube) e inadimplência. */
 export function assemblyReport(db: DatabaseShape, from: string, to: string, today = todayISO()) {
   const settled = db.transactions.filter((tx) => tx.paymentStatus !== 'pending' && tx.date >= from && tx.date <= to);
   const before = new Date(`${from}T12:00:00Z`);
   before.setUTCDate(before.getUTCDate() - 1);
   const income = roundMoney(settled.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0));
   const expense = roundMoney(settled.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0));
-  const branches = Object.keys(BRANCH_LABELS) as (keyof typeof BRANCH_LABELS)[];
-  const byBranch = branches
-    .map((branch) => {
-      const rows = settled.filter((tx) => tx.branch === branch);
-      return {
-        branch,
-        label: BRANCH_LABELS[branch],
-        income: roundMoney(rows.filter((tx) => tx.type === 'income').reduce((s, tx) => s + tx.amount, 0)),
-        expense: roundMoney(rows.filter((tx) => tx.type === 'expense').reduce((s, tx) => s + tx.amount, 0)),
-      };
-    })
-    .filter((row) => row.income || row.expense);
   const typeTotals = new Map<string, { name: string; type: string; amount: number }>();
   for (const tx of settled) {
     const key = `${tx.type}:${tx.movementTypeId}`;
@@ -154,7 +143,8 @@ export function assemblyReport(db: DatabaseShape, from: string, to: string, toda
     income,
     expense,
     result: roundMoney(income - expense),
-    byBranch,
+    // Mesma divisão do Extrato dos ramos: cada real num destino só, somando o saldo final.
+    destinations: buildMoneyMap(db, to, from),
     byType: [...typeTotals.values()].sort((a, b) => b.amount - a.amount),
     delinquency: {
       count: feesOverdue.length,

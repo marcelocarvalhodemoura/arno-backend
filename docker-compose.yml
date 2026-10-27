@@ -14,7 +14,7 @@ services:
     volumes:
       - arno_backend_pg:/var/lib/postgresql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-arno} -d ${POSTGRES_DB:-tesouraria}']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-arno-finance} -d ${POSTGRES_DB:-arno-finance}']
       interval: 5s
       timeout: 5s
       retries: 10

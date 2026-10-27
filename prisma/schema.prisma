@@ -428,6 +428,35 @@ model FeeSchedulePeriod {
   @@map("fee_schedule_periods")
 }
 
+/// Divisão congelada de cada mensalidade paga: para onde foi cada real, com a regra usada no dia.
+/// Recalculada só quando o próprio lançamento muda (valor, datas, associado, taxa do clube).
+model MensalidadeAllocation {
+  transactionId   String   @id @map("transaction_id") @db.Uuid
+  memberId        String   @map("member_id") @db.Uuid
+  periodStart     String   @map("period_start")
+  source          String
+  memberBranch    String   @map("member_branch")
+  clubeLtc        Boolean  @map("clube_ltc")
+  late            Boolean
+  clubFeeIncluded Boolean  @map("club_fee_included")
+  groupShare      Decimal  @map("group_share") @db.Decimal(12, 2)
+  branchShare     Decimal  @map("branch_share") @db.Decimal(12, 2)
+  snackShare      Decimal  @map("snack_share") @db.Decimal(12, 2)
+  clubShare       Decimal  @map("club_share") @db.Decimal(12, 2)
+  dilution        Decimal  @db.Decimal(12, 2)
+  lateFee         Decimal  @map("late_fee") @db.Decimal(12, 2)
+  arrears         Decimal  @db.Decimal(12, 2)
+  expected        Decimal  @db.Decimal(12, 2)
+  received        Decimal  @db.Decimal(12, 2)
+  difference      Decimal  @db.Decimal(12, 2)
+  pendingSplit    Boolean  @map("pending_split")
+  basis           String
+  computedAt      DateTime @map("computed_at") @db.Timestamptz(6)
+
+  @@index([memberId])
+  @@map("mensalidade_allocations")
+}
+
 /// Linha do tempo de cada lançamento (só inclusão; não é regravada com o financeiro).
 model TransactionHistory {
   id            String   @id @default(dbgenerated("uuidv7()")) @db.Uuid
@@ -453,6 +482,19 @@ model MemberStatusHistory {
 
   @@index([memberId, at])
   @@map("member_status_history")
+}
+
+/// Modelos de relatório personalizado salvos pela tesouraria (escolhas da tela, sem os dados).
+model ReportTemplate {
+  id          String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  name        String    @unique
+  query       Json
+  createdById String?   @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedById String?   @map("updated_by") @db.Uuid
+  updatedAt   DateTime? @map("updated_at") @db.Timestamptz(6)
+
+  @@map("report_templates")
 }
 
 /// Sugestões que a tesouraria já revisou (duplicados mantidos, conciliações recusadas).

@@ -14,6 +14,7 @@ import type {
   MemberArrears,
   MemberGuardian,
   MemberStatusHistory,
+  MensalidadeAllocation,
   MovementType,
   RecordOrigin,
   Settings,
@@ -23,6 +24,7 @@ import { countUsers } from '../../identity/users';
 import { assertClosedMonthsUntouched, diffTransactions, purgeTrash, type HistoryEntry } from '../../ledger/governance';
 import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types';
 import { DEFAULT_FEE_SCHEDULE } from '../../mensalidades/fee-table';
+import { syncAllocations } from '../../allocations/allocations';
 
 let cache: DatabaseShape | null = null;
 
@@ -45,6 +47,7 @@ export async function persist(db: DatabaseShape): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
+      syncAllocations(db);
       await writeFinance(tx, db);
     },
     { timeout: WRITE_TIMEOUT_MS },
@@ -73,7 +76,7 @@ function asTimestamp(value: string | null | undefined): Date | null {
 
 async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
   await client.$executeRawUnsafe(
-    'TRUNCATE transactions, member_arrears, member_status_history, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings, transaction_trash, month_closings, fee_schedule_periods RESTART IDENTITY',
+    'TRUNCATE transactions, member_arrears, member_status_history, member_siblings, member_guardians, member_accounts, project_items, projects, members, movement_types, fees, settings, transaction_trash, month_closings, fee_schedule_periods, mensalidade_allocations RESTART IDENTITY',
   );
 
   if (db.movementTypes.length) {
@@ -343,6 +346,34 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
     });
   }
 
+  if (db.allocations?.length) {
+    await client.mensalidadeAllocation.createMany({
+      data: db.allocations.map((item) => ({
+        transactionId: item.transactionId,
+        memberId: item.memberId,
+        periodStart: item.periodStart,
+        source: item.source,
+        memberBranch: item.memberBranch,
+        clubeLtc: item.clubeLtc,
+        late: item.late,
+        clubFeeIncluded: item.clubFeeIncluded,
+        groupShare: item.group,
+        branchShare: item.branch,
+        snackShare: item.snack,
+        clubShare: item.club,
+        dilution: item.dilution,
+        lateFee: item.lateFee,
+        arrears: item.arrears,
+        expected: item.expected,
+        received: item.received,
+        difference: item.difference,
+        pendingSplit: item.pendingSplit,
+        basis: item.basis,
+        computedAt: new Date(item.computedAt),
+      })),
+    });
+  }
+
   await client.settings.create({
     data: {
       openingBalance: db.settings.openingBalance,
@@ -366,6 +397,7 @@ export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restore
       const value = fn(db);
       assertClosedMonthsUntouched(before, db);
       purgeTrash(db);
+      syncAllocations(db);
       await writeFinance(tx, db);
       await recordHistory(tx, diffTransactions(before, db, options.restoredIds));
       return { db, value };
@@ -406,6 +438,17 @@ export async function readDismissals(prefix: string): Promise<Set<string>> {
 
 export async function dismissReview(key: string, userId: string) {
   await prisma.reviewDismissal.upsert({ where: { key }, create: { key, byId: userId }, update: {} });
+}
+
+/**
+ * Grava a divisão das mensalidades pagas que ainda não têm (primeira subida após criar a tabela)
+ * e refaz as de lançamentos alterados por fora. Não grava nada se já estiver tudo em dia.
+ */
+export async function backfillAllocations(): Promise<{ computed: number; removed: number }> {
+  const probe = structuredClone(await loadDb());
+  const pending = syncAllocations(probe);
+  if (!pending.computed && !pending.removed) return pending;
+  return mutate((db) => syncAllocations(db));
 }
 
 export async function resetDb(): Promise<DatabaseShape> {
@@ -506,6 +549,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     closings,
     feePeriods,
     statusHistory,
+    allocations,
   ] = await Promise.all([
     sql.member.findMany({ orderBy: { name: 'asc' } }),
     sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
@@ -522,6 +566,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     sql.monthClosing.findMany({ orderBy: { yearMonth: 'asc' } }),
     sql.feeSchedulePeriod.findMany({ orderBy: { startMonth: 'asc' } }),
     sql.memberStatusHistory.findMany({ orderBy: { at: 'desc' } }),
+    sql.mensalidadeAllocation.findMany(),
   ]);
 
   const itemsByProject = new Map<string, FinancialProject['items']>();
@@ -586,6 +631,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     })),
     // Sem períodos gravados: a tabela padrão passa a ser gravada na próxima alteração.
     feeSchedule: feePeriods.length ? feePeriods.map(mapFeePeriod) : structuredClone(DEFAULT_FEE_SCHEDULE),
+    allocations: allocations.map(mapAllocation),
     settings: settings
       ? {
           openingBalance: Number(settings.openingBalance),
@@ -849,6 +895,54 @@ function mapArrears(row: {
     note: row.note ?? '',
     status: row.status === 'settled' ? 'settled' : row.status === 'cancelled' ? 'cancelled' : 'active',
     ...mapAudit(row),
+  };
+}
+
+function mapAllocation(row: {
+  transactionId: string;
+  memberId: string;
+  periodStart: string;
+  source: string;
+  memberBranch: string;
+  clubeLtc: boolean;
+  late: boolean;
+  clubFeeIncluded: boolean;
+  groupShare: Prisma.Decimal;
+  branchShare: Prisma.Decimal;
+  snackShare: Prisma.Decimal;
+  clubShare: Prisma.Decimal;
+  dilution: Prisma.Decimal;
+  lateFee: Prisma.Decimal;
+  arrears: Prisma.Decimal;
+  expected: Prisma.Decimal;
+  received: Prisma.Decimal;
+  difference: Prisma.Decimal;
+  pendingSplit: boolean;
+  basis: string;
+  computedAt: Date;
+}): MensalidadeAllocation {
+  return {
+    transactionId: row.transactionId,
+    memberId: row.memberId,
+    periodStart: row.periodStart,
+    source: row.source as MensalidadeAllocation['source'],
+    memberBranch: row.memberBranch as MensalidadeAllocation['memberBranch'],
+    clubeLtc: row.clubeLtc,
+    late: row.late,
+    clubFeeIncluded: row.clubFeeIncluded,
+    group: Number(row.groupShare),
+    branch: Number(row.branchShare),
+    snack: Number(row.snackShare),
+    club: Number(row.clubShare),
+    dilution: Number(row.dilution),
+    lateFee: Number(row.lateFee),
+    arrears: Number(row.arrears),
+    expected: Number(row.expected),
+    received: Number(row.received),
+    difference: Number(row.difference),
+    pendingSplit: row.pendingSplit,
+    basis: row.basis,
+    computedAt: row.computedAt.toISOString(),
   };
 }
 

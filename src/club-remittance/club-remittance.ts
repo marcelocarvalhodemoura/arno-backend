@@ -14,6 +14,7 @@ import {
 } from '../mensalidades/fee-table';
 import { todayISO } from '../mensalidades/mensalidades';
 import { isMensalidadeName } from '../statement/statement';
+import { allocationIndex } from '../allocations/allocations';
 
 export const CLUB_REMITTANCE_MOVEMENT_NAME = 'Repasse Lindóia Tênis Clube';
 
@@ -137,6 +138,7 @@ function findRemittanceRecord(db: DatabaseShape, year: number, month: number): C
 function collectLines(db: DatabaseShape, year: number, month: number): ClubRemittanceLine[] {
   const prefix = `${year}-${pad2(month)}`;
   const lines: ClubRemittanceLine[] = [];
+  const allocations = allocationIndex(db);
   for (const tx of db.transactions) {
     if (!isMensalidadeTx(db, tx)) continue;
     if (tx.paymentStatus !== 'paid') continue;
@@ -145,8 +147,10 @@ function collectLines(db: DatabaseShape, year: number, month: number): ClubRemit
     if (!tx.memberId) continue;
     const member = db.members.find((item) => item.id === tx.memberId);
     if (!member) continue;
-    if (!effectiveClubFeeIncluded(member, tx.clubFeeIncluded)) continue;
-    const clubShare = remittanceClubShare(member, tx.date, tx.paidAt, scheduleOf(db));
+    // Divisão gravada no pagamento: o clube recebe o que foi cobrado (no prazo ou com atraso).
+    const allocation = allocations.get(tx.id);
+    if (!(allocation?.clubFeeIncluded ?? effectiveClubFeeIncluded(member, tx.clubFeeIncluded))) continue;
+    const clubShare = allocation ? allocation.club : remittanceClubShare(member, tx.date, tx.paidAt, scheduleOf(db));
     if (clubShare <= 0) continue;
     lines.push({
       transactionId: tx.id,
@@ -157,7 +161,7 @@ function collectLines(db: DatabaseShape, year: number, month: number): ClubRemit
       paidAt: tx.paidAt.slice(0, 10),
       amountPaid: tx.amount,
       clubShare,
-      late: tx.paidAt > tx.date,
+      late: allocation ? allocation.late : tx.paidAt > tx.date,
       competenceMonth: monthFromDate(tx.date),
     });
   }

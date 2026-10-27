@@ -16,6 +16,9 @@ import { BankingModule } from './banking/banking.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { ComprovantesModule } from './comprovantes/comprovantes.module';
+import { AllocationsModule } from './allocations/allocations.module';
+import { BranchLedgerModule } from './branch-ledger/branch-ledger.module';
+import { ReportTemplatesModule } from './report-templates/report-templates.module';
 
 @Module({
   imports: [
@@ -36,6 +39,9 @@ import { ComprovantesModule } from './comprovantes/comprovantes.module';
     NotificationsModule,
     AuditModule,
     ComprovantesModule,
+    AllocationsModule,
+    BranchLedgerModule,
+    ReportTemplatesModule,
   ],
 })
 export class AppModule {}

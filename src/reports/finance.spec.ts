@@ -321,6 +321,38 @@ describe('finance helpers', () => {
     expect(report.ledger[0]?.description).toBe('Aluguel');
   });
 
+  it('filters a custom report by member and opens with that member history only', () => {
+    const fixture: DatabaseShape = {
+      ...db,
+      transactions: [
+        ...db.transactions,
+        tx({
+          id: 't-ana-prior',
+          date: '2026-07-10',
+          type: 'income',
+          amount: 20,
+          memberId: 'ana',
+          description: 'Ana jul',
+        }),
+        tx({ id: 't-ana', date: '2026-08-10', type: 'income', amount: 75, memberId: 'ana', description: 'Ana ago' }),
+        tx({ id: 't-bia', date: '2026-08-10', type: 'income', amount: 60, memberId: 'bia', description: 'Bia ago' }),
+      ],
+    };
+    const report = customReport(fixture, {
+      from: '2026-08-01',
+      to: '2026-08-31',
+      branches: [],
+      types: [],
+      natures: [],
+      movementTypeIds: [],
+      memberIds: ['ana'],
+      groupBy: 'member',
+    });
+    expect(report.transactions.map((item) => item.id)).toEqual(['t-ana']);
+    expect(report.opening).toBe(20);
+    expect(report.totals.income).toBe(75);
+  });
+
   it('filters by branch and opens with that branch balance only', () => {
     const fixture: DatabaseShape = {
       ...db,

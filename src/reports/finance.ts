@@ -1,6 +1,7 @@
 import { fold } from '../shared/csv';
 import { mensalidadeShares, periodFor, scheduleOf } from '../mensalidades/fee-table';
 import { isMensalidadeName } from '../statement/statement';
+import { allocationIndex } from '../allocations/allocations';
 import type {
   BranchId,
   BudgetStatus,
@@ -39,11 +40,13 @@ function isMensalidadeIncome(db: DatabaseShape, tx: Transaction): boolean {
 
 /**
  * Valor do lançamento na visão por ramo.
- * Mensalidade de jovem: só a caixinha do ramo (conforme a composição do mês), não o valor integral.
+ * Mensalidade de jovem: só a caixinha do ramo (a gravada no pagamento), não o valor integral.
  */
 export function amountForBranchView(db: DatabaseShape, tx: Transaction): number {
   if (tx.branch === 'grupo') return tx.amount;
   if (!isMensalidadeIncome(db, tx)) return tx.amount;
+  const allocation = allocationIndex(db).get(tx.id);
+  if (allocation) return allocation.branch;
   const schedule = scheduleOf(db);
   const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
   const share = member
@@ -86,11 +89,11 @@ function dayBefore(iso: string): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function matchesReportFilters(
-  t: Transaction,
-  query: Pick<CustomReportQuery, 'branches' | 'types' | 'natures' | 'movementTypeIds'>,
-): boolean {
+type ReportFilters = Pick<CustomReportQuery, 'branches' | 'types' | 'natures' | 'movementTypeIds' | 'memberIds'>;
+
+function matchesReportFilters(t: Transaction, query: ReportFilters): boolean {
   if (query.branches.length && !query.branches.includes(t.branch)) return false;
+  if (query.memberIds?.length && !(t.memberId && query.memberIds.includes(t.memberId))) return false;
   if (query.types.length && !query.types.includes(t.type)) return false;
   if (query.natures.length && !query.natures.includes(t.nature)) return false;
   if (query.movementTypeIds.length && !query.movementTypeIds.includes(t.movementTypeId)) {
@@ -99,11 +102,13 @@ function matchesReportFilters(
   return true;
 }
 
-function hasPartitionFilters(
-  query: Pick<CustomReportQuery, 'branches' | 'types' | 'natures' | 'movementTypeIds'>,
-): boolean {
+function hasPartitionFilters(query: ReportFilters): boolean {
   return (
-    query.branches.length > 0 || query.types.length > 0 || query.natures.length > 0 || query.movementTypeIds.length > 0
+    query.branches.length > 0 ||
+    query.types.length > 0 ||
+    query.natures.length > 0 ||
+    query.movementTypeIds.length > 0 ||
+    Boolean(query.memberIds?.length)
   );
 }
 
