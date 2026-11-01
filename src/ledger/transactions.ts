@@ -4,7 +4,7 @@ import type { BranchId, DatabaseShape, Transaction } from '../shared/types';
 import { roundMoney } from '../shared/types';
 import type { CreateTransactionInput, PatchTransactionInput } from '../shared/http/schemas';
 import { resolveGuardianId } from '../members/members';
-import { todayISO } from '../mensalidades/mensalidades';
+import { todayISO, trashPendingOfPaidMonth } from '../mensalidades/mensalidades';
 import { isMensalidadeName, sicrediPayer } from '../statement/statement';
 import { registerArrearsInstallmentPaid, dissolveMensalidadeArrearsSplitIfSeparate } from '../arrears/arrears';
 
@@ -135,6 +135,15 @@ export function updateTransaction(
       (item) => item.id === tx.memberGuardianId && item.memberId === nextMemberId,
     );
     if (!belongs) delete tx.memberGuardianId;
+  }
+  // Virou mensalidade paga de um mês (tipo, associado, data ou situação): a cobrança pendente daquele mês sai.
+  if (
+    movementTypeId !== undefined ||
+    memberId !== undefined ||
+    rest.date !== undefined ||
+    paymentStatus !== undefined
+  ) {
+    trashPendingOfPaidMonth(db, tx, userId);
   }
   return { tx, shouldNotify };
 }

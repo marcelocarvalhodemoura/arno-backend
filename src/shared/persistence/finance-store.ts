@@ -408,6 +408,18 @@ export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restore
   return result.value;
 }
 
+/**
+ * Para leituras que às vezes ajustam dados (taxas oficiais, cobranças do ano, acordos legados).
+ * Roda numa cópia do cache; só abre a transação e regrava o banco quando a cópia mudou.
+ */
+export async function mutateIfChanged<T>(fn: (db: DatabaseShape) => T): Promise<T> {
+  const current = await loadDb();
+  const probe = structuredClone(current);
+  const value = fn(probe);
+  if (JSON.stringify(probe) === JSON.stringify(current)) return value;
+  return mutate(fn);
+}
+
 async function recordHistory(client: Db, entries: HistoryEntry[]) {
   if (!entries.length) return;
   await client.transactionHistory.createMany({

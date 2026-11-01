@@ -356,12 +356,25 @@ export function ingestTransactions(
     if (row.type === 'income' && row.memberId && isMensalidadeName(movement.name)) {
       const month = row.date.slice(0, 7);
       const member = db.members.find((item) => item.id === row.memberId);
+      // Pendente esquecida num mês já pago não pode capturar o Pix: ele é de outro mês.
+      const paidMonths = new Set(
+        db.transactions
+          .filter(
+            (tx) =>
+              tx.paymentStatus === 'paid' &&
+              tx.type === 'income' &&
+              tx.memberId === row.memberId &&
+              isMensalidadeMovement(db, tx.movementTypeId),
+          )
+          .map((tx) => tx.date.slice(0, 7)),
+      );
       const pending = db.transactions
         .filter(
           (tx) =>
             tx.paymentStatus === 'pending' &&
             tx.type === 'income' &&
             tx.memberId === row.memberId &&
+            !paidMonths.has(tx.date.slice(0, 7)) &&
             isMensalidadeMovement(db, tx.movementTypeId) &&
             (amountsNear(tx.amount, amount) ||
               (member ? matchesMensalidadeAmount(member, amount, scheduleOf(db)) : false)),

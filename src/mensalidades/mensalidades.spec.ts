@@ -88,6 +88,21 @@ describe('mensalidades', () => {
     expect(syncMensalidades(db, 2026, 'u1', '2026-05-01')).toBe(0);
   });
 
+  it('a second sync on the same day changes nothing (the grid read does not rewrite the store)', () => {
+    const db = emptyDb({
+      members: [
+        member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 89.5 }),
+        member({ id: 'm2', name: 'Bruno Lima', joinedAt: '2026-03-01', monthlyFee: 75 }),
+      ],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-07-20');
+    db.transactions[0].paymentStatus = 'paid';
+    db.transactions[0].paidAt = '2026-03-05';
+    const before = JSON.stringify(db);
+    syncMensalidades(db, 2026, 'u1', '2026-07-20');
+    expect(JSON.stringify(db)).toBe(before);
+  });
+
   it('keeps paid months and hides months before the member joined', () => {
     const movement: MovementType = {
       id: 'mt-men',

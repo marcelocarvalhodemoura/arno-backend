@@ -23,7 +23,7 @@ import {
   summarizeDeliveries,
 } from '../notifications/notify';
 import { buildWhatsAppChargeQueue } from './whatsapp-queue';
-import { dismissReview, loadDb, mutate, readDismissals } from '../shared/persistence/finance-store';
+import { dismissReview, loadDb, mutate, mutateIfChanged, readDismissals } from '../shared/persistence/finance-store';
 import { confirmReconciliation, reconciliationKey, reconciliationSuggestions } from './reconciliation';
 import { assemblyReport, delinquencyReport, memberProfile, nextSteps } from './overview';
 import { findDuplicateGroups } from '../ledger/duplicates';
@@ -116,7 +116,7 @@ export class MensalidadesService {
         toGenerate: previewGenerateMensalidades(current, year),
       };
     }
-    return mutate((db) => {
+    return mutateIfChanged((db) => {
       syncMensalidades(db, year, userId);
       return { ...buildMensalidadeReport(db, year), generated: true, toGenerate: 0 };
     });

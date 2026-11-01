@@ -12,7 +12,7 @@ import {
   settleArrearsPlan,
 } from './arrears';
 import { fail } from '../shared/http/api';
-import { mutate } from '../shared/persistence/finance-store';
+import { mutate, mutateIfChanged } from '../shared/persistence/finance-store';
 
 const createBody = z.object({
   memberId: z.string().min(1),
@@ -56,7 +56,7 @@ const settleBody = z
 @Injectable()
 export class ArrearsService {
   async list(userId: string) {
-    return mutate((db) => {
+    return mutateIfChanged((db) => {
       // Corrige mensalidades legadas (valor somado sem rateio) ao abrir a tela de dívidas.
       repairActiveEmbedSplits(db, userId);
       return listArrears(db);
@@ -64,7 +64,7 @@ export class ArrearsService {
   }
 
   async get(id: string) {
-    return mutate((db) => {
+    return mutateIfChanged((db) => {
       try {
         return listArrearsPayments(db, id);
       } catch (err) {
