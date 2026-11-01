@@ -303,6 +303,13 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
   ensureOfficialMensalidadeFees(db, userId);
   const movement = ensureMensalidadeType(db, userId);
   cancelOutOfSeasonMensalidades(db);
+  // Meses que já têm mensalidade (qualquer situação), por associado: evita varrer o caixa a cada célula.
+  const prefix = `${year}-`;
+  const existing = new Set(
+    db.transactions
+      .filter((tx) => tx.memberId && tx.date.startsWith(prefix) && isMensalidadeTx(db, tx))
+      .map((tx) => `${tx.memberId}|${tx.date.slice(0, 7)}`),
+  );
   let created = 0;
   for (const member of db.members) {
     applyOfficialFee(member, scheduleOf(db));
@@ -319,7 +326,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
     if (!first) continue;
     for (const month of MENSALIDADE_MONTHS) {
       if (month < first) continue;
-      if (mensalidadeForMonth(db, member.id, year, month)) continue;
+      if (existing.has(`${member.id}|${yearMonth(year, month)}`)) continue;
       const dueDate = dueDateForMonth(year, month, dueDay);
       const clubFeeIncluded = defaultClubFeeIncluded(member);
       const baseAmount = roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded, scheduleOf(db)));
@@ -339,6 +346,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
         ...createdAudit(userId),
       };
       db.transactions.push(createdTx);
+      existing.add(`${member.id}|${yearMonth(year, month)}`);
       syncPendingMensalidadeEmbedLink(db, createdTx, member, dueDate, userId, today);
       created += 1;
     }
@@ -516,21 +524,36 @@ export function settleMensalidades(
   return { items };
 }
 
-/** Parcela(s) de dívida já pagas referentes ao mês (para mostrar na fórmula do mês pago). */
-function paidArrearsForMonth(db: DatabaseShape, memberId: string, year: number, month: number): number {
-  const ym = yearMonthKey(year, month);
-  return roundMoney(
-    db.transactions
-      .filter(
-        (tx) => tx.memberId === memberId && tx.arrearsId && tx.arrearsYearMonth === ym && tx.paymentStatus === 'paid',
-      )
-      .reduce((sum, tx) => sum + tx.amount, 0),
-  );
+/**
+ * Índice das mensalidades e parcelas pagas do ano por associado e mês (a grade só lê).
+ * Mesma regra de mensalidadeForMonth: a paga tem prioridade, senão a primeira encontrada.
+ */
+function indexMensalidadesOfYear(db: DatabaseShape, year: number) {
+  const prefix = `${year}-`;
+  const mensalidades = new Map<string, Transaction>();
+  const paidArrears = new Map<string, number>();
+  for (const tx of db.transactions) {
+    if (!tx.memberId) continue;
+    if (tx.arrearsId && tx.arrearsYearMonth && tx.paymentStatus === 'paid') {
+      const key = `${tx.memberId}|${tx.arrearsYearMonth}`;
+      paidArrears.set(key, (paidArrears.get(key) ?? 0) + tx.amount);
+    }
+    if (!tx.date.startsWith(prefix) || !isMensalidadeTx(db, tx)) continue;
+    const key = `${tx.memberId}|${tx.date.slice(0, 7)}`;
+    const current = mensalidades.get(key);
+    if (!current || (current.paymentStatus !== 'paid' && tx.paymentStatus === 'paid')) mensalidades.set(key, tx);
+  }
+  return {
+    mensalidade: (memberId: string, month: number) => mensalidades.get(`${memberId}|${yearMonth(year, month)}`),
+    paidArrears: (memberId: string, month: number) =>
+      roundMoney(paidArrears.get(`${memberId}|${yearMonthKey(year, month)}`) ?? 0),
+  };
 }
 
 export function buildMensalidadeReport(db: DatabaseShape, year: number, today = todayISO()): MensalidadeReport {
   const dueDay = dueDayOf(db);
   const schedule = scheduleOf(db);
+  const index = indexMensalidadesOfYear(db, year);
   const rows: MensalidadeRow[] = db.members
     .filter((member) => onTimeMonthlyFee(member, undefined, schedule) > 0)
     .map((member) => {
@@ -550,7 +573,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           };
         }
         const dueDate = dueDateForMonth(year, month, dueDay);
-        const tx = mensalidadeForMonth(db, member.id, year, month);
+        const tx = index.mensalidade(member.id, month);
         if (!tx && member.status !== 'active') {
           return {
             month,
@@ -572,7 +595,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           onTime: mensalidadeFormula(member, dueDate, { late: false, clubFeeIncluded }, schedule),
           late: mensalidadeFormula(member, dueDate, { late: true, clubFeeIncluded }, schedule),
         };
-        const paidArrears = status === 'paid' ? paidArrearsForMonth(db, member.id, year, month) : 0;
+        const paidArrears = status === 'paid' ? index.paidArrears(member.id, month) : 0;
         return {
           month,
           dueDate,
