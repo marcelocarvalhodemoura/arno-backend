@@ -88,6 +88,19 @@ describe('mensalidades', () => {
     expect(syncMensalidades(db, 2026, 'u1', '2026-05-01')).toBe(0);
   });
 
+  it('the grid shows the paid mensalidade when the month also has a pending one, regardless of order', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 89.5 })],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-07-20');
+    const pending = db.transactions.find((tx) => tx.date === '2026-05-10')!;
+    db.transactions.push({ ...pending, id: 'paid-may', paymentStatus: 'paid', paidAt: '2026-05-08', amount: 75 });
+    const cell = buildMensalidadeReport(db, 2026, '2026-07-20').rows[0].cells.find((item) => item.month === 5)!;
+    expect(cell.status).toBe('paid');
+    expect(cell.transactionId).toBe('paid-may');
+    expect(cell.amount).toBe(75);
+  });
+
   it('a second sync on the same day changes nothing (the grid read does not rewrite the store)', () => {
     const db = emptyDb({
       members: [
