@@ -2,6 +2,7 @@ import { fold } from '../shared/csv';
 import { createdAudit, updatedAudit } from '../shared/audit';
 import { id } from '../shared/id';
 import { upperCaseName } from '../shared/name';
+import { isMensalidadeName } from '../statement/statement';
 import type {
   DatabaseShape,
   Member,
@@ -22,6 +23,7 @@ import {
 } from '../shared/http/schemas';
 import {
   isSpecialFamilyFeeAmount,
+  onTimeMonthlyFee,
   paysMensalidade,
   resolveFeeOverride,
   scheduleOf,
@@ -275,6 +277,30 @@ export function resolveGuardianId(db: DatabaseShape, memberId: string | undefine
   const guardian = (db.memberGuardians ?? []).find((item) => item.id === guardianId && item.memberId === memberId);
   if (!guardian) throw new Error('Responsável não pertence a este associado');
   return guardian.id;
+}
+
+/**
+ * refreshOfficialFees mudaria algo? Mesma regra, sem copiar o banco: valor oficial diferente do gravado,
+ * ou cobrança em aberto de quem não paga mensalidade.
+ */
+export function officialFeesStale(db: DatabaseShape): boolean {
+  const schedule = scheduleOf(db);
+  const nonPaying = new Set<string>();
+  for (const member of db.members) {
+    if (member.monthlyFee !== onTimeMonthlyFee(member, undefined, schedule)) return true;
+    if (!paysMensalidade(member)) nonPaying.add(member.id);
+  }
+  if (!nonPaying.size) return false;
+  const mensalidadeTypes = new Set(
+    db.movementTypes.filter((item) => isMensalidadeName(item.name)).map((item) => item.id),
+  );
+  return db.transactions.some(
+    (tx) =>
+      tx.type === 'income' &&
+      tx.paymentStatus !== 'paid' &&
+      Boolean(tx.memberId && nonPaying.has(tx.memberId)) &&
+      mensalidadeTypes.has(tx.movementTypeId),
+  );
 }
 
 export function refreshOfficialFees(db: DatabaseShape) {

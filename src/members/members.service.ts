@@ -1,7 +1,7 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
-  siblingIdsOf,
+  officialFeesStale,
   refreshOfficialFees,
   createMember,
   importMembers,
@@ -22,7 +22,7 @@ import {
   memberStatusBody,
   patchMemberBody,
 } from '../shared/http/schemas';
-import { loadDb, mutate, mutateIfChanged } from '../shared/persistence/finance-store';
+import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { IMPORT_CHUNK_SIZE } from '../shared/types';
 
 const importMembersBody = z.object({
@@ -33,21 +33,25 @@ const patchAccountBody = accountBody.partial().extend({ active: z.boolean().opti
 @Injectable()
 export class MembersService {
   async list(branchFilter?: string, status?: string) {
-    await mutateIfChanged((store) => refreshOfficialFees(store));
+    if (officialFeesStale(await loadDb())) await mutate((store) => refreshOfficialFees(store));
     const db = await loadDb();
     const users = await usersById();
+    const byMember = <T extends { memberId: string }>(items: T[]) => {
+      const map = new Map<string, T[]>();
+      for (const item of items) map.set(item.memberId, [...(map.get(item.memberId) ?? []), item]);
+      return map;
+    };
+    const accounts = byMember(db.memberAccounts);
+    const guardians = byMember(db.memberGuardians ?? []);
+    const siblings = byMember(db.memberSiblings ?? []);
     let list = db.members;
     if (branchFilter) list = list.filter((member) => member.branch === branchFilter);
     if (status) list = list.filter((member) => member.status === status);
     return list.map((member) => ({
       ...withAuthors(member, users),
-      siblingIds: siblingIdsOf(db, member.id),
-      accounts: db.memberAccounts
-        .filter((account) => account.memberId === member.id)
-        .map((account) => withAuthors(account, users)),
-      guardians: (db.memberGuardians ?? [])
-        .filter((guardian) => guardian.memberId === member.id)
-        .map((guardian) => withAuthors(guardian, users)),
+      siblingIds: (siblings.get(member.id) ?? []).map((link) => link.siblingId),
+      accounts: (accounts.get(member.id) ?? []).map((account) => withAuthors(account, users)),
+      guardians: (guardians.get(member.id) ?? []).map((guardian) => withAuthors(guardian, users)),
     }));
   }
 

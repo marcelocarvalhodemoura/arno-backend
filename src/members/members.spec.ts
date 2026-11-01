@@ -4,6 +4,8 @@ import {
   cleanedGuardians,
   createMember,
   memberHasOpenDebt,
+  officialFeesStale,
+  refreshOfficialFees,
   setMemberStatus,
   siblingIdsOf,
   statusHistoryOf,
@@ -73,6 +75,65 @@ describe('members', () => {
     expect(youth('Ana Souza', 'lobinho').email).toBe('helena@example.com');
     expect(youth('Caio Souza', 'senior').email).toBe('helena@example.com');
     expect(youth('Bia Souza', 'pioneiro').email).toBe('pioneiro@example.com');
+  });
+
+  it('officialFeesStale agrees with refreshOfficialFees', () => {
+    const db = emptyDb();
+    const ana = createMember(
+      db,
+      {
+        name: 'Ana Souza',
+        email: 'ana@example.com',
+        phone: '51999990001',
+        branch: 'lobinho',
+        role: 'jovem',
+        joinedAt: '2026-03-01',
+        clubeLtc: false,
+        guardians: [{ name: 'Helena Souza', relationship: 'Mãe', phone: '', email: 'helena@example.com' }],
+      },
+      'u1',
+    );
+    refreshOfficialFees(db);
+    expect(officialFeesStale(db)).toBe(false);
+
+    ana.monthlyFee = 1;
+    expect(officialFeesStale(db)).toBe(true);
+    refreshOfficialFees(db);
+    expect(officialFeesStale(db)).toBe(false);
+
+    // Quem não paga mensalidade (escotista) com cobrança em aberto: a rotina cancela, então está desatualizado.
+    db.movementTypes.push({
+      id: 'mt-men',
+      name: 'Mensalidade',
+      direction: 'income',
+      description: '',
+      pixKey: '',
+      branch: 'grupo',
+      active: true,
+      origin: 'manual',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    ana.role = 'escotista';
+    refreshOfficialFees(db);
+    db.transactions.push({
+      id: 'p1',
+      date: '2026-11-10',
+      type: 'income',
+      nature: 'fixed',
+      movementTypeId: 'mt-men',
+      description: 'Mensalidade novembro',
+      amount: 75,
+      branch: 'lobinho',
+      method: 'pix',
+      paymentStatus: 'pending',
+      memberId: ana.id,
+      origin: 'manual',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(officialFeesStale(db)).toBe(true);
+    refreshOfficialFees(db);
+    expect(db.transactions).toHaveLength(0);
+    expect(officialFeesStale(db)).toBe(false);
   });
 
   it('requires a contact e-mail', () => {
