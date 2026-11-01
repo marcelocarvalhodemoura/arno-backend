@@ -603,8 +603,10 @@ export function removeArrearsEmbedSplit(
     }
   }
 
+  const countBefore = db.transactions.length;
   const primary = consolidatePendingGroup(db, mensalidadeTx);
   if (primary.paymentStatus === 'paid') return;
+  const snapshot = JSON.stringify(primary);
   const member = primary.memberId ? db.members.find((item) => item.id === primary.memberId) : undefined;
   if (member && recalculateBase) {
     const club = effectiveClubFeeIncluded(member, primary.clubFeeIncluded);
@@ -622,7 +624,10 @@ export function removeArrearsEmbedSplit(
     primary.clubFeeIncluded = club;
   }
   clearMensalidadeEmbedLink(primary);
-  Object.assign(primary, updatedAudit(userId));
+  // Sem mudança, sem carimbo: senão toda leitura da grade regravaria as cobranças.
+  if (db.transactions.length !== countBefore || JSON.stringify(primary) !== snapshot) {
+    Object.assign(primary, updatedAudit(userId));
+  }
 }
 
 /**

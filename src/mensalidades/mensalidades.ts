@@ -154,6 +154,34 @@ export function mensalidadeForMonth(
   return matches.find((tx) => tx.paymentStatus === 'paid') ?? matches[0];
 }
 
+/**
+ * Mensalidade paga num mês que ainda tem cobrança pendente do mesmo associado: a pendente vai para a lixeira.
+ * Sem isso a pendente fica escondida na grade (o pago tem prioridade) e o próximo Pix importado pode quitá-la.
+ * Pendentes com acordo embutido ficam, porque a parcela do acordo não está no lançamento pago.
+ */
+export function trashPendingOfPaidMonth(db: DatabaseShape, paid: Transaction, userId: string, now = new Date()) {
+  if (paid.paymentStatus !== 'paid' || !paid.memberId || !isMensalidadeTx(db, paid)) return [];
+  const month = paid.date.slice(0, 7);
+  const pending = db.transactions.filter(
+    (tx) =>
+      tx.id !== paid.id &&
+      tx.paymentStatus === 'pending' &&
+      tx.memberId === paid.memberId &&
+      tx.date.startsWith(month) &&
+      !tx.arrearsId &&
+      !tx.splitGroupId &&
+      isMensalidadeTx(db, tx),
+  );
+  if (!pending.length) return [];
+  const drop = new Set(pending.map((tx) => tx.id));
+  db.transactions = db.transactions.filter((tx) => !drop.has(tx.id));
+  db.trash = [
+    ...(db.trash ?? []),
+    ...pending.map((tx) => ({ id: id(), transaction: tx, deletedAt: now.toISOString(), deletedBy: userId })),
+  ];
+  return pending.map((tx) => tx.id);
+}
+
 export function cancelSubsequentMensalidades(db: DatabaseShape, memberId: string, today = todayISO()): number {
   const cutoff = nextMonthStart(today);
   const drop = new Set<string>();

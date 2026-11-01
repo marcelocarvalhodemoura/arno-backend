@@ -22,7 +22,7 @@ import {
   memberStatusBody,
   patchMemberBody,
 } from '../shared/http/schemas';
-import { loadDb, mutate } from '../shared/persistence/finance-store';
+import { loadDb, mutate, mutateIfChanged } from '../shared/persistence/finance-store';
 import { IMPORT_CHUNK_SIZE } from '../shared/types';
 
 const importMembersBody = z.object({
@@ -33,7 +33,8 @@ const patchAccountBody = accountBody.partial().extend({ active: z.boolean().opti
 @Injectable()
 export class MembersService {
   async list(branchFilter?: string, status?: string) {
-    const db = await mutate((store) => refreshOfficialFees(store));
+    await mutateIfChanged((store) => refreshOfficialFees(store));
+    const db = await loadDb();
     const users = await usersById();
     let list = db.members;
     if (branchFilter) list = list.filter((member) => member.branch === branchFilter);

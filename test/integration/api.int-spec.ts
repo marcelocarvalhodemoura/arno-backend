@@ -636,7 +636,8 @@ describe('API integration', () => {
       timeZone: 'America/Sao_Paulo',
     });
     const currentMonth = Number(now.slice(0, 4)) === 2026 ? Number(now.slice(5, 7)) : 12;
-    const nextChargedMonth = currentMonth >= 12 ? null : currentMonth + 1;
+    // Cobrança vai de março a novembro: em novembro e dezembro não há mês seguinte para conferir.
+    const nextChargedMonth = currentMonth >= 11 ? null : currentMonth + 1;
     if (nextChargedMonth && nextChargedMonth >= 5) {
       expect(left.cells.find((cell: { month: number }) => cell.month === nextChargedMonth)?.status).toBe('none');
     }

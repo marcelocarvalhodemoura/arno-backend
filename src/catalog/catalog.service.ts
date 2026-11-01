@@ -14,7 +14,7 @@ import { fail, parseDto } from '../shared/http/api';
 import { errorMessage } from '../shared/http/errors';
 import { usersById, withAuthors } from '../shared/http/presenters';
 import { audience, branch, direction } from '../shared/http/schemas';
-import { loadDb, mutate } from '../shared/persistence/finance-store';
+import { loadDb, mutate, mutateIfChanged } from '../shared/persistence/finance-store';
 import { ALL_BRANCHES, resolveMensalidadeDueDay, YOUTH_BRANCHES } from '../shared/types';
 import type { AuthPayload } from '../shared/auth/token';
 
@@ -101,7 +101,7 @@ export class CatalogService {
   }
 
   async listFees(userId: string) {
-    await mutate((db) => {
+    await mutateIfChanged((db) => {
       ensureFees(db, userId);
     });
     const users = await usersById();
