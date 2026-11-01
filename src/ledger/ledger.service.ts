@@ -4,7 +4,7 @@ import { createTransaction, listTransactions, updateTransaction } from './transa
 import { closeMonth, monthLabel, purgeTrash, reopenMonth, restoreTransaction, trashTransaction } from './governance';
 import { fail, parseDto } from '../shared/http/api';
 import { errorMessage } from '../shared/http/errors';
-import { usersById, withAuthors } from '../shared/http/presenters';
+import { authorOf, usersById } from '../shared/http/presenters';
 import { createTransactionBody, patchTransactionBody } from '../shared/http/schemas';
 import { configuredNotifyChannels, notifyTransaction, summarizeDeliveries } from '../notifications/notify';
 import {
@@ -16,7 +16,6 @@ import {
 } from '../shared/persistence/finance-store';
 import { prisma } from '../shared/db';
 import { duplicateKey, findDuplicateGroups, resolveDuplicate } from './duplicates';
-import { authorOf } from '../shared/http/presenters';
 import type { BranchId } from '../shared/types';
 import { updatedAudit } from '../shared/audit';
 import { resolveArrearsTxMarker } from '../arrears/arrears';
@@ -62,19 +61,33 @@ export class LedgerService {
       type: query.type as 'income' | 'expense' | undefined,
       nature: query.nature as 'fixed' | 'variable' | undefined,
     });
-    return list.map((tx) => ({
-      ...withAuthors(tx, users),
-      movementType: db.movementTypes.find((item) => item.id === tx.movementTypeId) ?? null,
-      member: tx.memberId ? (db.members.find((member) => member.id === tx.memberId) ?? null) : null,
-      account: tx.memberAccountId
-        ? (db.memberAccounts.find((account) => account.id === tx.memberAccountId) ?? null)
-        : null,
-      guardian: tx.memberGuardianId
-        ? ((db.memberGuardians ?? []).find((item) => item.id === tx.memberGuardianId) ?? null)
-        : null,
-      hasNota: Boolean(tx.notaKey),
-      arrearsMarker: resolveArrearsTxMarker(db, tx),
-    }));
+    // Só o que a lista mostra: o cadastro completo de cada associado/tipo/conta repetido em cada linha
+    // era a maior parte da resposta (2,7 MB no ano). O resto vem de /members e /movement-types.
+    const types = new Map(db.movementTypes.map((item) => [item.id, item]));
+    const members = new Map(db.members.map((item) => [item.id, item]));
+    const accounts = new Map(db.memberAccounts.map((item) => [item.id, item]));
+    const guardians = new Map((db.memberGuardians ?? []).map((item) => [item.id, item]));
+    const author = (userId?: string) => {
+      const found = authorOf(users, userId);
+      return found ? { id: found.id, name: found.name } : null;
+    };
+    return list.map(({ notaKey, ...tx }) => {
+      const type = types.get(tx.movementTypeId);
+      const member = tx.memberId ? members.get(tx.memberId) : undefined;
+      const account = tx.memberAccountId ? accounts.get(tx.memberAccountId) : undefined;
+      const guardian = tx.memberGuardianId ? guardians.get(tx.memberGuardianId) : undefined;
+      return {
+        ...tx,
+        createdByUser: author(tx.createdBy),
+        updatedByUser: author(tx.updatedBy),
+        movementType: type ? { id: type.id, name: type.name } : null,
+        member: member ? { id: member.id, name: member.name } : null,
+        account: account ? { id: account.id, holderName: account.holderName } : null,
+        guardian: guardian ? { id: guardian.id, name: guardian.name, relationship: guardian.relationship } : null,
+        hasNota: Boolean(notaKey),
+        arrearsMarker: resolveArrearsTxMarker(db, { ...tx, notaKey }),
+      };
+    });
   }
 
   async create(body: unknown, userId: string) {
