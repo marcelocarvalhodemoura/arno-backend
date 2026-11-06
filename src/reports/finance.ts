@@ -1,7 +1,7 @@
 import { fold } from '../shared/csv';
 import { mensalidadeShares, periodFor, scheduleOf } from '../mensalidades/fee-table';
 import { isMensalidadeName } from '../statement/statement';
-import { allocationIndex } from '../allocations/allocations';
+import { allocationIndex, feeComposition, type FeeComposition } from '../allocations/allocations';
 import type {
   BranchId,
   BudgetStatus,
@@ -38,30 +38,48 @@ function isMensalidadeIncome(db: DatabaseShape, tx: Transaction): boolean {
   return Boolean(movement && isMensalidadeName(movement.name));
 }
 
+export interface BranchShare {
+  branch: BranchId;
+  amount: number;
+}
+
 /**
- * Valor do lançamento na visão por ramo.
- * Mensalidade de jovem: só a caixinha do ramo (a gravada no pagamento), não o valor integral.
+ * Quanto do lançamento é de cada ramo nas visões por ramo.
+ * A mensalidade é lançamento do Grupo, mas a caixinha (a gravada no pagamento) é do ramo do jovem:
+ * ela vai para o ramo e o resto (operacional, lanche, clube, diferença) fica no Grupo. A soma é sempre o valor cheio.
  */
-export function amountForBranchView(db: DatabaseShape, tx: Transaction): number {
-  if (tx.branch === 'grupo') return tx.amount;
-  if (!isMensalidadeIncome(db, tx)) return tx.amount;
+export function branchSharesOf(db: DatabaseShape, tx: Transaction): BranchShare[] {
+  if (!isMensalidadeIncome(db, tx)) return [{ branch: tx.branch, amount: tx.amount }];
   const allocation = allocationIndex(db).get(tx.id);
-  if (allocation) return allocation.branch;
-  const schedule = scheduleOf(db);
   const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
-  const share = member
-    ? mensalidadeShares(member, tx.date, { late: false, clubFeeIncluded: false }, schedule).branch
-    : (tx.branch === 'pioneiro' ? periodFor(schedule, tx.date).pioneer : periodFor(schedule, tx.date).regular).branch;
-  return roundMoney(Math.min(share, Math.abs(tx.amount)));
+  const youth = (allocation?.memberBranch ?? member?.branch) as BranchId | undefined;
+  if (!youth || youth === 'grupo') return [{ branch: 'grupo', amount: tx.amount }];
+  const caixinha = allocation
+    ? allocation.branch
+    : roundMoney(
+        Math.min(
+          mensalidadeShares(member!, tx.date, { late: false, clubFeeIncluded: false }, scheduleOf(db)).branch,
+          Math.abs(tx.amount),
+        ),
+      );
+  const shares: BranchShare[] = [
+    { branch: youth, amount: caixinha },
+    { branch: 'grupo', amount: roundMoney(tx.amount - caixinha) },
+  ];
+  return shares.filter((share) => share.amount !== 0);
 }
 
-/** Caixinha do ramo só na síntese/agrupamento por ramo — relatório fiscal permanece integral. */
-function usesBranchMensalidadeShare(query: Pick<CustomReportQuery, 'groupBy'>): boolean {
-  return query.groupBy === 'branch';
+/** Parte do lançamento que cabe aos ramos escolhidos (todos, se nenhum). */
+export function amountForBranches(db: DatabaseShape, tx: Transaction, branches: BranchId[] = []): number {
+  if (!branches.length) return tx.amount;
+  return sumBy(
+    branchSharesOf(db, tx).filter((share) => branches.includes(share.branch)),
+    (share) => share.amount,
+  );
 }
 
-function reportAmount(db: DatabaseShape, tx: Transaction, query: Pick<CustomReportQuery, 'groupBy'>): number {
-  return usesBranchMensalidadeShare(query) ? amountForBranchView(db, tx) : tx.amount;
+function reportAmount(db: DatabaseShape, tx: Transaction, query: Pick<CustomReportQuery, 'branches'>): number {
+  return amountForBranches(db, tx, query.branches);
 }
 
 export function cashBalance(db: DatabaseShape, until?: string): number {
@@ -91,8 +109,10 @@ function dayBefore(iso: string): string {
 
 type ReportFilters = Pick<CustomReportQuery, 'branches' | 'types' | 'natures' | 'movementTypeIds' | 'memberIds'>;
 
-function matchesReportFilters(t: Transaction, query: ReportFilters): boolean {
-  if (query.branches.length && !query.branches.includes(t.branch)) return false;
+function matchesReportFilters(db: DatabaseShape, t: Transaction, query: ReportFilters): boolean {
+  if (query.branches.length && !branchSharesOf(db, t).some((share) => query.branches.includes(share.branch))) {
+    return false;
+  }
   if (query.memberIds?.length && !(t.memberId && query.memberIds.includes(t.memberId))) return false;
   if (query.types.length && !query.types.includes(t.type)) return false;
   if (query.natures.length && !query.natures.includes(t.nature)) return false;
@@ -115,14 +135,14 @@ function hasPartitionFilters(query: ReportFilters): boolean {
 /** Saldo de abertura do relatório — respeita os mesmos filtros da apuração. */
 export function reportOpeningBalance(db: DatabaseShape, query: CustomReportQuery): number {
   const until = dayBefore(query.from);
-  const prior = db.transactions.filter((t) => isSettled(t) && t.date <= until && matchesReportFilters(t, query));
+  const prior = db.transactions.filter((t) => isSettled(t) && t.date <= until && matchesReportFilters(db, t, query));
   const net = sumBy(prior, (t) => {
     const amount = reportAmount(db, t, query);
     return t.type === 'income' ? amount : -amount;
   });
   // Saldo-caixa do grupo só no relatório integral.
-  // Visão por ramo (caixinha) ou com filtro de partição: parte do zero + histórico do recorte.
-  const base = hasPartitionFilters(query) || usesBranchMensalidadeShare(query) ? 0 : db.settings.openingBalance;
+  // Com filtro de partição (ramo, tipo…): parte do zero + histórico do recorte.
+  const base = hasPartitionFilters(query) ? 0 : db.settings.openingBalance;
   return roundMoney(base + net);
 }
 
@@ -238,10 +258,11 @@ export function cashFlow(
       const cat = typeMap.get(t.movementTypeId) ?? { income: 0, expense: 0 };
       cat[t.type] = roundMoney(cat[t.type] + t.amount);
       typeMap.set(t.movementTypeId, cat);
-      const br = branchMap.get(t.branch) ?? { income: 0, expense: 0 };
-      const branchAmount = amountForBranchView(db, t);
-      br[t.type] = roundMoney(br[t.type] + branchAmount);
-      branchMap.set(t.branch, br);
+      for (const share of branchSharesOf(db, t)) {
+        const br = branchMap.get(share.branch) ?? { income: 0, expense: 0 };
+        br[t.type] = roundMoney(br[t.type] + share.amount);
+        branchMap.set(share.branch, br);
+      }
     }
 
     return {
@@ -447,9 +468,10 @@ export function customReport(
   closing: number;
   events: EventResultRow[];
   payers: TypePayers[];
+  feeComposition: FeeComposition | null;
 } {
   const txs = db.transactions
-    .filter((t) => isSettled(t) && inRange(t.date, query.from, query.to) && matchesReportFilters(t, query))
+    .filter((t) => isSettled(t) && inRange(t.date, query.from, query.to) && matchesReportFilters(db, t, query))
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
 
@@ -496,23 +518,30 @@ export function customReport(
     }
   };
 
-  for (const t of txs) {
-    const { key, label } = keyOf(t);
-    const amount = reportAmount(db, t, query);
-    const row = buckets.get(key) ?? {
-      key,
-      label,
-      income: 0,
-      expense: 0,
-      net: 0,
-      count: 0,
-    };
-    if (t.type === 'income') row.income = roundMoney(row.income + amount);
-    else row.expense = roundMoney(row.expense + amount);
-    row.net = roundMoney(row.income - row.expense);
-    row.count += 1;
-    buckets.set(key, row);
-  }
+  // Por ramo, a mensalidade se divide: caixinha no ramo do jovem, o resto no Grupo.
+  const entriesOf = (t: Transaction): { key: string; label: string; amount: number }[] => {
+    if (query.groupBy !== 'branch') return [{ ...keyOf(t), amount: reportAmount(db, t, query) }];
+    return branchSharesOf(db, t)
+      .filter((share) => !query.branches.length || query.branches.includes(share.branch))
+      .map((share) => ({ key: share.branch, label: BRANCH_LABELS[share.branch], amount: share.amount }));
+  };
+
+  for (const t of txs)
+    for (const { key, label, amount } of entriesOf(t)) {
+      const row = buckets.get(key) ?? {
+        key,
+        label,
+        income: 0,
+        expense: 0,
+        net: 0,
+        count: 0,
+      };
+      if (t.type === 'income') row.income = roundMoney(row.income + amount);
+      else row.expense = roundMoney(row.expense + amount);
+      row.net = roundMoney(row.income - row.expense);
+      row.count += 1;
+      buckets.set(key, row);
+    }
 
   const rows = [...buckets.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
   const totals: CustomReportRow = {
@@ -569,6 +598,7 @@ export function customReport(
     closing: running,
     events: eventResults(db, txs),
     payers: typePayers(db, txs, payerTypeIds(db, txs, query)),
+    feeComposition: feeComposition(db, txs),
   };
 }
 
@@ -597,18 +627,21 @@ export function dashboard(db: DatabaseShape, year: number, month: number): Dashb
   );
   const membersInPeriod = db.members.filter((m) => m.joinedAt <= to);
 
+  const shares = periodTx.map((t) => ({ t, shares: branchSharesOf(db, t) }));
   const byBranch = DASHBOARD_BRANCHES.map((branch) => {
-    const txs = periodTx.filter((t) => t.branch === branch);
+    const sumOf = (type: Transaction['type']) =>
+      sumBy(
+        shares.filter((item) => item.t.type === type),
+        (item) =>
+          sumBy(
+            item.shares.filter((share) => share.branch === branch),
+            (share) => share.amount,
+          ),
+      );
     return {
       branch,
-      income: sumBy(
-        txs.filter((t) => t.type === 'income'),
-        (t) => amountForBranchView(db, t),
-      ),
-      expense: sumBy(
-        txs.filter((t) => t.type === 'expense'),
-        (t) => amountForBranchView(db, t),
-      ),
+      income: sumOf('income'),
+      expense: sumOf('expense'),
       members: membersInPeriod.filter((m) => m.branch === branch).length,
     };
   });

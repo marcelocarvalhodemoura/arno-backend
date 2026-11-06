@@ -4,7 +4,7 @@ import { AppModule } from './app.module';
 import './shared/env';
 import { waitForDb } from './shared/db';
 import { migrate } from './shared/database/migrate';
-import { backfillAllocations, seedIfEmpty } from './shared/persistence/finance-store';
+import { backfillAllocations, migrateMensalidadeBranches, seedIfEmpty } from './shared/persistence/finance-store';
 import { promoteConfiguredSuperadmins, rehashLegacySeedUsers } from './identity/users';
 import { startOutboxWorker } from './notifications/outbox';
 import { AllExceptionsFilter } from './shared/filters/all-exceptions.filter';
@@ -19,6 +19,12 @@ async function bootstrap() {
   const upgraded = await rehashLegacySeedUsers();
   if (upgraded > 0) {
     console.log(`Senhas de ${upgraded} usuário(s) inicial(is) regravadas em bcrypt`);
+  }
+  try {
+    const moved = await migrateMensalidadeBranches();
+    if (moved) console.log(`Mensalidades passadas para o Grupo: ${moved}`);
+  } catch (error) {
+    console.error('Não foi possível passar as mensalidades para o Grupo', error);
   }
   try {
     const allocations = await backfillAllocations();

@@ -6,6 +6,7 @@ import type { CreateTransactionInput, PatchTransactionInput } from '../shared/ht
 import { resolveGuardianId } from '../members/members';
 import { todayISO, trashPendingOfPaidMonth } from '../mensalidades/mensalidades';
 import { isMensalidadeName, sicrediPayer } from '../statement/statement';
+import { branchSharesOf } from '../reports/finance';
 import { registerArrearsInstallmentPaid, dissolveMensalidadeArrearsSplitIfSeparate } from '../arrears/arrears';
 
 export function stampPaidAt(
@@ -39,7 +40,13 @@ export function listTransactions(
   },
 ) {
   let list = db.transactions.filter((item) => item.date >= filters.from && item.date <= filters.to);
-  if (filters.branch) list = list.filter((item) => item.branch === filters.branch);
+  // Mensalidade é do Grupo, mas aparece também no filtro do ramo do jovem (pela caixinha).
+  if (filters.branch) {
+    list = list.filter(
+      (item) =>
+        item.branch === filters.branch || branchSharesOf(db, item).some((share) => share.branch === filters.branch),
+    );
+  }
   if (filters.type) list = list.filter((item) => item.type === filters.type);
   if (filters.nature) list = list.filter((item) => item.nature === filters.nature);
   return [...list].sort((a, b) => b.date.localeCompare(a.date));

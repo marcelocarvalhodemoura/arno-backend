@@ -32,6 +32,21 @@ function isMensalidadeTx(db: DatabaseShape, tx: Transaction) {
   return Boolean(movement && isMensalidadeName(movement.name));
 }
 
+/**
+ * Toda mensalidade é lançamento do Grupo: entra inteira no caixa do grupo e a divisão gravada
+ * diz quanto dela é de cada fundo (operacional, caixinha do ramo do jovem, lanche, clube).
+ * Devolve quantos lançamentos foram passados para o Grupo.
+ */
+export function normalizeMensalidadeBranches(db: DatabaseShape): number {
+  let changed = 0;
+  for (const tx of db.transactions) {
+    if (tx.branch === 'grupo' || !isMensalidadeTx(db, tx)) continue;
+    tx.branch = 'grupo';
+    changed += 1;
+  }
+  return changed;
+}
+
 /** Mensalidade quitada de associado que paga mensalidade: é a que recebe divisão. */
 function allocatable(db: DatabaseShape, tx: Transaction): Member | null {
   if (tx.paymentStatus === 'pending' || !tx.memberId) return null;
@@ -375,5 +390,105 @@ export function buildConference(db: DatabaseShape, year: number): ConferenceRepo
       .sort((a, b) => a.memberBranch.localeCompare(b.memberBranch)),
     counts,
     issues,
+  };
+}
+
+export interface FeeCompositionBranch extends DestinationTotals {
+  memberBranch: string;
+}
+
+/** Quanto das mensalidades recebidas foi para cada parte, pela divisão gravada no pagamento. */
+export interface FeeComposition {
+  /** Total das mensalidades pagas da lista (com e sem divisão). */
+  total: number;
+  /** Mensalidades com divisão gravada; `received` = soma das partes + diferença. */
+  totals: DestinationTotals;
+  /** Mensalidades pagas sem divisão (sem associado ou associado que não paga mensalidade). */
+  unlinked: { count: number; amount: number };
+  byBranch: FeeCompositionBranch[];
+}
+
+/**
+ * Composição das mensalidades pagas entre os lançamentos dados (o período e os filtros são de quem chama).
+ * Devolve null se não houver mensalidade paga na lista.
+ */
+export function feeComposition(db: DatabaseShape, txs: Transaction[]): FeeComposition | null {
+  const index = allocationIndex(db);
+  const totals = emptyTotals();
+  const byBranch = new Map<string, DestinationTotals>();
+  const unlinked = { count: 0, amount: 0 };
+  let total = 0;
+  for (const tx of txs) {
+    if (tx.paymentStatus === 'pending' || !isMensalidadeTx(db, tx)) continue;
+    total = roundMoney(total + tx.amount);
+    const allocation = index.get(tx.id);
+    if (!allocation) {
+      unlinked.count += 1;
+      unlinked.amount = roundMoney(unlinked.amount + tx.amount);
+      continue;
+    }
+    addTo(totals, allocation);
+    const branchTotals = byBranch.get(allocation.memberBranch) ?? emptyTotals();
+    addTo(branchTotals, allocation);
+    byBranch.set(allocation.memberBranch, branchTotals);
+  }
+  if (!totals.count && !unlinked.count) return null;
+  return {
+    total,
+    totals,
+    unlinked,
+    byBranch: [...byBranch.entries()]
+      .map(([memberBranch, value]) => ({ memberBranch, ...value }))
+      .sort((a, b) => a.memberBranch.localeCompare(b.memberBranch)),
+  };
+}
+
+/** Divisão de uma mensalidade para mostrar dentro do lançamento (fluxo de caixa). */
+export interface MensalidadeFunds {
+  /** Ramo do jovem, que recebe a caixinha. */
+  memberBranch: string;
+  /** Caixa do grupo: operacional + diluição + acréscimo por atraso + parcela de dívida. */
+  groupCash: number;
+  operational: number;
+  dilution: number;
+  lateFee: number;
+  arrears: number;
+  branch: number;
+  snack: number;
+  club: number;
+  /** Recebido − tabela (a conferir). */
+  difference: number;
+  pendingSplit: boolean;
+  /** true = mensalidade ainda não paga: divisão prevista pela composição de hoje, nada gravado. */
+  preview: boolean;
+}
+
+/**
+ * Divisão de uma mensalidade em fundos: a gravada no pagamento ou, se ainda não paga, a prevista.
+ * Null se não for mensalidade de associado que paga mensalidade.
+ */
+export function mensalidadeFunds(
+  db: DatabaseShape,
+  tx: Transaction,
+  allocations = allocationIndex(db),
+): MensalidadeFunds | null {
+  if (!tx.memberId || !isMensalidadeTx(db, tx)) return null;
+  const stored = allocations.get(tx.id);
+  const allocation =
+    stored ?? (tx.paymentStatus === 'pending' ? computeAllocation(db, { ...tx, paymentStatus: 'paid' }) : null);
+  if (!allocation) return null;
+  return {
+    memberBranch: allocation.memberBranch,
+    groupCash: groupCashOf(allocation),
+    operational: allocation.group,
+    dilution: allocation.dilution,
+    lateFee: allocation.lateFee,
+    arrears: allocation.arrears,
+    branch: allocation.branch,
+    snack: allocation.snack,
+    club: allocation.club,
+    difference: allocation.difference,
+    pendingSplit: allocation.pendingSplit,
+    preview: !stored,
   };
 }

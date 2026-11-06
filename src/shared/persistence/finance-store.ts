@@ -24,7 +24,7 @@ import { countUsers } from '../../identity/users';
 import { assertClosedMonthsUntouched, diffTransactions, purgeTrash, type HistoryEntry } from '../../ledger/governance';
 import { DEFAULT_MENSALIDADE_DUE_DAY, resolveMensalidadeDueDay } from '../types';
 import { DEFAULT_FEE_SCHEDULE } from '../../mensalidades/fee-table';
-import { syncAllocations } from '../../allocations/allocations';
+import { normalizeMensalidadeBranches, syncAllocations } from '../../allocations/allocations';
 
 let cache: DatabaseShape | null = null;
 
@@ -47,6 +47,7 @@ export async function persist(db: DatabaseShape): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
+      normalizeMensalidadeBranches(db);
       syncAllocations(db);
       await writeFinance(tx, db);
     },
@@ -393,8 +394,11 @@ export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restore
     async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
       const db = await readFinance(tx);
+      // Mensalidade antiga ainda no ramo do jovem vira Grupo antes da foto, para não travar mês fechado.
+      normalizeMensalidadeBranches(db);
       const before = new Map(db.transactions.map((item) => [item.id, structuredClone(item)]));
       const value = fn(db);
+      normalizeMensalidadeBranches(db);
       assertClosedMonthsUntouched(before, db);
       purgeTrash(db);
       syncAllocations(db);
@@ -461,6 +465,35 @@ export async function backfillAllocations(): Promise<{ computed: number; removed
   const pending = syncAllocations(probe);
   if (!pending.computed && !pending.removed) return pending;
   return mutate((db) => syncAllocations(db));
+}
+
+/**
+ * Passa para o Grupo as mensalidades gravadas no ramo do jovem (antes de 2026-11-06 a mensalidade ficava no ramo).
+ * O total do mês não muda, por isso vale também para meses fechados. Fica no histórico de cada lançamento,
+ * sem autor (foi o sistema). Não grava nada se já estiver tudo no Grupo.
+ */
+export async function migrateMensalidadeBranches(): Promise<number> {
+  const probe = structuredClone(await loadDb());
+  if (!normalizeMensalidadeBranches(probe)) return 0;
+  const result = await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(CAST(${FINANCE_LOCK} AS bigint))`;
+      const db = await readFinance(tx);
+      const before = new Map(db.transactions.map((item) => [item.id, structuredClone(item)]));
+      const changed = normalizeMensalidadeBranches(db);
+      if (!changed) return { db, changed };
+      syncAllocations(db);
+      await writeFinance(tx, db);
+      await recordHistory(
+        tx,
+        diffTransactions(before, db).map((entry) => ({ ...entry, byId: null })),
+      );
+      return { db, changed };
+    },
+    { timeout: WRITE_TIMEOUT_MS },
+  );
+  cache = result.db;
+  return result.changed;
 }
 
 export async function resetDb(): Promise<DatabaseShape> {

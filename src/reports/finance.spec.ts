@@ -1,5 +1,6 @@
 import {
-  amountForBranchView,
+  amountForBranches,
+  branchSharesOf,
   budgetPaceMonth,
   budgetStatus,
   cashBalance,
@@ -415,24 +416,43 @@ describe('finance helpers', () => {
       ],
       movementTypes: [...db.movementTypes, movement({ id: 'mt-mens', name: 'Mensalidade', direction: 'income' })],
     };
-    const base = { type: 'income' as const, movementTypeId: 'mt-mens' };
+    const base = { type: 'income' as const, movementTypeId: 'mt-mens', branch: 'grupo' as const };
     expect(
-      amountForBranchView(
-        fixture,
-        tx({ ...base, id: 'a', date: '2026-08-10', amount: 39.5, branch: 'pioneiro', memberId: 'm-pio' }),
-      ),
+      amountForBranches(fixture, tx({ ...base, id: 'a', date: '2026-08-10', amount: 39.5, memberId: 'm-pio' }), [
+        'pioneiro',
+      ]),
     ).toBe(5);
     expect(
-      amountForBranchView(fixture, tx({ ...base, id: 'b', date: '2026-03-10', amount: 60, branch: 'lobinho' })),
-    ).toBe(5);
-    expect(
-      amountForBranchView(fixture, tx({ ...base, id: 'c', date: '2026-08-10', amount: 89.5, branch: 'lobinho' })),
-    ).toBe(8);
+      branchSharesOf(fixture, tx({ ...base, id: 'b', date: '2026-03-10', amount: 39.5, memberId: 'm-pio' })),
+    ).toEqual([
+      { branch: 'pioneiro', amount: 5 },
+      { branch: 'grupo', amount: 34.5 },
+    ]);
+    // Sem associado não há ramo do jovem: fica tudo no Grupo.
+    expect(branchSharesOf(fixture, tx({ ...base, id: 'c', date: '2026-08-10', amount: 89.5 }))).toEqual([
+      { branch: 'grupo', amount: 89.5 },
+    ]);
   });
 
-  it('attributes only the ramo caixinha (R$ 8) from mensalidades in branch views', () => {
+  it('splits a Grupo mensalidade in branch views: caixinha to the youth branch, the rest to the Grupo', () => {
     const fixture: DatabaseShape = {
       ...db,
+      members: [
+        {
+          id: 'm-ana',
+          name: 'Ana',
+          email: '',
+          phone: '',
+          branch: 'lobinho',
+          role: 'jovem',
+          monthlyFee: 89.5,
+          status: 'active',
+          joinedAt: '2026-03-01',
+          clubeLtc: false,
+          origin: 'manual',
+          createdAt: '2026-03-01T00:00:00.000Z',
+        },
+      ],
       movementTypes: [...db.movementTypes, movement({ id: 'mt-mens', name: 'Mensalidade', direction: 'income' })],
       transactions: [
         ...db.transactions,
@@ -441,7 +461,8 @@ describe('finance helpers', () => {
           date: '2026-08-10',
           type: 'income',
           amount: 89.5,
-          branch: 'lobinho',
+          branch: 'grupo',
+          memberId: 'm-ana',
           movementTypeId: 'mt-mens',
           description: 'Mensalidade agosto — Ana',
         }),
@@ -455,47 +476,32 @@ describe('finance helpers', () => {
         }),
       ],
     };
-
-    const byBranch = customReport(fixture, {
+    const query = {
       from: '2026-08-01',
       to: '2026-08-31',
       branches: [],
       types: [],
       natures: [],
       movementTypeIds: [],
-      groupBy: 'branch',
-    });
+    };
+
+    const byBranch = customReport(fixture, { ...query, groupBy: 'branch' });
     const lobinho = byBranch.rows.find((row) => row.key === 'lobinho');
+    const grupo = byBranch.rows.find((row) => row.key === 'grupo');
     expect(lobinho?.income).toBe(58); // 8 caixinha + 50 doação
     expect(lobinho?.count).toBe(2);
-    // Visão por ramo não mistura saldo-caixa do grupo no saldo inicial.
-    expect(byBranch.opening).toBe(0);
-
-    const fiscal = customReport(fixture, {
-      from: '2026-08-01',
-      to: '2026-08-31',
-      branches: [],
-      types: [],
-      natures: [],
-      movementTypeIds: [],
-      groupBy: 'movementType',
-    });
-    const mensalidade = fiscal.rows.find((row) => row.key === 'mt-mens');
-    expect(mensalidade?.income).toBe(89.5);
+    expect(grupo?.income).toBeGreaterThanOrEqual(81.5);
+    // Os ramos somam o caixa inteiro: o total por ramo é o mesmo do relatório sem agrupar.
+    const fiscal = customReport(fixture, { ...query, groupBy: 'movementType' });
+    expect(byBranch.totals.income).toBe(fiscal.totals.income);
+    expect(fiscal.rows.find((row) => row.key === 'mt-mens')?.income).toBe(89.5);
     expect(fiscal.opening).toBe(1000);
 
-    // Comissão fiscal com filtro de ramo mantém valor integral da mensalidade.
-    const fiscalLob = customReport(fixture, {
-      from: '2026-08-01',
-      to: '2026-08-31',
-      branches: ['lobinho'],
-      types: [],
-      natures: [],
-      movementTypeIds: [],
-      groupBy: 'movementType',
-    });
-    expect(fiscalLob.totals.income).toBe(139.5);
-    expect(fiscalLob.ledger.find((line) => line.id === 't-mens-lob')?.income).toBe(89.5);
+    // Filtro de ramo: a mensalidade entra só com a caixinha (o resto é do Grupo).
+    const onlyLobinho = customReport(fixture, { ...query, branches: ['lobinho'], groupBy: 'movementType' });
+    expect(onlyLobinho.totals.income).toBe(58);
+    expect(onlyLobinho.ledger.find((line) => line.id === 't-mens-lob')?.income).toBe(8);
+    expect(onlyLobinho.opening).toBe(0);
   });
 
   it('groups a custom report by account holder', () => {
