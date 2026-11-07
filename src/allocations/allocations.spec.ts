@@ -3,13 +3,16 @@ import {
   buildConference,
   computeAllocation,
   describeAllocation,
+  feeComposition,
+  mensalidadeFunds,
+  normalizeMensalidadeBranches,
   groupCashOf,
   partsTotal,
   syncAllocations,
 } from './allocations';
 import { DEFAULT_FEE_SCHEDULE, mensalidadeFormula } from '../mensalidades/fee-table';
 import { buildSnackFundPreview } from '../snack-fund/snack-fund';
-import { amountForBranchView } from '../reports/finance';
+import { branchSharesOf } from '../reports/finance';
 import type { DatabaseShape, Member, MovementType, Transaction, YouthBranchId } from '../shared/types';
 import { roundMoney } from '../shared/types';
 
@@ -166,7 +169,10 @@ describe('allocations', () => {
     scout.branch = 'pioneiro';
     syncAllocations(db, NOW);
     expect(db.allocations![0]).toMatchObject({ memberBranch: 'escoteiro', branch: 8, snack: 24 });
-    expect(amountForBranchView(db, db.transactions[0])).toBe(8);
+    expect(branchSharesOf(db, db.transactions[0])).toEqual([
+      { branch: 'escoteiro', amount: 8 },
+      { branch: 'grupo', amount: 81.5 },
+    ]);
   });
 
   it('recomputes when the transaction itself changes and drops it when it is no longer paid', () => {
@@ -261,6 +267,91 @@ describe('allocations', () => {
       ['escoteiro', 8, 82],
       ['lobinho', 8, 89.5],
     ]);
+  });
+
+  it('totals the composition of the paid mensalidades in a list, by part and by member branch', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1' }), member({ id: 'm2', branch: 'lobinho' })],
+      transactions: [
+        mensalidadeTx({ id: 't1', memberId: 'm1', date: '2026-05-10', paidAt: '2026-05-08', amount: 89.5 }),
+        mensalidadeTx({ id: 't2', memberId: 'm2', date: '2026-05-10', paidAt: '2026-05-08', amount: 89.5 }),
+        mensalidadeTx({ id: 't3', memberId: undefined, date: '2026-05-10', amount: 40 }),
+        mensalidadeTx({ id: 't4', memberId: 'm1', date: '2026-06-10', amount: 89.5, paymentStatus: 'pending' }),
+        mensalidadeTx({ id: 't5', memberId: 'm1', date: '2026-05-12', amount: 30, movementTypeId: 'other' }),
+      ],
+    });
+    syncAllocations(db, NOW);
+    const composition = feeComposition(db, db.transactions)!;
+    expect(composition.total).toBe(219);
+    expect(composition.unlinked).toEqual({ count: 1, amount: 40 });
+    expect(composition.totals).toMatchObject({
+      count: 2,
+      received: 179,
+      group: 86,
+      dilution: 9,
+      groupCash: 95,
+      branch: 16,
+      snack: 48,
+      club: 20,
+      difference: 0,
+    });
+    expect(composition.byBranch.map((row) => [row.memberBranch, row.branch])).toEqual([
+      ['escoteiro', 8],
+      ['lobinho', 8],
+    ]);
+    expect(feeComposition(db, [db.transactions[4]])).toBeNull();
+  });
+
+  it('moves every mensalidade to the Grupo and shows its funds inside the transaction', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1', branch: 'lobinho' })],
+      transactions: [
+        mensalidadeTx({
+          id: 't1',
+          memberId: 'm1',
+          branch: 'lobinho',
+          date: '2026-05-10',
+          paidAt: '2026-05-08',
+          amount: 89.5,
+        }),
+        mensalidadeTx({
+          id: 't2',
+          memberId: 'm1',
+          branch: 'lobinho',
+          date: '2026-06-10',
+          amount: 89.5,
+          paymentStatus: 'pending',
+        }),
+        mensalidadeTx({
+          id: 't3',
+          memberId: 'm1',
+          branch: 'lobinho',
+          date: '2026-05-12',
+          amount: 30,
+          movementTypeId: 'other',
+        }),
+      ],
+    });
+    expect(normalizeMensalidadeBranches(db)).toBe(2);
+    expect(db.transactions.map((tx) => tx.branch)).toEqual(['grupo', 'grupo', 'lobinho']);
+    expect(normalizeMensalidadeBranches(db)).toBe(0);
+    syncAllocations(db, NOW);
+
+    expect(mensalidadeFunds(db, db.transactions[0])).toMatchObject({
+      memberBranch: 'lobinho',
+      groupCash: 47.5,
+      operational: 43,
+      dilution: 4.5,
+      branch: 8,
+      snack: 24,
+      club: 10,
+      difference: 0,
+      preview: false,
+    });
+    // Ainda não paga: divisão prevista, nada gravado.
+    expect(mensalidadeFunds(db, db.transactions[1])).toMatchObject({ branch: 8, snack: 24, preview: true });
+    expect(db.allocations).toHaveLength(1);
+    expect(mensalidadeFunds(db, db.transactions[2])).toBeNull();
   });
 
   describe('the parts always add up to the formula total', () => {

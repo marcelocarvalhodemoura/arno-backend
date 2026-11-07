@@ -19,6 +19,7 @@ import { duplicateKey, findDuplicateGroups, resolveDuplicate } from './duplicate
 import type { BranchId } from '../shared/types';
 import { updatedAudit } from '../shared/audit';
 import { resolveArrearsTxMarker } from '../arrears/arrears';
+import { allocationIndex, mensalidadeFunds } from '../allocations/allocations';
 import { splitTransactionWithMensalidades } from '../mensalidades/mensalidades';
 import {
   assertNotaFile,
@@ -71,6 +72,7 @@ export class LedgerService {
       const found = authorOf(users, userId);
       return found ? { id: found.id, name: found.name } : null;
     };
+    const allocations = allocationIndex(db);
     return list.map(({ notaKey, ...tx }) => {
       const type = types.get(tx.movementTypeId);
       const member = tx.memberId ? members.get(tx.memberId) : undefined;
@@ -86,6 +88,8 @@ export class LedgerService {
         guardian: guardian ? { id: guardian.id, name: guardian.name, relationship: guardian.relationship } : null,
         hasNota: Boolean(notaKey),
         arrearsMarker: resolveArrearsTxMarker(db, { ...tx, notaKey }),
+        // Mensalidade é do Grupo; aqui vai quanto dela é de cada fundo.
+        funds: mensalidadeFunds(db, { ...tx, notaKey }, allocations),
       };
     });
   }

@@ -3,6 +3,7 @@ import { BRANCH_LABELS, roundMoney } from '../shared/types';
 import { isMensalidadeName, isUnidentifiedName } from '../statement/statement';
 import { cashBalance } from '../reports/finance';
 import { buildMoneyMap } from '../branch-ledger/branch-ledger';
+import { feeComposition } from '../allocations/allocations';
 import { buildMensalidadeReport, isMensalidadeYearGenerated, listOpenMensalidades, todayISO } from './mensalidades';
 
 function typeName(db: DatabaseShape, movementTypeId: string) {
@@ -145,6 +146,8 @@ export function assemblyReport(db: DatabaseShape, from: string, to: string, toda
     result: roundMoney(income - expense),
     // Mesma divisão do Extrato dos ramos: cada real num destino só, somando o saldo final.
     destinations: buildMoneyMap(db, to, from),
+    // Quanto das mensalidades pagas no período foi para cada parte (divisão gravada no pagamento).
+    feeComposition: feeComposition(db, settled),
     byType: [...typeTotals.values()].sort((a, b) => b.amount - a.amount),
     delinquency: {
       count: feesOverdue.length,
