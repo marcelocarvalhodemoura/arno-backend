@@ -569,3 +569,33 @@ model PaymentProof {
   @@index([phone])
   @@map("payment_proofs")
 }
+
+/// Permuta: serviço prestado ao grupo que abate mensalidades (meses inteiros) e o resto vira doação.
+/// status: pending (aguarda a diretoria) | approving (baixando) | approved | rejected.
+model Barter {
+  id                    String    @id @default(dbgenerated("uuidv7()")) @db.Uuid
+  /// Jovem da família que recebe o abatimento (irmãos entram junto). Vazio = só doação.
+  memberId              String?   @map("member_id") @db.Uuid
+  donorName             String    @map("donor_name")
+  service               String
+  amount                Decimal   @db.Decimal(12, 2)
+  serviceDate           DateTime  @map("service_date") @db.Date
+  expenseTypeId         String    @map("expense_type_id") @db.Uuid
+  donationTypeId        String    @map("donation_type_id") @db.Uuid
+  notes                 String    @default("")
+  status                String    @default("pending")
+  decisionNote          String    @default("") @map("decision_note")
+  coveredAmount         Decimal?  @map("covered_amount") @db.Decimal(12, 2)
+  donationAmount        Decimal?  @map("donation_amount") @db.Decimal(12, 2)
+  settledIds            String[]  @default([]) @map("settled_ids")
+  expenseTransactionId  String?   @map("expense_transaction_id") @db.Uuid
+  donationTransactionId String?   @map("donation_transaction_id") @db.Uuid
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById           String?   @map("created_by") @db.Uuid
+  decidedAt             DateTime? @map("decided_at") @db.Timestamptz(6)
+  decidedById           String?   @map("decided_by") @db.Uuid
+
+  @@index([status])
+  @@index([memberId])
+  @@map("barters")
+}

@@ -16,6 +16,7 @@ export const SCREEN_LABELS: Record<string, string> = {
   '/integracao': 'Integrações',
   '/configuracoes': 'Disparos de mensagem',
   '/auditoria': 'Auditoria',
+  '/permutas': 'Permutas',
 };
 
 export function screenLabel(path: string): string {
@@ -38,6 +39,9 @@ const ACTION_LABELS: [RegExp, string][] = [
   [/^POST \/api\/reconciliation\/confirm$/, 'Conciliação confirmada'],
   [/^POST \/api\/reconciliation\/dismiss$/, 'Sugestão de conciliação recusada'],
   [/^PATCH \/api\/mensalidades\/settle$/, 'Mensalidade baixada'],
+  [/^POST \/api\/permutas$/, 'Permuta registrada'],
+  [/^POST \/api\/permutas\/:id\/aprovar$/, 'Permuta aprovada'],
+  [/^POST \/api\/permutas\/:id\/recusar$/, 'Permuta recusada'],
   [/^POST \/api\/mensalidades\/allocate$/, 'Pix rateado em mensalidades'],
   [/^POST \/api\/mensalidades\/generate$/, 'Cobranças do ano geradas'],
   [/^PATCH \/api\/mensalidades\/club-fee/, 'Taxa do clube alterada'],

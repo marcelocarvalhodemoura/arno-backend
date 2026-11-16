@@ -16,6 +16,7 @@ import { BankingModule } from './banking/banking.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuditModule } from './audit/audit.module';
 import { ComprovantesModule } from './comprovantes/comprovantes.module';
+import { BarterModule } from './barter/barter.module';
 import { AllocationsModule } from './allocations/allocations.module';
 import { BranchLedgerModule } from './branch-ledger/branch-ledger.module';
 import { ReportTemplatesModule } from './report-templates/report-templates.module';
@@ -39,6 +40,7 @@ import { ReportTemplatesModule } from './report-templates/report-templates.modul
     NotificationsModule,
     AuditModule,
     ComprovantesModule,
+    BarterModule,
     AllocationsModule,
     BranchLedgerModule,
     ReportTemplatesModule,
