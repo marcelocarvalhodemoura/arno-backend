@@ -23,6 +23,7 @@ import type {
   MensalidadeReport,
   MensalidadeRow,
   Member,
+  PaymentMethod,
   Transaction,
 } from '../shared/types';
 import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
@@ -438,6 +439,8 @@ export function settleMensalidade(
     timing: MensalidadeSettleTiming;
     paidAt?: string | null;
     notifyReceipt?: boolean;
+    /** Meio do pagamento (Pix, dinheiro, cartão…). Sem ele, mantém o meio atual do lançamento. */
+    method?: PaymentMethod;
   },
   userId: string,
   today = todayISO(),
@@ -461,10 +464,12 @@ export function settleMensalidade(
 
   tx.amount = base;
   tx.clubFeeIncluded = clubFeeIncluded;
+  if (input.method) tx.method = input.method;
   stampPaidAt(tx, movement?.name ?? 'Mensalidade', 'paid', paidAt, today);
   Object.assign(tx, updatedAudit(userId));
 
   if (arrearsPart && arrearsPart.paymentStatus !== 'paid') {
+    if (input.method) arrearsPart.method = input.method;
     const arrearsMovement = db.movementTypes.find((item) => item.id === arrearsPart.movementTypeId);
     stampPaidAt(arrearsPart, arrearsMovement?.name ?? 'Acordo', 'paid', paidAt, today);
     Object.assign(arrearsPart, updatedAudit(userId));
@@ -499,6 +504,7 @@ export function settleMensalidades(
     timing: MensalidadeSettleTiming;
     paidAt?: string | null;
     notifyReceipt?: boolean;
+    method?: PaymentMethod;
   },
   userId: string,
   today = todayISO(),
@@ -514,6 +520,7 @@ export function settleMensalidades(
         timing: input.timing,
         paidAt: input.paidAt,
         notifyReceipt: input.notifyReceipt,
+        method: input.method,
       },
       userId,
       today,
@@ -609,6 +616,8 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           arrearsPlanId: embed.arrearsPlanId,
           formula,
           paidArrearsInstallment: paidArrears > 0 ? paidArrears : undefined,
+          paidAt: status === 'paid' ? (tx?.paidAt ?? undefined) : undefined,
+          method: status === 'paid' ? tx?.method : undefined,
         };
       });
       return {

@@ -146,6 +146,11 @@ export class MensalidadesController {
         timing: { type: 'string', enum: ['on_time', 'late'] },
         paidAt: { type: 'string', example: '2026-09-08', nullable: true },
         notifyReceipt: { type: 'boolean', example: true },
+        method: {
+          type: 'string',
+          enum: ['pix', 'cash', 'transfer', 'card', 'other'],
+          description: 'Meio do pagamento. Omitido: mantém o meio atual (Pix).',
+        },
       },
     },
   })

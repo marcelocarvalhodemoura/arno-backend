@@ -486,6 +486,9 @@ export interface MensalidadeCell {
   formula?: { onTime: MensalidadeFormula; late: MensalidadeFormula };
   /** Parcela de dívida paga junto com a mensalidade (meses pagos). */
   paidArrearsInstallment?: number;
+  /** Data e meio do pagamento (só meses pagos). */
+  paidAt?: string;
+  method?: PaymentMethod;
 }
 
 export interface MensalidadeRow {
