@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const youthBranch = z.enum(['filhote', 'lobinho', 'escoteiro', 'senior', 'pioneiro', 'flor-de-lis']);
 export const branch = z.enum(['filhote', 'lobinho', 'escoteiro', 'senior', 'pioneiro', 'flor-de-lis', 'grupo']);
 export const method = z.enum(['pix', 'cash', 'transfer', 'card', 'other']);
+/** Meio gravado: inclui a permuta, que só pode ser mantida (nunca escolhida) na edição. */
+export const storedMethod = z.enum(['pix', 'cash', 'transfer', 'card', 'other', 'barter']);
 export const paymentStatus = z.enum(['paid', 'pending']);
 export const nature = z.enum(['fixed', 'variable']);
 export const txType = z.enum(['income', 'expense']);
@@ -149,7 +151,7 @@ export const patchTransactionBody = z.object({
   description: z.string().min(2).optional(),
   amount: z.number().positive().optional(),
   branch: branch.optional(),
-  method: method.optional(),
+  method: storedMethod.optional(),
   paymentStatus: paymentStatus.optional(),
   paidAt: z
     .string()

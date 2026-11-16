@@ -13,6 +13,7 @@ import {
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
   settleMensalidade,
+  settleMensalidades,
   splitTransactionWithMensalidades,
   syncMensalidades,
 } from './mensalidades';
@@ -405,6 +406,41 @@ describe('mensalidades', () => {
     const mayCell = buildMensalidadeReport(db, 2026, '2026-09-20').rows[0].cells.find((cell) => cell.month === 5);
     expect(mayCell?.onTimeAmount).toBe(89.5);
     expect(mayCell?.lateAmount).toBe(99.5);
+  });
+
+  it('records the payment method chosen when settling (default stays pix)', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01' })],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-09-20');
+    const september = db.transactions.find((tx) => tx.date === '2026-09-10')!;
+    const october = db.transactions.find((tx) => tx.date === '2026-10-10')!;
+    const november = db.transactions.find((tx) => tx.date === '2026-11-10')!;
+    expect(september.method).toBe('pix');
+
+    const cash = settleMensalidade(
+      db,
+      { transactionId: september.id, timing: 'on_time', paidAt: '2026-09-08', method: 'cash' },
+      'u1',
+      '2026-09-20',
+    );
+    expect(cash?.tx.method).toBe('cash');
+
+    const batch = settleMensalidades(
+      db,
+      { transactionIds: [october.id], timing: 'on_time', paidAt: '2026-09-08', method: 'card' },
+      'u1',
+      '2026-09-20',
+    );
+    expect(batch.items[0].tx.method).toBe('card');
+
+    const keep = settleMensalidade(
+      db,
+      { transactionId: november.id, timing: 'on_time', paidAt: '2026-09-08' },
+      'u1',
+      '2026-09-20',
+    );
+    expect(keep?.tx.method).toBe('pix');
   });
 
   it('allocates a paid bank credit across pioneer março/abril at the late amount', () => {

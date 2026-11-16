@@ -15,6 +15,7 @@ import {
 } from './mensalidades';
 import { collectMensalidadeNotifyIds, notifyMensalidadeTransactions } from './notify';
 import { fail } from '../shared/http/api';
+import { method as paymentMethod } from '../shared/http/schemas';
 import {
   configuredNotifyChannels,
   lastWhatsAppChargeByMember,
@@ -72,6 +73,7 @@ const settleBody = z
       .nullable()
       .optional(),
     notifyReceipt: z.boolean().optional(),
+    method: paymentMethod.optional(),
   })
   .refine((data) => Boolean(data.transactionId) || Boolean(data.transactionIds?.length), {
     message: 'Informe transactionId ou transactionIds',
@@ -255,6 +257,7 @@ export class MensalidadesService {
               timing: parsed.data.timing,
               paidAt: parsed.data.paidAt,
               notifyReceipt: parsed.data.notifyReceipt !== false,
+              method: parsed.data.method,
             },
             userId,
           );
@@ -267,6 +270,7 @@ export class MensalidadesService {
             timing: parsed.data.timing,
             paidAt: parsed.data.paidAt,
             notifyReceipt: parsed.data.notifyReceipt !== false,
+            method: parsed.data.method,
           },
           userId,
         );

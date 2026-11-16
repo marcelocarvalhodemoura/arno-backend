@@ -95,6 +95,9 @@ export function updateTransaction(
     paymentStatus,
     ...rest
   } = input;
+  if (rest.method === 'barter' && tx.method !== 'barter') {
+    throw new Error('Permuta só é registrada pela tela Permutas, com aprovação da diretoria');
+  }
   const shouldNotify = Boolean(notifyReceipt) && paymentStatus === 'paid' && tx.paymentStatus !== 'paid';
   const becamePaid = paymentStatus === 'paid' && tx.paymentStatus !== 'paid';
   const nextType = type ?? tx.type;

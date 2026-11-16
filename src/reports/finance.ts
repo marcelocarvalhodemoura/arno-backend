@@ -510,6 +510,7 @@ export function customReport(
           cash: 'Dinheiro',
           card: 'Cartão',
           other: 'Outro',
+          barter: 'Permuta',
         };
         return { key: t.method, label: labels[t.method] ?? t.method };
       }

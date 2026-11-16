@@ -1,6 +1,6 @@
 import { createdAudit } from '../shared/audit';
 import { id } from '../shared/id';
-import type { DatabaseShape, Member, PaymentMethod, Transaction } from '../shared/types';
+import type { DatabaseShape, Member, PaymentMethod, SelectablePaymentMethod, Transaction } from '../shared/types';
 import { roundMoney } from '../shared/types';
 import { createTransaction } from '../ledger/transactions';
 import {
@@ -219,7 +219,7 @@ export function registerClubRemittance(
     year: number;
     month: number;
     date?: string;
-    method?: PaymentMethod;
+    method?: SelectablePaymentMethod;
     notes?: string;
   },
   userId: string,

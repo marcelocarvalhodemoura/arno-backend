@@ -650,6 +650,104 @@ describe('API integration', () => {
     expect(stillOpen.some((item: { date: string }) => item.date.slice(0, 7) > now.slice(0, 7))).toBe(false);
   });
 
+  it('registers a barter, keeps it waiting for the board and settles whole months on approval', async () => {
+    const auth = await tesoureiroAuth();
+    const admin = { Authorization: `Bearer ${await login(TEST_ADMIN_USER, TEST_PASSWORD)}` };
+    const stamp = Date.now();
+    const created = await request(server)
+      .post('/api/members')
+      .set(auth)
+      .send({
+        name: `Jovem Permuta ${stamp}`,
+        email: `permuta.${stamp}@arnofriedrich.org.br`,
+        phone: '(51) 99999-4444',
+        branch: 'escoteiro',
+        role: 'jovem',
+        monthlyFee: 60,
+        joinedAt: '2026-03-01',
+        clubeLtc: false,
+        guardians: [{ name: 'Pai Permuta', relationship: 'Pai', phone: '(51) 99999-4445' }],
+      });
+    expect(created.status).toBe(201);
+    await request(server).post('/api/mensalidades/generate').set(auth).send({ year: 2026 });
+    await request(server).get('/api/mensalidades?year=2026').set(auth);
+    const service = await ensureType(auth, 'Manutenção (permuta)', 'expense');
+    const donation = await ensureType(auth, 'Doação', 'income');
+
+    const probe = await request(server)
+      .post('/api/permutas/previa')
+      .set(auth)
+      .send({ memberId: created.body.id, amount: 100000, serviceDate: '2026-11-10' });
+    expect(probe.status).toBe(200);
+    const first = probe.body.items[0] as { transactionId: string; amount: number; dueDate: string };
+    expect(first.dueDate).toBe('2026-03-10');
+
+    const registered = await request(server)
+      .post('/api/permutas')
+      .set(auth)
+      .send({
+        memberId: created.body.id,
+        donorName: 'Pai Permuta',
+        service: 'Pintura da sede',
+        amount: first.amount + 5,
+        serviceDate: '2026-11-10',
+        expenseTypeId: service.id,
+        donationTypeId: donation.id,
+      });
+    expect(registered.status).toBe(201);
+    expect(registered.body.plan.items).toHaveLength(1);
+    expect(registered.body.plan.donationAmount).toBe(5);
+    const id = registered.body.barter.id as string;
+
+    const stillOpen = await request(server).get('/api/transactions?from=2026-03-01&to=2026-03-31').set(auth);
+    expect(stillOpen.body.find((tx: { id: string }) => tx.id === first.transactionId).paymentStatus).toBe('pending');
+
+    expect((await request(server).post(`/api/permutas/${id}/aprovar`).set(auth).send({})).status).toBe(403);
+    const approved = await request(server).post(`/api/permutas/${id}/aprovar`).set(admin).send({ note: 'Ata 11/2026' });
+    expect(approved.status).toBe(200);
+    expect(approved.body).toMatchObject({ status: 'approved', coveredAmount: first.amount, donationAmount: 5 });
+    expect((await request(server).post(`/api/permutas/${id}/aprovar`).set(admin).send({})).status).toBe(409);
+
+    const march = await request(server).get('/api/transactions?from=2026-03-01&to=2026-03-31').set(auth);
+    expect(march.body.find((tx: { id: string }) => tx.id === first.transactionId)).toMatchObject({
+      paymentStatus: 'paid',
+      method: 'barter',
+    });
+    const november = await request(server).get('/api/transactions?from=2026-11-10&to=2026-11-10').set(auth);
+    const barterRows = november.body.filter(
+      (tx: { method: string; description: string }) =>
+        tx.method === 'barter' && tx.description.includes('Pintura da sede'),
+    );
+    expect(barterRows.map((tx: { type: string; amount: number }) => [tx.type, tx.amount]).sort()).toEqual(
+      [
+        ['expense', first.amount + 5],
+        ['income', 5],
+      ].sort(),
+    );
+
+    const listed = await request(server).get('/api/permutas').set(auth);
+    expect(listed.body.find((item: { id: string }) => item.id === id).settled).toHaveLength(1);
+
+    const other = await request(server).post('/api/permutas').set(auth).send({
+      donorName: 'Vizinho',
+      service: 'Poda das árvores',
+      amount: 80,
+      serviceDate: '2026-11-10',
+      expenseTypeId: service.id,
+      donationTypeId: donation.id,
+    });
+    expect(other.status).toBe(201);
+    expect(other.body.plan).toMatchObject({ items: [], donationAmount: 80 });
+    const otherId = other.body.barter.id as string;
+    expect((await request(server).post(`/api/permutas/${otherId}/recusar`).set(admin).send({})).status).toBe(400);
+    const rejected = await request(server)
+      .post(`/api/permutas/${otherId}/recusar`)
+      .set(admin)
+      .send({ note: 'Serviço não combinado' });
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.status).toBe('rejected');
+  });
+
   it('lets the admin read dashboard, users and projects', async () => {
     const token = await login(TEST_ADMIN_USER, TEST_PASSWORD);
     const auth = { Authorization: `Bearer ${token}` };
