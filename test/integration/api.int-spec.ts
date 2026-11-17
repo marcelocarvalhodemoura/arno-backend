@@ -1074,15 +1074,23 @@ describe('API integration', () => {
     expect(notified.status).toBe(200);
     expect(notified.body.queued).toBeGreaterThan(0);
 
-    const { processOutbox } = await import('../../src/notifications/outbox');
-    await processOutbox();
+    const { countQueued, processOutbox } = await import('../../src/notifications/outbox');
+    // processOutbox devolve a drenagem que já estiver rodando (timer ou kick do próprio app), que pode ter
+    // pegado o lote antes destas mensagens entrarem ou ainda estar com elas em "sending". Drena até esvaziar.
+    for (let round = 0; round < 20 && (await countQueued()) > 0; round += 1) {
+      await processOutbox();
+    }
 
     const log = await request(server).get('/api/notify/log?limit=40').set(auth);
+    // Só as mensagens deste teste: o banco de teste guarda as das execuções anteriores (mesmo telefone).
+    // Folga de 5 s para o relógio do Postgres (Docker) um pouco atrás do Node.
     const ours = log.body.filter(
-      (item: { to: string }) => String(item.to).includes(email) || String(item.to).includes('98888-2222'),
+      (item: { to: string; createdAt: string }) =>
+        Date.parse(item.createdAt) >= stamp - 5_000 &&
+        (String(item.to).includes(email) || String(item.to).includes('98888-2222')),
     );
     expect(ours.length).toBeGreaterThan(0);
-    expect(ours.every((item: { status: string }) => item.status === 'sent')).toBe(true);
+    expect(ours.map((item: { status: string }) => item.status)).toEqual(ours.map(() => 'sent'));
 
     const status = await request(server).get('/api/notify/status').set(auth);
     expect(status.status).toBe(200);
