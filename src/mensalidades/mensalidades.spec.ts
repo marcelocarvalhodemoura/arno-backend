@@ -14,6 +14,7 @@ import {
   setMensalidadeClubFee,
   setMensalidadeClubFeeBulk,
   settleMensalidade,
+  settleMensalidades,
   splitTransactionWithMensalidades,
   syncMensalidades,
 } from './mensalidades';
@@ -88,6 +89,34 @@ describe('mensalidades', () => {
     expect(db.transactions[0].date).toBe('2026-05-10');
     expect(db.transactions[0].amount).toBe(89.5);
     expect(syncMensalidades(db, 2026, 'u1', '2026-05-01')).toBe(0);
+  });
+
+  it('the grid shows the paid mensalidade when the month also has a pending one, regardless of order', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 89.5 })],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-07-20');
+    const pending = db.transactions.find((tx) => tx.date === '2026-05-10')!;
+    db.transactions.push({ ...pending, id: 'paid-may', paymentStatus: 'paid', paidAt: '2026-05-08', amount: 75 });
+    const cell = buildMensalidadeReport(db, 2026, '2026-07-20').rows[0].cells.find((item) => item.month === 5)!;
+    expect(cell.status).toBe('paid');
+    expect(cell.transactionId).toBe('paid-may');
+    expect(cell.amount).toBe(75);
+  });
+
+  it('a second sync on the same day changes nothing (the grid read does not rewrite the store)', () => {
+    const db = emptyDb({
+      members: [
+        member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 89.5 }),
+        member({ id: 'm2', name: 'Bruno Lima', joinedAt: '2026-03-01', monthlyFee: 75 }),
+      ],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-07-20');
+    db.transactions[0].paymentStatus = 'paid';
+    db.transactions[0].paidAt = '2026-03-05';
+    const before = JSON.stringify(db);
+    syncMensalidades(db, 2026, 'u1', '2026-07-20');
+    expect(JSON.stringify(db)).toBe(before);
   });
 
   it('keeps paid months and hides months before the member joined', () => {
@@ -379,6 +408,41 @@ describe('mensalidades', () => {
     const mayCell = buildMensalidadeReport(db, 2026, '2026-09-20').rows[0].cells.find((cell) => cell.month === 5);
     expect(mayCell?.onTimeAmount).toBe(89.5);
     expect(mayCell?.lateAmount).toBe(99.5);
+  });
+
+  it('records the payment method chosen when settling (default stays pix)', () => {
+    const db = emptyDb({
+      members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01' })],
+    });
+    syncMensalidades(db, 2026, 'u1', '2026-09-20');
+    const september = db.transactions.find((tx) => tx.date === '2026-09-10')!;
+    const october = db.transactions.find((tx) => tx.date === '2026-10-10')!;
+    const november = db.transactions.find((tx) => tx.date === '2026-11-10')!;
+    expect(september.method).toBe('pix');
+
+    const cash = settleMensalidade(
+      db,
+      { transactionId: september.id, timing: 'on_time', paidAt: '2026-09-08', method: 'cash' },
+      'u1',
+      '2026-09-20',
+    );
+    expect(cash?.tx.method).toBe('cash');
+
+    const batch = settleMensalidades(
+      db,
+      { transactionIds: [october.id], timing: 'on_time', paidAt: '2026-09-08', method: 'card' },
+      'u1',
+      '2026-09-20',
+    );
+    expect(batch.items[0].tx.method).toBe('card');
+
+    const keep = settleMensalidade(
+      db,
+      { transactionId: november.id, timing: 'on_time', paidAt: '2026-09-08' },
+      'u1',
+      '2026-09-20',
+    );
+    expect(keep?.tx.method).toBe('pix');
   });
 
   it('allocates a paid bank credit across pioneer março/abril at the late amount', () => {

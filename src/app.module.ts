@@ -18,6 +18,10 @@ import { AuditModule } from './audit/audit.module';
 import { ComprovantesModule } from './comprovantes/comprovantes.module';
 import { StorageModule } from './storage/storage.module';
 import { PersistenceModule } from './shared/persistence/persistence.module';
+import { BarterModule } from './barter/barter.module';
+import { AllocationsModule } from './allocations/allocations.module';
+import { BranchLedgerModule } from './branch-ledger/branch-ledger.module';
+import { ReportTemplatesModule } from './report-templates/report-templates.module';
 
 @Module({
   imports: [
@@ -40,6 +44,10 @@ import { PersistenceModule } from './shared/persistence/persistence.module';
     NotificationsModule,
     AuditModule,
     ComprovantesModule,
+    BarterModule,
+    AllocationsModule,
+    BranchLedgerModule,
+    ReportTemplatesModule,
   ],
 })
 export class AppModule {}

@@ -4,7 +4,7 @@ import { AppModule } from './app.module';
 import './shared/env';
 import { waitForDb } from './shared/db';
 import { migrate } from './shared/database/migrate';
-import { seedIfEmpty } from './shared/persistence/finance-store';
+import { backfillAllocations, migrateMensalidadeBranches, seedIfEmpty } from './shared/persistence/finance-store';
 import { promoteConfiguredSuperadmins, rehashLegacySeedUsers } from './identity/users';
 import { startOutboxWorker } from './notifications/outbox';
 import { startTrashPurgeWorker } from './ledger/trash-purge';
@@ -22,6 +22,20 @@ async function bootstrap() {
   const upgraded = await rehashLegacySeedUsers();
   if (upgraded > 0) {
     console.log(`Senhas de ${upgraded} usuário(s) inicial(is) regravadas em bcrypt`);
+  }
+  try {
+    const moved = await migrateMensalidadeBranches();
+    if (moved) console.log(`Mensalidades passadas para o Grupo: ${moved}`);
+  } catch (error) {
+    console.error('Não foi possível passar as mensalidades para o Grupo', error);
+  }
+  try {
+    const allocations = await backfillAllocations();
+    if (allocations.computed || allocations.removed) {
+      console.log(`Divisão das mensalidades: ${allocations.computed} gravada(s), ${allocations.removed} removida(s)`);
+    }
+  } catch (error) {
+    console.error('Não foi possível gravar a divisão das mensalidades', error);
   }
 
   const app = await NestFactory.create(AppModule);

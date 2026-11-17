@@ -19,6 +19,8 @@ import type {
   Settings,
   MensalidadeRow,
   FeeSchedulePeriod,
+  MensalidadeAllocation,
+  MemberStatusHistory,
 } from '../contract/types';
 
 export * from '../contract/types';
@@ -145,11 +147,14 @@ export interface DatabaseShape {
   monthClosings?: MonthClosing[];
   /** Vazio/ausente = tabela padrão (DEFAULT_FEE_SCHEDULE). */
   feeSchedule?: FeeSchedulePeriod[];
+  /** Divisão congelada das mensalidades pagas (uma por lançamento). */
+  allocations?: MensalidadeAllocation[];
   members: Member[];
   memberGuardians: MemberGuardian[];
   memberSiblings: MemberSibling[];
   memberAccounts: MemberAccount[];
   memberArrears?: MemberArrears[];
+  memberStatusHistory?: MemberStatusHistory[];
   movementTypes: MovementType[];
   fees: Fee[];
   transactions: Transaction[];

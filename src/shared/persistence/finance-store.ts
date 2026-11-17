@@ -13,6 +13,8 @@ import type {
   MemberAccount,
   MemberArrears,
   MemberGuardian,
+  MemberStatusHistory,
+  MensalidadeAllocation,
   MovementType,
   Settings,
 } from '../types';
@@ -37,6 +39,7 @@ import {
   toTrashRow,
 } from '../../ledger/infra/transaction.mapper';
 import { appConfig } from '../config';
+import { normalizeMensalidadeBranches, syncAllocations } from '../../allocations/allocations';
 
 /**
  * Financeiro em memória e a versão do banco em que ele foi lido. A versão (tabela `finance_version`) muda a cada
@@ -77,6 +80,8 @@ export async function persist(db: DatabaseShape): Promise<void> {
   await prisma.$transaction(
     async (tx) => {
       await takeFinanceLock(tx);
+      normalizeMensalidadeBranches(db);
+      syncAllocations(db);
       const current = await storedRows(tx, await readFinance(tx));
       // Gravação intencional do financeiro inteiro (reset do admin): sem a proteção contra apagar em massa.
       await applyFinanceChanges(tx, diffFinanceRows(current, financeRows(db)));
@@ -211,6 +216,16 @@ function financeRows(db: DatabaseShape): FinanceRows {
     updatedById: plan.updatedBy ?? null,
   }));
 
+  rows.memberStatusHistory = (db.memberStatusHistory ?? []).map((entry) => ({
+    id: entry.id,
+    memberId: entry.memberId,
+    at: new Date(entry.at),
+    byId: entry.byId ?? null,
+    fromStatus: entry.fromStatus ?? null,
+    toStatus: entry.toStatus,
+    reason: entry.reason,
+  }));
+
   rows.project = db.projects.map((project) => ({
     id: project.id,
     branch: project.branch,
@@ -237,6 +252,30 @@ function financeRows(db: DatabaseShape): FinanceRows {
   rows.transaction = db.transactions.map(toTransactionRow);
 
   rows.transactionTrash = (db.trash ?? []).map(toTrashRow);
+
+  rows.mensalidadeAllocation = (db.allocations ?? []).map((item) => ({
+    transactionId: item.transactionId,
+    memberId: item.memberId,
+    periodStart: item.periodStart,
+    source: item.source,
+    memberBranch: item.memberBranch,
+    clubeLtc: item.clubeLtc,
+    late: item.late,
+    clubFeeIncluded: item.clubFeeIncluded,
+    groupShare: item.group,
+    branchShare: item.branch,
+    snackShare: item.snack,
+    clubShare: item.club,
+    dilution: item.dilution,
+    lateFee: item.lateFee,
+    arrears: item.arrears,
+    expected: item.expected,
+    received: item.received,
+    difference: item.difference,
+    pendingSplit: item.pendingSplit,
+    basis: item.basis,
+    computedAt: new Date(item.computedAt),
+  }));
 
   rows.monthClosing = (db.monthClosings ?? []).map((item) => ({
     yearMonth: item.yearMonth,
@@ -286,10 +325,15 @@ export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restore
       const version = await storedVersion(tx);
       const db = lastWritten?.version === version ? structuredClone(lastWritten.db) : await readFinance(tx);
       const beforeRows = await storedRows(tx, db);
+      // Mensalidade antiga ainda no ramo do jovem vira Grupo antes da foto, para não travar mês fechado.
+      // Depois de beforeRows: a mudança de ramo também precisa ser gravada.
+      normalizeMensalidadeBranches(db);
       const before = new Map(db.transactions.map((item) => [item.id, structuredClone(item)]));
       const value = fn(db);
+      normalizeMensalidadeBranches(db);
       assertClosedMonthsUntouched(before, db);
       purgeTrash(db);
+      syncAllocations(db);
       // Grava só o que mudou (antes: TRUNCATE de 14 tabelas e regravação de tudo).
       const changes = diffFinanceRows(beforeRows, financeRows(db));
       assertNoMassDelete(beforeRows, changes);
@@ -302,6 +346,18 @@ export async function mutate<T>(fn: (db: DatabaseShape) => T, options: { restore
   lastWritten = { db: structuredClone(result.db), version: result.version };
   cache = { db: result.db, version: result.version };
   return result.value;
+}
+
+/**
+ * Para leituras que às vezes ajustam dados (taxas oficiais, cobranças do ano, acordos legados).
+ * Roda numa cópia do cache; só abre a transação e regrava o banco quando a cópia mudou.
+ */
+export async function mutateIfChanged<T>(fn: (db: DatabaseShape) => T): Promise<T> {
+  const current = await loadDb();
+  const probe = structuredClone(current);
+  const value = fn(probe);
+  if (JSON.stringify(probe) === JSON.stringify(current)) return value;
+  return mutate(fn);
 }
 
 export async function recordHistory(client: Db, entries: HistoryEntry[]) {
@@ -334,6 +390,47 @@ export async function readDismissals(prefix: string): Promise<Set<string>> {
 
 export async function dismissReview(key: string, userId: string) {
   await prisma.reviewDismissal.upsert({ where: { key }, create: { key, byId: userId }, update: {} });
+}
+
+/**
+ * Grava a divisão das mensalidades pagas que ainda não têm (primeira subida após criar a tabela)
+ * e refaz as de lançamentos alterados por fora. Não grava nada se já estiver tudo em dia.
+ */
+export async function backfillAllocations(): Promise<{ computed: number; removed: number }> {
+  const probe = structuredClone(await loadDb());
+  const pending = syncAllocations(probe);
+  if (!pending.computed && !pending.removed) return pending;
+  return mutate((db) => syncAllocations(db));
+}
+
+/**
+ * Passa para o Grupo as mensalidades gravadas no ramo do jovem (antes de 2026-11-06 a mensalidade ficava no ramo).
+ * O total do mês não muda, por isso vale também para meses fechados. Fica no histórico de cada lançamento,
+ * sem autor (foi o sistema). Não grava nada se já estiver tudo no Grupo.
+ */
+export async function migrateMensalidadeBranches(): Promise<number> {
+  const probe = structuredClone(await loadDb());
+  if (!normalizeMensalidadeBranches(probe)) return 0;
+  const changed = await prisma.$transaction(
+    async (tx) => {
+      await takeFinanceLock(tx);
+      const db = await readFinance(tx);
+      const beforeRows = await storedRows(tx, db);
+      const before = new Map(db.transactions.map((item) => [item.id, structuredClone(item)]));
+      const count = normalizeMensalidadeBranches(db);
+      if (!count) return count;
+      syncAllocations(db);
+      await applyFinanceChanges(tx, diffFinanceRows(beforeRows, financeRows(db)));
+      await recordHistory(
+        tx,
+        diffTransactions(before, db).map((entry) => ({ ...entry, byId: null })),
+      );
+      return count;
+    },
+    { timeout: WRITE_TIMEOUT_MS },
+  );
+  invalidateCache();
+  return changed;
 }
 
 export async function resetDb(): Promise<DatabaseShape> {
@@ -405,6 +502,7 @@ export function emptyFinance(): DatabaseShape {
     memberSiblings: [],
     memberAccounts: [],
     memberArrears: [],
+    memberStatusHistory: [],
     movementTypes: [],
     fees: [],
     projects: [],
@@ -436,6 +534,8 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     trash,
     closings,
     feePeriods,
+    statusHistory,
+    allocations,
   ] = await Promise.all([
     sql.member.findMany({ orderBy: { name: 'asc' } }),
     sql.memberGuardian.findMany({ orderBy: { name: 'asc' } }),
@@ -451,6 +551,8 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     sql.transactionTrash.findMany({ orderBy: { deletedAt: 'desc' } }),
     sql.monthClosing.findMany({ orderBy: { yearMonth: 'asc' } }),
     sql.feeSchedulePeriod.findMany({ orderBy: { startMonth: 'asc' } }),
+    sql.memberStatusHistory.findMany({ orderBy: { at: 'desc' } }),
+    sql.mensalidadeAllocation.findMany(),
   ]);
 
   const itemsByProject = new Map<string, FinancialProject['items']>();
@@ -478,6 +580,15 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     memberSiblings: siblings.map(mapSibling),
     memberAccounts: accounts.map(mapAccount),
     memberArrears: arrears.map(mapArrears),
+    memberStatusHistory: statusHistory.map((row) => ({
+      id: row.id,
+      memberId: row.memberId,
+      at: row.at.toISOString(),
+      byId: row.byId ?? null,
+      fromStatus: (row.fromStatus as MemberStatusHistory['fromStatus']) ?? null,
+      toStatus: row.toStatus as MemberStatusHistory['toStatus'],
+      reason: row.reason,
+    })),
     movementTypes: types.map(mapMovementType),
     fees: fees.map(mapFee),
     projects: projects.map((row) => ({
@@ -494,6 +605,7 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
     monthClosings: closings.map(toMonthClosing),
     // Sem períodos gravados: a tabela padrão passa a ser gravada na próxima alteração.
     feeSchedule: feePeriods.length ? feePeriods.map(mapFeePeriod) : structuredClone(DEFAULT_FEE_SCHEDULE),
+    allocations: allocations.map(mapAllocation),
     settings: settings
       ? {
           openingBalance: Number(settings.openingBalance),
@@ -741,5 +853,53 @@ function mapArrears(row: {
     note: row.note ?? '',
     status: row.status === 'settled' ? 'settled' : row.status === 'cancelled' ? 'cancelled' : 'active',
     ...mapAudit(row),
+  };
+}
+
+function mapAllocation(row: {
+  transactionId: string;
+  memberId: string;
+  periodStart: string;
+  source: string;
+  memberBranch: string;
+  clubeLtc: boolean;
+  late: boolean;
+  clubFeeIncluded: boolean;
+  groupShare: Prisma.Decimal;
+  branchShare: Prisma.Decimal;
+  snackShare: Prisma.Decimal;
+  clubShare: Prisma.Decimal;
+  dilution: Prisma.Decimal;
+  lateFee: Prisma.Decimal;
+  arrears: Prisma.Decimal;
+  expected: Prisma.Decimal;
+  received: Prisma.Decimal;
+  difference: Prisma.Decimal;
+  pendingSplit: boolean;
+  basis: string;
+  computedAt: Date;
+}): MensalidadeAllocation {
+  return {
+    transactionId: row.transactionId,
+    memberId: row.memberId,
+    periodStart: row.periodStart,
+    source: row.source as MensalidadeAllocation['source'],
+    memberBranch: row.memberBranch as MensalidadeAllocation['memberBranch'],
+    clubeLtc: row.clubeLtc,
+    late: row.late,
+    clubFeeIncluded: row.clubFeeIncluded,
+    group: Number(row.groupShare),
+    branch: Number(row.branchShare),
+    snack: Number(row.snackShare),
+    club: Number(row.clubShare),
+    dilution: Number(row.dilution),
+    lateFee: Number(row.lateFee),
+    arrears: Number(row.arrears),
+    expected: Number(row.expected),
+    received: Number(row.received),
+    difference: Number(row.difference),
+    pendingSplit: row.pendingSplit,
+    basis: row.basis,
+    computedAt: row.computedAt.toISOString(),
   };
 }

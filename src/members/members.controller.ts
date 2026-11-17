@@ -88,10 +88,37 @@ export class MembersController {
   @Patch('members/:id')
   @ApiOperation({
     summary: 'Atualizar associado',
-    description: 'Enviar guardians substitui a lista. Inativar cancela mensalidades futuras pendentes.',
+    description: 'Enviar guardians substitui a lista. A situação (ativo/inativo) muda por PATCH members/:id/status.',
   })
   update(@Param('id') id: string, @Body() body: unknown, @CurrentUser() auth: AuthPayload) {
     return this.members.update(id, body, auth.userId);
+  }
+
+  @Patch('members/:id/status')
+  @ApiOperation({
+    summary: 'Alterar situação do associado (ativar/inativar)',
+    description:
+      'Exige justificativa e registra no histórico. Inativar é bloqueado se houver acordo de atraso em aberto; ' +
+      'inativar cancela mensalidades futuras pendentes; reativar reabilita o agendamento. Não apaga histórico.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['status', 'reason'],
+      properties: {
+        status: { type: 'string', enum: ['active', 'inactive'] },
+        reason: { type: 'string', example: 'Saiu do grupo em dez/2026', minLength: 3 },
+      },
+    },
+  })
+  setStatus(@Param('id') id: string, @Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.members.setStatus(id, body, auth.userId);
+  }
+
+  @Get('members/:id/status-history')
+  @ApiOperation({ summary: 'Histórico de mudanças de situação do associado' })
+  statusHistory(@Param('id') id: string) {
+    return this.members.statusHistory(id);
   }
 
   @Post('members/:id/accounts')

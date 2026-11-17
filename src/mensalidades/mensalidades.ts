@@ -26,6 +26,7 @@ import type {
   MensalidadeReport,
   MensalidadeRow,
   Member,
+  PaymentMethod,
   Transaction,
 } from '../shared/types';
 import { resolveMensalidadeDueDay, roundMoney } from '../shared/types';
@@ -129,6 +130,34 @@ export function mensalidadeForMonth(
     (tx) => tx.memberId === memberId && tx.date.startsWith(prefix) && isMensalidadeTx(db, tx),
   );
   return matches.find((tx) => tx.paymentStatus === 'paid') ?? matches[0];
+}
+
+/**
+ * Mensalidade paga num mês que ainda tem cobrança pendente do mesmo associado: a pendente vai para a lixeira.
+ * Sem isso a pendente fica escondida na grade (o pago tem prioridade) e o próximo Pix importado pode quitá-la.
+ * Pendentes com acordo embutido ficam, porque a parcela do acordo não está no lançamento pago.
+ */
+export function trashPendingOfPaidMonth(db: DatabaseShape, paid: Transaction, userId: string, now = new Date()) {
+  if (paid.paymentStatus !== 'paid' || !paid.memberId || !isMensalidadeTx(db, paid)) return [];
+  const month = paid.date.slice(0, 7);
+  const pending = db.transactions.filter(
+    (tx) =>
+      tx.id !== paid.id &&
+      tx.paymentStatus === 'pending' &&
+      tx.memberId === paid.memberId &&
+      tx.date.startsWith(month) &&
+      !tx.arrearsId &&
+      !tx.splitGroupId &&
+      isMensalidadeTx(db, tx),
+  );
+  if (!pending.length) return [];
+  const drop = new Set(pending.map((tx) => tx.id));
+  db.transactions = db.transactions.filter((tx) => !drop.has(tx.id));
+  db.trash = [
+    ...(db.trash ?? []),
+    ...pending.map((tx) => ({ id: id(), transaction: tx, deletedAt: now.toISOString(), deletedBy: userId })),
+  ];
+  return pending.map((tx) => tx.id);
 }
 
 export function cancelSubsequentMensalidades(db: DatabaseShape, memberId: string, today = todayISO()): number {
@@ -252,6 +281,13 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
   ensureOfficialMensalidadeFees(db, userId);
   const movement = ensureMensalidadeType(db, userId);
   cancelOutOfSeasonMensalidades(db);
+  // Meses que já têm mensalidade (qualquer situação), por associado: evita varrer o caixa a cada célula.
+  const prefix = `${year}-`;
+  const existing = new Set(
+    db.transactions
+      .filter((tx) => tx.memberId && tx.date.startsWith(prefix) && isMensalidadeTx(db, tx))
+      .map((tx) => `${tx.memberId}|${tx.date.slice(0, 7)}`),
+  );
   let created = 0;
   for (const member of db.members) {
     applyOfficialFee(member, scheduleOf(db));
@@ -268,7 +304,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
     if (!first) continue;
     for (const month of MENSALIDADE_MONTHS) {
       if (month < first) continue;
-      if (mensalidadeForMonth(db, member.id, year, month)) continue;
+      if (existing.has(`${member.id}|${yearMonth(year, month)}`)) continue;
       const dueDate = dueDateForMonth(year, month, dueDay);
       const clubFeeIncluded = defaultClubFeeIncluded(member);
       const baseAmount = roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded, scheduleOf(db)));
@@ -288,6 +324,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
         ...createdAudit(userId),
       };
       db.transactions.push(createdTx);
+      existing.add(`${member.id}|${yearMonth(year, month)}`);
       syncPendingMensalidadeEmbedLink(db, createdTx, member, dueDate, userId, today);
       created += 1;
     }
@@ -380,6 +417,8 @@ export function settleMensalidade(
     timing: MensalidadeSettleTiming;
     paidAt?: string | null;
     notifyReceipt?: boolean;
+    /** Meio do pagamento (Pix, dinheiro, cartão…). Sem ele, mantém o meio atual do lançamento. */
+    method?: PaymentMethod;
   },
   userId: string,
   today = todayISO(),
@@ -403,10 +442,12 @@ export function settleMensalidade(
 
   tx.amount = base;
   tx.clubFeeIncluded = clubFeeIncluded;
+  if (input.method) tx.method = input.method;
   stampPaidAt(tx, movement?.name ?? 'Mensalidade', 'paid', paidAt, today);
   Object.assign(tx, updatedAudit(userId));
 
   if (arrearsPart && arrearsPart.paymentStatus !== 'paid') {
+    if (input.method) arrearsPart.method = input.method;
     const arrearsMovement = db.movementTypes.find((item) => item.id === arrearsPart.movementTypeId);
     stampPaidAt(arrearsPart, arrearsMovement?.name ?? 'Acordo', 'paid', paidAt, today);
     Object.assign(arrearsPart, updatedAudit(userId));
@@ -449,6 +490,7 @@ export function settleMensalidades(
     timing: MensalidadeSettleTiming;
     paidAt?: string | null;
     notifyReceipt?: boolean;
+    method?: PaymentMethod;
   },
   userId: string,
   today = todayISO(),
@@ -464,6 +506,7 @@ export function settleMensalidades(
         timing: input.timing,
         paidAt: input.paidAt,
         notifyReceipt: input.notifyReceipt,
+        method: input.method,
       },
       userId,
       today,
@@ -474,21 +517,36 @@ export function settleMensalidades(
   return { items };
 }
 
-/** Parcela(s) de dívida já pagas referentes ao mês (para mostrar na fórmula do mês pago). */
-function paidArrearsForMonth(db: DatabaseShape, memberId: string, year: number, month: number): number {
-  const ym = yearMonthKey(year, month);
-  return roundMoney(
-    db.transactions
-      .filter(
-        (tx) => tx.memberId === memberId && tx.arrearsId && tx.arrearsYearMonth === ym && tx.paymentStatus === 'paid',
-      )
-      .reduce((sum, tx) => sum + tx.amount, 0),
-  );
+/**
+ * Índice das mensalidades e parcelas pagas do ano por associado e mês (a grade só lê).
+ * Mesma regra de mensalidadeForMonth: a paga tem prioridade, senão a primeira encontrada.
+ */
+function indexMensalidadesOfYear(db: DatabaseShape, year: number) {
+  const prefix = `${year}-`;
+  const mensalidades = new Map<string, Transaction>();
+  const paidArrears = new Map<string, number>();
+  for (const tx of db.transactions) {
+    if (!tx.memberId) continue;
+    if (tx.arrearsId && tx.arrearsYearMonth && tx.paymentStatus === 'paid') {
+      const key = `${tx.memberId}|${tx.arrearsYearMonth}`;
+      paidArrears.set(key, (paidArrears.get(key) ?? 0) + tx.amount);
+    }
+    if (!tx.date.startsWith(prefix) || !isMensalidadeTx(db, tx)) continue;
+    const key = `${tx.memberId}|${tx.date.slice(0, 7)}`;
+    const current = mensalidades.get(key);
+    if (!current || (current.paymentStatus !== 'paid' && tx.paymentStatus === 'paid')) mensalidades.set(key, tx);
+  }
+  return {
+    mensalidade: (memberId: string, month: number) => mensalidades.get(`${memberId}|${yearMonth(year, month)}`),
+    paidArrears: (memberId: string, month: number) =>
+      roundMoney(paidArrears.get(`${memberId}|${yearMonthKey(year, month)}`) ?? 0),
+  };
 }
 
 export function buildMensalidadeReport(db: DatabaseShape, year: number, today = todayISO()): MensalidadeReport {
   const dueDay = dueDayOf(db);
   const schedule = scheduleOf(db);
+  const index = indexMensalidadesOfYear(db, year);
   const rows: MensalidadeRow[] = db.members
     .filter((member) => onTimeMonthlyFee(member, undefined, schedule) > 0)
     .map((member) => {
@@ -508,7 +566,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           };
         }
         const dueDate = dueDateForMonth(year, month, dueDay);
-        const tx = mensalidadeForMonth(db, member.id, year, month);
+        const tx = index.mensalidade(member.id, month);
         if (!tx && member.status !== 'active') {
           return {
             month,
@@ -530,7 +588,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           onTime: mensalidadeFormula(member, dueDate, { late: false, clubFeeIncluded }, schedule),
           late: mensalidadeFormula(member, dueDate, { late: true, clubFeeIncluded }, schedule),
         };
-        const paidArrears = status === 'paid' ? paidArrearsForMonth(db, member.id, year, month) : 0;
+        const paidArrears = status === 'paid' ? index.paidArrears(member.id, month) : 0;
         return {
           month,
           dueDate,
@@ -544,6 +602,8 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
           arrearsPlanId: embed.arrearsPlanId,
           formula,
           paidArrearsInstallment: paidArrears > 0 ? paidArrears : undefined,
+          paidAt: status === 'paid' ? (tx?.paidAt ?? undefined) : undefined,
+          method: status === 'paid' ? tx?.method : undefined,
         };
       });
       return {

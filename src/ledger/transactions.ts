@@ -6,6 +6,8 @@ import { resolveGuardianId } from '../members/members';
 import { sicrediPayer } from '../statement/statement';
 import { domainEvents } from '../shared/domain/domain-events';
 import { LedgerEntry, stampPaidAt } from './domain/ledger-entry';
+import { trashPendingOfPaidMonth } from '../mensalidades/mensalidades';
+import { branchSharesOf } from '../reports/finance';
 
 export { stampPaidAt };
 
@@ -20,7 +22,13 @@ export function listTransactions(
   },
 ) {
   let list = db.transactions.filter((item) => item.date >= filters.from && item.date <= filters.to);
-  if (filters.branch) list = list.filter((item) => item.branch === filters.branch);
+  // Mensalidade é do Grupo, mas aparece também no filtro do ramo do jovem (pela caixinha).
+  if (filters.branch) {
+    list = list.filter(
+      (item) =>
+        item.branch === filters.branch || branchSharesOf(db, item).some((share) => share.branch === filters.branch),
+    );
+  }
   if (filters.type) list = list.filter((item) => item.type === filters.type);
   if (filters.nature) list = list.filter((item) => item.nature === filters.nature);
   return [...list].sort((a, b) => b.date.localeCompare(a.date));
@@ -58,6 +66,9 @@ export function updateTransaction(
     paymentStatus,
     ...rest
   } = input;
+  if (rest.method === 'barter' && tx.method !== 'barter') {
+    throw new Error('Permuta só é registrada pela tela Permutas, com aprovação da diretoria');
+  }
   const shouldNotify = Boolean(notifyReceipt) && paymentStatus === 'paid' && !entry.isPaid;
   const movement = db.movementTypes.find((item) => item.id === (movementTypeId ?? tx.movementTypeId));
   entry.changeKind(type ?? tx.type, movement);
@@ -89,6 +100,15 @@ export function updateTransaction(
   }
   // Acordo de atrasados e rateio mensalidade + acordo reagem aos eventos de pagamento (arrears/arrears.events.ts).
   domainEvents.publish(entry.pullEvents(), db);
+  // Virou mensalidade paga de um mês (tipo, associado, data ou situação): a cobrança pendente daquele mês sai.
+  if (
+    movementTypeId !== undefined ||
+    memberId !== undefined ||
+    rest.date !== undefined ||
+    paymentStatus !== undefined
+  ) {
+    trashPendingOfPaidMonth(db, tx, userId);
+  }
   return { tx, shouldNotify };
 }
 

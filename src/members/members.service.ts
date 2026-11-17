@@ -1,20 +1,29 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
-  siblingIdsOf,
+  officialFeesStale,
   refreshOfficialFees,
   createMember,
   importMembers,
   addMemberAccount,
   removeMemberAccount,
+  setMemberStatus,
+  statusHistoryOf,
   updateMember,
   updateMemberAccount,
 } from './members';
 import { fail, parseDto } from '../shared/http/api';
 import { NotFound } from '../shared/domain/errors';
-import { usersById, withAuthors } from '../shared/http/presenters';
-import { accountBody, createMemberBody, memberImportRow, patchMemberBody } from '../shared/http/schemas';
-import { mutate } from '../shared/persistence/finance-store';
+import { errorMessage } from '../shared/http/errors';
+import { authorOf, usersById, withAuthors } from '../shared/http/presenters';
+import {
+  accountBody,
+  createMemberBody,
+  memberImportRow,
+  memberStatusBody,
+  patchMemberBody,
+} from '../shared/http/schemas';
+import { loadDb, mutate } from '../shared/persistence/finance-store';
 import { IMPORT_CHUNK_SIZE } from '../shared/types';
 
 const importMembersBody = z.object({
@@ -25,20 +34,25 @@ const patchAccountBody = accountBody.partial().extend({ active: z.boolean().opti
 @Injectable()
 export class MembersService {
   async list(branchFilter?: string, status?: string) {
-    const db = await mutate((store) => refreshOfficialFees(store));
+    if (officialFeesStale(await loadDb())) await mutate((store) => refreshOfficialFees(store));
+    const db = await loadDb();
     const users = await usersById();
+    const byMember = <T extends { memberId: string }>(items: T[]) => {
+      const map = new Map<string, T[]>();
+      for (const item of items) map.set(item.memberId, [...(map.get(item.memberId) ?? []), item]);
+      return map;
+    };
+    const accounts = byMember(db.memberAccounts);
+    const guardians = byMember(db.memberGuardians ?? []);
+    const siblings = byMember(db.memberSiblings ?? []);
     let list = db.members;
     if (branchFilter) list = list.filter((member) => member.branch === branchFilter);
     if (status) list = list.filter((member) => member.status === status);
     return list.map((member) => ({
       ...withAuthors(member, users),
-      siblingIds: siblingIdsOf(db, member.id),
-      accounts: db.memberAccounts
-        .filter((account) => account.memberId === member.id)
-        .map((account) => withAuthors(account, users)),
-      guardians: (db.memberGuardians ?? [])
-        .filter((guardian) => guardian.memberId === member.id)
-        .map((guardian) => withAuthors(guardian, users)),
+      siblingIds: (siblings.get(member.id) ?? []).map((link) => link.siblingId),
+      accounts: (accounts.get(member.id) ?? []).map((account) => withAuthors(account, users)),
+      guardians: (guardians.get(member.id) ?? []).map((guardian) => withAuthors(guardian, users)),
     }));
   }
 
@@ -52,6 +66,25 @@ export class MembersService {
     const updated = await mutate((db) => updateMember(db, id, data, userId));
     if (!updated) throw new NotFound('Associado não encontrado');
     return updated;
+  }
+
+  async setStatus(id: string, body: unknown, userId: string) {
+    const { status, reason } = parseDto(memberStatusBody, body);
+    const updated = await mutate((db) => setMemberStatus(db, id, status, reason, userId)).catch((error) => {
+      fail(errorMessage(error, 'Não foi possível alterar a situação'), HttpStatus.BAD_REQUEST);
+    });
+    if (!updated) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    return updated;
+  }
+
+  async statusHistory(id: string) {
+    const db = await loadDb();
+    if (!db.members.some((member) => member.id === id)) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    const users = await usersById();
+    return statusHistoryOf(db, id).map((entry) => ({
+      ...entry,
+      byUser: authorOf(users, entry.byId ?? undefined),
+    }));
   }
 
   async addAccount(memberId: string, body: unknown, userId: string) {

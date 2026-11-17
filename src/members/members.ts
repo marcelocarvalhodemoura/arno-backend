@@ -2,12 +2,15 @@ import { fold } from '../shared/csv';
 import { createdAudit, updatedAudit } from '../shared/audit';
 import { id } from '../shared/id';
 import { upperCaseName } from '../shared/name';
+import { isMensalidadeName } from '../statement/statement';
 import type {
   DatabaseShape,
   Member,
   MemberAccount,
   MemberGuardian,
   MemberSibling,
+  MemberStatus,
+  MemberStatusHistory,
   RecordOrigin,
 } from '../shared/types';
 import {
@@ -20,6 +23,7 @@ import {
 } from '../shared/http/schemas';
 import {
   isSpecialFamilyFeeAmount,
+  onTimeMonthlyFee,
   paysMensalidade,
   resolveFeeOverride,
   scheduleOf,
@@ -276,6 +280,30 @@ export function resolveGuardianId(db: DatabaseShape, memberId: string | undefine
   return guardian.id;
 }
 
+/**
+ * refreshOfficialFees mudaria algo? Mesma regra, sem copiar o banco: valor oficial diferente do gravado,
+ * ou cobrança em aberto de quem não paga mensalidade.
+ */
+export function officialFeesStale(db: DatabaseShape): boolean {
+  const schedule = scheduleOf(db);
+  const nonPaying = new Set<string>();
+  for (const member of db.members) {
+    if (member.monthlyFee !== onTimeMonthlyFee(member, undefined, schedule)) return true;
+    if (!paysMensalidade(member)) nonPaying.add(member.id);
+  }
+  if (!nonPaying.size) return false;
+  const mensalidadeTypes = new Set(
+    db.movementTypes.filter((item) => isMensalidadeName(item.name)).map((item) => item.id),
+  );
+  return db.transactions.some(
+    (tx) =>
+      tx.type === 'income' &&
+      tx.paymentStatus !== 'paid' &&
+      Boolean(tx.memberId && nonPaying.has(tx.memberId)) &&
+      mensalidadeTypes.has(tx.movementTypeId),
+  );
+}
+
 export function refreshOfficialFees(db: DatabaseShape) {
   for (const member of db.members) {
     assignOfficialFee(member, undefined, scheduleOf(db));
@@ -352,7 +380,6 @@ export function updateMember(
     const count = (db.memberGuardians ?? []).filter((item) => item.memberId === member.id).length;
     assertYouthGuardians(nextRole, count);
   }
-  const becameInactive = input.status === 'inactive' && member.status !== 'inactive';
   const nextEmail = memberContactEmail(
     { branch: data.branch ?? member.branch, role: nextRole },
     data.email ?? member.email,
@@ -380,12 +407,68 @@ export function updateMember(
   assignOfficialFee(member, userId, scheduleOf(db));
   if (!paysMensalidade(member)) {
     cancelUnpaidMensalidades(db, member.id);
-  } else if (becameInactive) {
-    cancelSubsequentMensalidades(db, member.id);
   } else {
     refreshPendingMensalidadeSchedule(db, undefined, userId);
   }
   return member;
+}
+
+/** Acordo de atraso ainda em aberto (saldo > 0). Bloqueia a inativação do associado. */
+export function memberHasOpenDebt(db: DatabaseShape, memberId: string): boolean {
+  return (db.memberArrears ?? []).some(
+    (plan) => plan.memberId === memberId && plan.status === 'active' && plan.balance > 0,
+  );
+}
+
+/**
+ * Troca a situação do associado (ativo↔inativo) exigindo justificativa e registrando o histórico.
+ * Inativar é bloqueado se houver acordo de atraso em aberto. Inativar cancela mensalidades futuras
+ * pendentes; reativar reabilita o agendamento. Nunca apaga o associado nem seu histórico.
+ */
+export function setMemberStatus(
+  db: DatabaseShape,
+  memberId: string,
+  nextStatus: MemberStatus,
+  reason: string,
+  userId: string,
+): Member | null {
+  const member = db.members.find((item) => item.id === memberId);
+  if (!member) return null;
+  const justification = reason.trim();
+  if (!justification) throw new Error('Informe a justificativa da mudança de situação');
+  const fromStatus = member.status;
+  if (fromStatus === nextStatus) {
+    throw new Error(nextStatus === 'inactive' ? 'O associado já está inativo' : 'O associado já está ativo');
+  }
+  if (nextStatus === 'inactive' && memberHasOpenDebt(db, memberId)) {
+    throw new Error('Não é possível inativar: o associado tem acordo de atraso em aberto. Quite o acordo primeiro.');
+  }
+  member.status = nextStatus;
+  Object.assign(member, updatedAudit(userId));
+  if (!paysMensalidade(member)) {
+    cancelUnpaidMensalidades(db, member.id);
+  } else if (nextStatus === 'inactive') {
+    cancelSubsequentMensalidades(db, member.id);
+  } else {
+    refreshPendingMensalidadeSchedule(db, undefined, userId);
+  }
+  const history = db.memberStatusHistory ?? (db.memberStatusHistory = []);
+  history.unshift({
+    id: id(),
+    memberId: member.id,
+    at: new Date().toISOString(),
+    byId: userId,
+    fromStatus,
+    toStatus: nextStatus,
+    reason: justification,
+  });
+  return member;
+}
+
+export function statusHistoryOf(db: DatabaseShape, memberId: string): MemberStatusHistory[] {
+  return (db.memberStatusHistory ?? [])
+    .filter((entry) => entry.memberId === memberId)
+    .sort((a, b) => b.at.localeCompare(a.at));
 }
 
 export function addMemberAccount(

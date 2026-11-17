@@ -61,8 +61,17 @@ export const LEGACY_FAMILY_FEES = { nonMember: 82, member: 67.5 };
 
 export type FeeSchedule = FeeSchedulePeriod[];
 
+// toLocaleDateString com fuso é caro e a grade chama isto milhares de vezes: guarda por um minuto.
+let todayCache = { at: 0, value: '' };
 function todayYearMonth(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7);
+  const now = Date.now();
+  if (now - todayCache.at > 60_000) {
+    todayCache = {
+      at: now,
+      value: new Date(now).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' }).slice(0, 7),
+    };
+  }
+  return todayCache.value;
 }
 
 /** 'YYYY-MM' a partir de uma data ISO ou de 'YYYY-MM'; sem valor = mês atual. */

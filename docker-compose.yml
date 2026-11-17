@@ -2,7 +2,7 @@ name: arno-backend
 
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     container_name: arno-backend-db
     restart: unless-stopped
     environment:
@@ -12,9 +12,9 @@ services:
     ports:
       - '${POSTGRES_PORT:-5434}:5432'
     volumes:
-      - arno_backend_pg:/var/lib/postgresql/data
+      - arno_backend_pg:/var/lib/postgresql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-arno} -d ${POSTGRES_DB:-tesouraria}']
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-arno-finance} -d ${POSTGRES_DB:-arno-finance}']
       interval: 5s
       timeout: 5s
       retries: 10

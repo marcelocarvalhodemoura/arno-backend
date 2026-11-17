@@ -199,3 +199,32 @@ describe('reimportação do extrato não duplica lançamentos editados', () => {
     expect(result.created).toHaveLength(1);
   });
 });
+
+describe('Pix de mensalidade não quita pendente de mês já pago', () => {
+  it('pula a pendente esquecida de um mês pago e dá baixa na do mês seguinte', () => {
+    const db = freshDb();
+    const base = pendingMensalidade(db);
+    db.transactions.push(
+      { ...base, id: 'pend-jul', date: '2026-07-10', description: 'Mensalidade julho 2026 — ANA SOUZA' },
+      {
+        ...base,
+        id: 'paid-jul',
+        date: '2026-07-10',
+        paymentStatus: 'paid',
+        paidAt: '2026-06-30',
+        description: 'RECEBIMENTO PIX ANA',
+      },
+      { ...base, id: 'pend-nov', date: '2026-11-10', description: 'Mensalidade novembro 2026 — ANA SOUZA' },
+    );
+    db.transactions = db.transactions.filter((tx) => tx.id !== 'pend-out');
+
+    const result = ingestTransactions(
+      db,
+      [bankRow({ date: '2026-10-30', movementTypeId: 'mt-men', memberId: ana.id, nature: 'fixed' })],
+      'u',
+    );
+
+    expect(result.paid).toEqual(['pend-nov']);
+    expect(db.transactions.find((tx) => tx.id === 'pend-jul')?.paymentStatus).toBe('pending');
+  });
+});

@@ -3,6 +3,8 @@ import { z } from 'zod';
 export const youthBranch = z.enum(['filhote', 'lobinho', 'escoteiro', 'senior', 'pioneiro', 'flor-de-lis']);
 export const branch = z.enum(['filhote', 'lobinho', 'escoteiro', 'senior', 'pioneiro', 'flor-de-lis', 'grupo']);
 export const method = z.enum(['pix', 'cash', 'transfer', 'card', 'other']);
+/** Meio gravado: inclui a permuta, que só pode ser mantida (nunca escolhida) na edição. */
+export const storedMethod = z.enum(['pix', 'cash', 'transfer', 'card', 'other', 'barter']);
 export const paymentStatus = z.enum(['paid', 'pending']);
 export const nature = z.enum(['fixed', 'variable']);
 export const txType = z.enum(['income', 'expense']);
@@ -109,10 +111,14 @@ export const patchMemberBody = z.object({
   feeOverride: z.number().min(0).nullable().optional(),
   chiefChild: z.boolean().optional(),
   siblingIds: z.array(z.string().min(1)).optional(),
-  status: z.enum(['active', 'inactive']).optional(),
   joinedAt: z.string().optional(),
   clubeLtc: z.boolean().optional(),
   guardians: z.array(guardianInput).optional(),
+});
+
+export const memberStatusBody = z.object({
+  status: z.enum(['active', 'inactive']),
+  reason: z.string().trim().min(3, 'Informe a justificativa (mínimo 3 caracteres)'),
 });
 
 export const createTransactionBody = z.object({
@@ -145,7 +151,7 @@ export const patchTransactionBody = z.object({
   description: z.string().min(2).optional(),
   amount: z.number().positive().optional(),
   branch: branch.optional(),
-  method: method.optional(),
+  method: storedMethod.optional(),
   paymentStatus: paymentStatus.optional(),
   paidAt: z
     .string()
@@ -163,6 +169,7 @@ export const patchTransactionBody = z.object({
 export type GuardianInput = z.infer<typeof guardianInput>;
 export type CreateMemberInput = z.infer<typeof createMemberBody>;
 export type PatchMemberInput = z.infer<typeof patchMemberBody>;
+export type MemberStatusInput = z.infer<typeof memberStatusBody>;
 export type AccountInput = z.infer<typeof accountBody>;
 export type CreateTransactionInput = z.infer<typeof createTransactionBody>;
 export type PatchTransactionInput = z.infer<typeof patchTransactionBody>;

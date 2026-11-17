@@ -10,9 +10,11 @@ export const FINANCE_TABLES = [
   'memberGuardian',
   'memberAccount',
   'memberArrears',
+  'memberStatusHistory',
   'project',
   'projectItem',
   'transaction',
+  'mensalidadeAllocation',
   'transactionTrash',
   'monthClosing',
   'feeSchedulePeriod',
@@ -31,10 +33,16 @@ export function emptyRows(): FinanceRows {
   return Object.fromEntries(FINANCE_TABLES.map((table) => [table, []])) as unknown as FinanceRows;
 }
 
+/** Coluna que identifica a linha: quase sempre `id`; o fechamento é por mês e a divisão, por lançamento. */
+function keyField(table: FinanceTable): string {
+  if (table === 'monthClosing') return 'yearMonth';
+  if (table === 'mensalidadeAllocation') return 'transactionId';
+  return 'id';
+}
+
 function keyOf(table: FinanceTable, row: Row): string {
-  if (table === 'monthClosing') return String(row.yearMonth);
   if (table === 'settings') return 'settings';
-  return String(row.id);
+  return String(row[keyField(table)]);
 }
 
 /** O que mudou entre o financeiro lido e o financeiro depois da operação, tabela por tabela. */
@@ -96,7 +104,7 @@ export async function applyFinanceChanges(client: Prisma.TransactionClient, chan
   for (const table of [...FINANCE_TABLES].reverse()) {
     const { remove } = changes[table];
     if (!remove.length || table === 'settings') continue;
-    const field = table === 'monthClosing' ? 'yearMonth' : 'id';
+    const field = keyField(table);
     await delegate(table).deleteMany({ where: { [field]: { in: remove } } });
   }
 
@@ -109,7 +117,7 @@ export async function applyFinanceChanges(client: Prisma.TransactionClient, chan
     }
     if (insert.length) await delegate(table).createMany({ data: insert });
     for (const row of update) {
-      const field = table === 'monthClosing' ? 'yearMonth' : 'id';
+      const field = keyField(table);
       const { [field]: key, ...data } = row;
       await delegate(table).update({ where: { [field]: key }, data });
     }

@@ -184,6 +184,7 @@ const METHOD_LABELS: Record<PaymentMethod, string> = {
   transfer: 'transferência',
   card: 'cartão',
   other: 'outro',
+  barter: 'permuta',
 };
 
 function paymentMethod(label?: string): PaymentMethod {

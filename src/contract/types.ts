@@ -15,7 +15,10 @@ export type TxType = 'income' | 'expense';
 
 export type TxNature = 'fixed' | 'variable';
 
-export type PaymentMethod = 'pix' | 'cash' | 'transfer' | 'card' | 'other';
+/** barter = permuta (serviço prestado ao grupo); só nasce pela tela Permutas, com aprovação da diretoria. */
+export type PaymentMethod = 'pix' | 'cash' | 'transfer' | 'card' | 'other' | 'barter';
+/** Meios que a tesouraria escolhe direto num lançamento ou baixa (sem a permuta). */
+export type SelectablePaymentMethod = Exclude<PaymentMethod, 'barter'>;
 
 export type TxPaymentStatus = 'paid' | 'pending';
 
@@ -50,7 +53,7 @@ export type RecordOrigin = 'manual' | 'integration' | 'sicredi';
 /** Formato da integração que originou o lançamento (CSV/PDF do extrato ou Pix Sicredi). */
 export type ImportSource = 'csv' | 'pdf' | 'sicredi';
 
-export type BankProvider = 'sicredi';
+export type BankProvider = 'sicredi' | 'pluggy';
 
 export type BankMovementStatus = 'new' | 'matched' | 'imported';
 
@@ -217,6 +220,38 @@ export interface Fee {
   updatedBy?: string;
 }
 
+/**
+ * Divisão congelada de uma mensalidade paga: para onde foi cada real, com a regra do dia do pagamento.
+ * `group` é só o operacional; diluição, acréscimo por atraso e parcela de dívida também vão para o caixa do grupo.
+ * `expected` = soma das partes; `difference` = valor recebido − esperado (pagamento a menos ou a mais).
+ */
+export interface MensalidadeAllocation {
+  transactionId: string;
+  memberId: string;
+  /** Início (YYYY-MM) do período da composição usado. */
+  periodStart: string;
+  source: MensalidadeFormula['source'];
+  /** Ramo e sócio Lindóia do associado no dia do cálculo. */
+  memberBranch: YouthBranchId;
+  clubeLtc: boolean;
+  late: boolean;
+  clubFeeIncluded: boolean;
+  group: number;
+  branch: number;
+  snack: number;
+  club: number;
+  dilution: number;
+  lateFee: number;
+  arrears: number;
+  expected: number;
+  received: number;
+  difference: number;
+  pendingSplit: boolean;
+  /** Dados do lançamento usados no cálculo; se mudarem, a divisão é refeita. */
+  basis: string;
+  computedAt: string;
+}
+
 export interface MemberGuardian {
   id: string;
   memberId: string;
@@ -291,6 +326,17 @@ export interface MemberArrears {
   createdBy?: string;
   updatedAt?: string;
   updatedBy?: string;
+}
+
+/** Uma mudança de situação do associado (ativo↔inativo), com quem/quando/por quê. */
+export interface MemberStatusHistory {
+  id: string;
+  memberId: string;
+  at: string;
+  byId?: string | null;
+  fromStatus?: MemberStatus | null;
+  toStatus: MemberStatus;
+  reason: string;
 }
 
 export interface BankMovement {
@@ -379,6 +425,9 @@ export interface MensalidadeCell {
   formula?: { onTime: MensalidadeFormula; late: MensalidadeFormula };
   /** Parcela de dívida paga junto com a mensalidade (meses pagos). */
   paidArrearsInstallment?: number;
+  /** Data e meio do pagamento (só meses pagos). */
+  paidAt?: string;
+  method?: PaymentMethod;
 }
 
 export interface MensalidadeRow {
@@ -451,6 +500,8 @@ export interface CustomReportQuery {
   types: TxType[];
   natures: TxNature[];
   movementTypeIds: string[];
+  /** Só lançamentos destes associados (vazio = todos). */
+  memberIds?: string[];
   groupBy: ReportGroupBy;
 }
 

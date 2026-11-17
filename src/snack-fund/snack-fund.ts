@@ -9,6 +9,7 @@ import {
   scheduleOf,
 } from '../mensalidades/fee-table';
 import { isMensalidadeName } from '../statement/statement';
+import { allocationIndex } from '../allocations/allocations';
 import { fold } from '../shared/csv';
 
 export type SnackFundIncomeLine = {
@@ -99,6 +100,7 @@ function eventDate(tx: Transaction): string {
 function collectIncomeLines(db: DatabaseShape, year: number, month: number): SnackFundIncomeLine[] {
   const prefix = `${year}-${pad2(month)}`;
   const lines: SnackFundIncomeLine[] = [];
+  const allocations = allocationIndex(db);
   for (const tx of db.transactions) {
     if (!isMensalidadeTx(db, tx)) continue;
     if (tx.paymentStatus !== 'paid') continue;
@@ -107,7 +109,7 @@ function collectIncomeLines(db: DatabaseShape, year: number, month: number): Sna
     if (!tx.memberId) continue;
     const member = db.members.find((item) => item.id === tx.memberId);
     if (!member) continue;
-    const snackShare = snackShareOf(member, tx.date, scheduleOf(db));
+    const snackShare = allocations.get(tx.id)?.snack ?? snackShareOf(member, tx.date, scheduleOf(db));
     if (snackShare <= 0) continue;
     lines.push({
       transactionId: tx.id,

@@ -1,7 +1,9 @@
 import type { BankMovement as BankMovementRow } from '@prisma/client';
 import { prisma } from '../shared/db';
 import { id } from '../shared/id';
-import type { BankMovement, BankMovementStatus } from '../shared/types';
+import type { BankMovement, BankMovementStatus, BankProvider, PaymentMethod } from '../shared/types';
+
+const METHODS: PaymentMethod[] = ['pix', 'cash', 'transfer', 'card', 'other'];
 
 type MovementInput = Omit<BankMovement, 'id' | 'createdAt' | 'updatedAt' | 'status' | 'transactionId'> & {
   status?: BankMovementStatus;
@@ -23,13 +25,13 @@ function money(value: BankMovementRow['amount']): number {
 function mapMovement(row: BankMovementRow): BankMovement {
   return {
     id: row.id,
-    provider: 'sicredi',
+    provider: row.provider === 'pluggy' ? 'pluggy' : 'sicredi',
     externalId: row.externalId,
     occurredAt: row.occurredAt.toISOString(),
     date: dateOnly(row.date),
     amount: money(row.amount),
     type: row.type === 'expense' ? 'expense' : 'income',
-    method: 'pix',
+    method: METHODS.includes(row.method as PaymentMethod) ? (row.method as PaymentMethod) : 'other',
     description: row.description,
     payerName: row.payerName,
     payerDocument: row.payerDocument,
@@ -79,9 +81,10 @@ export async function upsertBankMovements(items: MovementInput[]) {
   return upserted;
 }
 
-export async function listBankMovements(from: string, to: string) {
+export async function listBankMovements(from: string, to: string, provider: BankProvider = 'sicredi') {
   const rows = await prisma.bankMovement.findMany({
     where: {
+      provider,
       date: { gte: asDate(from), lte: asDate(to) },
     },
     orderBy: [{ occurredAt: 'desc' }, { createdAt: 'desc' }],

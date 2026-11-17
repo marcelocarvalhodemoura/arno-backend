@@ -17,8 +17,9 @@ import { collectMensalidadeNotifyIds, notifyMensalidadeTransactions } from './no
 import { fail } from '../shared/http/api';
 import { lastWhatsAppChargeByMember, recordManualWhatsApp } from '../notifications/notify';
 import { NotificationDispatcher } from '../notifications/notification-dispatcher';
+import { method as paymentMethod } from '../shared/http/schemas';
 import { buildWhatsAppChargeQueue } from './whatsapp-queue';
-import { dismissReview, loadDb, mutate, readDismissals } from '../shared/persistence/finance-store';
+import { dismissReview, loadDb, mutate, mutateIfChanged, readDismissals } from '../shared/persistence/finance-store';
 import { confirmReconciliation, reconciliationKey, reconciliationSuggestions } from './reconciliation';
 import { assemblyReport, delinquencyReport, memberProfile, nextSteps } from './overview';
 import { findDuplicateGroups } from '../ledger/duplicates';
@@ -67,6 +68,7 @@ const settleBody = z
       .nullable()
       .optional(),
     notifyReceipt: z.boolean().optional(),
+    method: paymentMethod.optional(),
   })
   .refine((data) => Boolean(data.transactionId) || Boolean(data.transactionIds?.length), {
     message: 'Informe transactionId ou transactionIds',
@@ -113,7 +115,7 @@ export class MensalidadesService {
         toGenerate: previewGenerateMensalidades(current, year),
       };
     }
-    return mutate((db) => {
+    return mutateIfChanged((db) => {
       syncMensalidades(db, year, userId);
       return { ...buildMensalidadeReport(db, year), generated: true, toGenerate: 0 };
     });
@@ -234,6 +236,7 @@ export class MensalidadesService {
             timing: parsed.data.timing,
             paidAt: parsed.data.paidAt,
             notifyReceipt: parsed.data.notifyReceipt !== false,
+            method: parsed.data.method,
           },
           userId,
         );
@@ -246,6 +249,7 @@ export class MensalidadesService {
           timing: parsed.data.timing,
           paidAt: parsed.data.paidAt,
           notifyReceipt: parsed.data.notifyReceipt !== false,
+          method: parsed.data.method,
         },
         userId,
       );

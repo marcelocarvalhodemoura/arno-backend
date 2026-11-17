@@ -178,4 +178,36 @@ describe('transactions', () => {
       holderName: 'MATHEUS PREVE GONZAG',
     });
   });
+
+  it('trashes the pending mensalidade of the month a credit is reclassified into', () => {
+    const db = emptyDb();
+    const base = {
+      type: 'income' as const,
+      nature: 'fixed' as const,
+      movementTypeId: 'mt-men',
+      amount: 75,
+      branch: 'escoteiro' as const,
+      method: 'pix' as const,
+      memberId: 'm1',
+      origin: 'manual' as const,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    };
+    db.transactions.push(
+      { ...base, id: 'pend-jul', date: '2026-07-10', description: 'Mensalidade julho', paymentStatus: 'pending' },
+      { ...base, id: 'pend-ago', date: '2026-08-10', description: 'Mensalidade agosto', paymentStatus: 'pending' },
+      {
+        ...base,
+        id: 'pix',
+        date: '2026-06-30',
+        description: 'RECEBIMENTO PIX',
+        paymentStatus: 'paid',
+        paidAt: '2026-06-30',
+      },
+    );
+
+    updateTransaction(db, 'pix', { date: '2026-07-10' }, 'u1');
+
+    expect(db.transactions.map((tx) => tx.id).sort()).toEqual(['pend-ago', 'pix']);
+    expect(db.trash?.map((entry) => entry.transaction.id)).toEqual(['pend-jul']);
+  });
 });
