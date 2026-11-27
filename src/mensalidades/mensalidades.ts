@@ -103,6 +103,38 @@ export function nextMonthStart(today: string): string {
   return `${year}-${pad2(month + 1)}-01`;
 }
 
+/**
+ * Meses em que o associado esteve fora do grupo do primeiro ao último dia, a partir do histórico de
+ * situação. Esses meses não são cobrados nem recriados ao regenerar o ano: quem sai e volta não paga o
+ * intervalo. O mês da saída e o mês do retorno continuam devidos (mesmo corte de cancelSubsequentMensalidades).
+ * Devolve `isAbsent(memberId, 'YYYY-MM')`.
+ */
+export function absentMonthsIndex(db: Pick<DatabaseShape, 'memberStatusHistory'>) {
+  const gaps = new Map<string, Array<{ from: string; to: string | null }>>();
+  const entries = [...(db.memberStatusHistory ?? [])].sort((a, b) => a.at.localeCompare(b.at));
+  const openSince = new Map<string, string>();
+  for (const entry of entries) {
+    const ym = todayISO(new Date(entry.at)).slice(0, 7);
+    if (entry.toStatus === 'inactive') {
+      if (!openSince.has(entry.memberId)) openSince.set(entry.memberId, ym);
+      continue;
+    }
+    const since = openSince.get(entry.memberId);
+    if (since === undefined) continue;
+    openSince.delete(entry.memberId);
+    const list = gaps.get(entry.memberId) ?? [];
+    list.push({ from: since, to: ym });
+    gaps.set(entry.memberId, list);
+  }
+  for (const [memberId, since] of openSince) {
+    const list = gaps.get(memberId) ?? [];
+    list.push({ from: since, to: null });
+    gaps.set(memberId, list);
+  }
+  return (memberId: string, ym: string): boolean =>
+    (gaps.get(memberId) ?? []).some((gap) => gap.from < ym && (gap.to === null || ym < gap.to));
+}
+
 export function firstOwedMonth(year: number, joinedAt: string): number | null {
   const joinYear = Number(joinedAt.slice(0, 4));
   const joinMonth = Number(joinedAt.slice(5, 7));
@@ -125,7 +157,7 @@ function yearMonth(year: number, month: number) {
   return `${year}-${pad2(month)}`;
 }
 
-function isMensalidadeTx(db: DatabaseShape, tx: Transaction) {
+export function isMensalidadeTx(db: DatabaseShape, tx: Transaction) {
   if (tx.type !== 'income') return false;
   const movement = db.movementTypes.find((item) => item.id === tx.movementTypeId);
   return Boolean(movement && isMensalidadeName(movement.name));
@@ -311,6 +343,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
       .filter((tx) => tx.memberId && tx.date.startsWith(prefix) && isMensalidadeTx(db, tx))
       .map((tx) => `${tx.memberId}|${tx.date.slice(0, 7)}`),
   );
+  const isAbsent = absentMonthsIndex(db);
   let created = 0;
   for (const member of db.members) {
     applyOfficialFee(member, scheduleOf(db));
@@ -328,6 +361,7 @@ export function syncMensalidades(db: DatabaseShape, year: number, userId: string
     for (const month of MENSALIDADE_MONTHS) {
       if (month < first) continue;
       if (existing.has(`${member.id}|${yearMonth(year, month)}`)) continue;
+      if (isAbsent(member.id, yearMonth(year, month))) continue;
       const dueDate = dueDateForMonth(year, month, dueDay);
       const clubFeeIncluded = defaultClubFeeIncluded(member);
       const baseAmount = roundMoney(expectedMensalidadeAmount(member, dueDate, today, clubFeeIncluded, scheduleOf(db)));
@@ -561,6 +595,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
   const dueDay = dueDayOf(db);
   const schedule = scheduleOf(db);
   const index = indexMensalidadesOfYear(db, year);
+  const isAbsent = absentMonthsIndex(db);
   const rows: MensalidadeRow[] = db.members
     .filter((member) => onTimeMonthlyFee(member, undefined, schedule) > 0)
     .map((member) => {
@@ -581,7 +616,7 @@ export function buildMensalidadeReport(db: DatabaseShape, year: number, today = 
         }
         const dueDate = dueDateForMonth(year, month, dueDay);
         const tx = index.mensalidade(member.id, month);
-        if (!tx && member.status !== 'active') {
+        if (!tx && (member.status !== 'active' || isAbsent(member.id, yearMonth(year, month)))) {
           return {
             month,
             dueDate: null,
