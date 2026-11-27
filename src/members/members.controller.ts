@@ -108,11 +108,49 @@ export class MembersController {
       properties: {
         status: { type: 'string', enum: ['active', 'inactive'] },
         reason: { type: 'string', example: 'Saiu do grupo em dez/2026', minLength: 3 },
+        effectiveDate: {
+          type: 'string',
+          format: 'date',
+          example: '2026-07-15',
+          description: 'Quando a saída/retorno aconteceu de fato (padrão: hoje). Pode ser retroativa.',
+        },
+        kind: {
+          type: 'string',
+          enum: ['formal', 'informal', 'abandono'],
+          description: 'Obrigatório ao inativar.',
+        },
+        confirmedBy: { type: 'string', description: 'Obrigatório quando kind = informal.' },
       },
     },
   })
   setStatus(@Param('id') id: string, @Body() body: unknown, @CurrentUser() auth: AuthPayload) {
     return this.members.setStatus(id, body, auth.userId);
+  }
+
+  @Patch('members/:id/status-history/:entryId')
+  @ApiOperation({
+    summary: 'Corrigir a data efetiva de uma saída/retorno já registrada',
+    description:
+      'Guarda a correção no registro e realinha as cobranças: pendentes em meses de ausência vão para a lixeira; ' +
+      'meses que voltam a ser devidos são gerados de novo. Pagas não são alteradas.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['effectiveDate', 'reason'],
+      properties: {
+        effectiveDate: { type: 'string', format: 'date', example: '2026-07-15' },
+        reason: { type: 'string', example: 'Chefe de seção confirmou que parou em julho', minLength: 3 },
+      },
+    },
+  })
+  correctStatusDate(
+    @Param('id') id: string,
+    @Param('entryId') entryId: string,
+    @Body() body: unknown,
+    @CurrentUser() auth: AuthPayload,
+  ) {
+    return this.members.correctStatusDate(id, entryId, body, auth.userId);
   }
 
   @Get('members/:id/status-history')

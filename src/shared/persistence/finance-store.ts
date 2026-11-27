@@ -227,6 +227,10 @@ async function writeFinance(client: Db, db: DatabaseShape): Promise<void> {
         fromStatus: entry.fromStatus ?? null,
         toStatus: entry.toStatus,
         reason: entry.reason,
+        effectiveDate: entry.effectiveDate ? asDate(entry.effectiveDate) : null,
+        kind: entry.kind ?? null,
+        confirmedBy: entry.confirmedBy ?? null,
+        corrections: (entry.corrections ?? []) as unknown as Prisma.InputJsonValue,
       })),
     });
   }
@@ -647,6 +651,12 @@ async function readFinance(sql: Db): Promise<DatabaseShape> {
       fromStatus: (row.fromStatus as MemberStatusHistory['fromStatus']) ?? null,
       toStatus: row.toStatus as MemberStatusHistory['toStatus'],
       reason: row.reason,
+      effectiveDate: row.effectiveDate ? dateOnly(row.effectiveDate) : null,
+      kind: (row.kind as MemberStatusHistory['kind']) ?? null,
+      confirmedBy: row.confirmedBy ?? null,
+      corrections: Array.isArray(row.corrections)
+        ? (row.corrections as unknown as MemberStatusHistory['corrections'])
+        : [],
     })),
     movementTypes: types.map(mapMovementType),
     fees: fees.map(mapFee),

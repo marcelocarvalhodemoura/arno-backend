@@ -7,8 +7,10 @@ import {
   importMembers,
   addMemberAccount,
   removeMemberAccount,
+  correctStatusEffectiveDate,
   setMemberStatus,
   statusHistoryOf,
+  type StatusChangeResult,
   updateMember,
   updateMemberAccount,
 } from './members';
@@ -20,6 +22,7 @@ import {
   createMemberBody,
   memberImportRow,
   memberStatusBody,
+  statusEffectiveDateBody,
   patchMemberBody,
 } from '../shared/http/schemas';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
@@ -29,6 +32,15 @@ const importMembersBody = z.object({
   rows: z.array(memberImportRow).min(1).max(IMPORT_CHUNK_SIZE),
 });
 const patchAccountBody = accountBody.partial().extend({ active: z.boolean().optional() });
+
+/** Mantém os campos do associado no topo (compatível) e acrescenta o efeito nas cobranças. */
+function presentStatusChange(result: StatusChangeResult) {
+  return {
+    ...result.member,
+    trashedCount: result.trashedIds.length,
+    paidDuringAbsence: result.paidDuringAbsence,
+  };
+}
 
 @Injectable()
 export class MembersService {
@@ -78,12 +90,25 @@ export class MembersService {
   }
 
   async setStatus(id: string, body: unknown, userId: string) {
-    const { status, reason } = parseDto(memberStatusBody, body);
-    const updated = await mutate((db) => setMemberStatus(db, id, status, reason, userId)).catch((error) => {
+    const { status, reason, effectiveDate, kind, confirmedBy } = parseDto(memberStatusBody, body);
+    const result = await mutate((db) =>
+      setMemberStatus(db, id, status, reason, userId, { effectiveDate, kind, confirmedBy }),
+    ).catch((error) => {
       fail(errorMessage(error, 'Não foi possível alterar a situação'), HttpStatus.BAD_REQUEST);
     });
-    if (!updated) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
-    return updated;
+    if (!result) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    return presentStatusChange(result);
+  }
+
+  async correctStatusDate(id: string, entryId: string, body: unknown, userId: string) {
+    const { effectiveDate, reason } = parseDto(statusEffectiveDateBody, body);
+    const result = await mutate((db) =>
+      correctStatusEffectiveDate(db, id, entryId, effectiveDate, reason, userId),
+    ).catch((error) => {
+      fail(errorMessage(error, 'Não foi possível corrigir a data'), HttpStatus.BAD_REQUEST);
+    });
+    if (!result) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    return presentStatusChange(result);
   }
 
   async statusHistory(id: string) {

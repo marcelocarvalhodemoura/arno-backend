@@ -116,8 +116,31 @@ export const patchMemberBody = z.object({
   guardians: z.array(guardianInput).optional(),
 });
 
-export const memberStatusBody = z.object({
-  status: z.enum(['active', 'inactive']),
+const effectiveDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Informe a data efetiva no formato AAAA-MM-DD');
+
+export const memberStatusBody = z
+  .object({
+    status: z.enum(['active', 'inactive']),
+    reason: z.string().trim().min(3, 'Informe a justificativa (mínimo 3 caracteres)'),
+    effectiveDate: effectiveDate.optional(),
+    kind: z.enum(['formal', 'informal', 'abandono']).optional(),
+    confirmedBy: z.string().trim().max(120).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === 'inactive' && !value.kind) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['kind'],
+        message: 'Informe o tipo de desligamento (formal, informal ou abandono)',
+      });
+    }
+    if (value.kind === 'informal' && !value.confirmedBy) {
+      ctx.addIssue({ code: 'custom', path: ['confirmedBy'], message: 'Informe quem confirmou a saída' });
+    }
+  });
+
+export const statusEffectiveDateBody = z.object({
+  effectiveDate,
   reason: z.string().trim().min(3, 'Informe a justificativa (mínimo 3 caracteres)'),
 });
 
@@ -170,6 +193,7 @@ export type GuardianInput = z.infer<typeof guardianInput>;
 export type CreateMemberInput = z.infer<typeof createMemberBody>;
 export type PatchMemberInput = z.infer<typeof patchMemberBody>;
 export type MemberStatusInput = z.infer<typeof memberStatusBody>;
+export type StatusEffectiveDateInput = z.infer<typeof statusEffectiveDateBody>;
 export type AccountInput = z.infer<typeof accountBody>;
 export type CreateTransactionInput = z.infer<typeof createTransactionBody>;
 export type PatchTransactionInput = z.infer<typeof patchTransactionBody>;

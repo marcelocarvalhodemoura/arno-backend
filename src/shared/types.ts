@@ -393,14 +393,34 @@ export interface MemberArrears {
 }
 
 /** Uma mudança de situação do associado (ativo↔inativo), com quem/quando/por quê. */
+/** Como o desligamento chegou à tesouraria. */
+export type DepartureKind = 'formal' | 'informal' | 'abandono';
+
+/** Correção da data efetiva de uma mudança de situação já registrada. */
+export interface StatusEffectiveDateCorrection {
+  at: string;
+  byId?: string | null;
+  from: string;
+  to: string;
+  reason: string;
+}
+
 export interface MemberStatusHistory {
   id: string;
   memberId: string;
+  /** Quando a mudança foi registrada no sistema. */
   at: string;
   byId?: string | null;
   fromStatus?: MemberStatus | null;
   toStatus: MemberStatus;
   reason: string;
+  /** Quando a saída/retorno aconteceu de fato (YYYY-MM-DD). Ausente em registros antigos: vale a data de `at`. */
+  effectiveDate?: string | null;
+  /** Só em saídas: formal (e-mail), informal (confirmado por alguém) ou abandono (sem resposta). */
+  kind?: DepartureKind | null;
+  /** Quem confirmou a saída informal (chefe de seção, responsável…). */
+  confirmedBy?: string | null;
+  corrections?: StatusEffectiveDateCorrection[];
 }
 
 export interface BankMovement {

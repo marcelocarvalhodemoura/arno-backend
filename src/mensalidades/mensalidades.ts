@@ -18,6 +18,7 @@ import { siblingIdsOf } from '../members/members';
 import { isMensalidadeName, isUnidentifiedName } from '../statement/statement';
 import type {
   DatabaseShape,
+  MemberStatusHistory,
   MensalidadeCell,
   MensalidadeCellStatus,
   MensalidadeReport,
@@ -103,18 +104,25 @@ export function nextMonthStart(today: string): string {
   return `${year}-${pad2(month + 1)}-01`;
 }
 
+/** Data em que a mudança de situação vale: a efetiva informada ou, em registros antigos, o dia do registro. */
+export function statusEffectiveDate(entry: Pick<MemberStatusHistory, 'at' | 'effectiveDate'>): string {
+  return entry.effectiveDate ?? todayISO(new Date(entry.at));
+}
+
 /**
  * Meses em que o associado esteve fora do grupo do primeiro ao último dia, a partir do histórico de
- * situação. Esses meses não são cobrados nem recriados ao regenerar o ano: quem sai e volta não paga o
- * intervalo. O mês da saída e o mês do retorno continuam devidos (mesmo corte de cancelSubsequentMensalidades).
- * Devolve `isAbsent(memberId, 'YYYY-MM')`.
+ * situação (data efetiva de cada saída/retorno). Esses meses não são cobrados nem recriados ao regenerar o
+ * ano: quem sai e volta não paga o intervalo. O mês da saída e o mês do retorno continuam devidos (mesmo corte
+ * de cancelSubsequentMensalidades). Devolve `isAbsent(memberId, 'YYYY-MM')`.
  */
 export function absentMonthsIndex(db: Pick<DatabaseShape, 'memberStatusHistory'>) {
   const gaps = new Map<string, Array<{ from: string; to: string | null }>>();
-  const entries = [...(db.memberStatusHistory ?? [])].sort((a, b) => a.at.localeCompare(b.at));
+  const entries = [...(db.memberStatusHistory ?? [])]
+    .map((entry) => ({ entry, date: statusEffectiveDate(entry) }))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.entry.at.localeCompare(b.entry.at));
   const openSince = new Map<string, string>();
-  for (const entry of entries) {
-    const ym = todayISO(new Date(entry.at)).slice(0, 7);
+  for (const { entry, date } of entries) {
+    const ym = date.slice(0, 7);
     if (entry.toStatus === 'inactive') {
       if (!openSince.has(entry.memberId)) openSince.set(entry.memberId, ym);
       continue;
@@ -133,6 +141,49 @@ export function absentMonthsIndex(db: Pick<DatabaseShape, 'memberStatusHistory'>
   }
   return (memberId: string, ym: string): boolean =>
     (gaps.get(memberId) ?? []).some((gap) => gap.from < ym && (gap.to === null || ym < gap.to));
+}
+
+/**
+ * Alinha as cobranças do associado ao histórico de situação: mensalidades pendentes em meses em que ele estava
+ * fora vão para a lixeira (rastreável); pagas nunca são tocadas. Pendentes com acordo de atraso embutido ficam,
+ * porque a parcela do acordo está no mesmo lançamento. Devolve os ids removidos.
+ */
+export function trashMensalidadesInAbsence(db: DatabaseShape, memberId: string, userId: string, now = new Date()) {
+  const isAbsent = absentMonthsIndex(db);
+  const drop = new Set<string>();
+  for (const tx of db.transactions) {
+    if (tx.memberId !== memberId || tx.paymentStatus === 'paid' || tx.arrearsId) continue;
+    if (!isMensalidadeTx(db, tx) || !isAbsent(memberId, tx.date.slice(0, 7))) continue;
+    drop.add(tx.id);
+    if (tx.splitGroupId) {
+      for (const peer of db.transactions) {
+        if (peer.splitGroupId === tx.splitGroupId && peer.paymentStatus !== 'paid') drop.add(peer.id);
+      }
+    }
+  }
+  if (!drop.size) return [];
+  const removed = db.transactions.filter((tx) => drop.has(tx.id));
+  db.transactions = db.transactions.filter((tx) => !drop.has(tx.id));
+  db.trash = [
+    ...(db.trash ?? []),
+    ...removed.map((tx) => ({ id: id(), transaction: tx, deletedAt: now.toISOString(), deletedBy: userId })),
+  ];
+  return removed.map((tx) => tx.id);
+}
+
+/** Mensalidades pagas em meses em que o associado estava fora — não mexemos, a tesouraria decide. */
+export function paidMensalidadesInAbsence(db: DatabaseShape, memberId: string) {
+  const isAbsent = absentMonthsIndex(db);
+  return db.transactions
+    .filter(
+      (tx) =>
+        tx.memberId === memberId &&
+        tx.paymentStatus === 'paid' &&
+        isMensalidadeTx(db, tx) &&
+        isAbsent(memberId, tx.date.slice(0, 7)),
+    )
+    .map((tx) => ({ id: tx.id, date: tx.date, amount: tx.amount, paidAt: tx.paidAt ?? null }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export function firstOwedMonth(year: number, joinedAt: string): number | null {

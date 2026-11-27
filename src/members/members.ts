@@ -5,6 +5,7 @@ import { upperCaseName } from '../shared/name';
 import { isMensalidadeName } from '../statement/statement';
 import type {
   DatabaseShape,
+  DepartureKind,
   Member,
   MemberAccount,
   MemberGuardian,
@@ -31,9 +32,14 @@ import {
 } from '../mensalidades/fee-table';
 import {
   assignOfficialFee,
-  cancelSubsequentMensalidades,
   cancelUnpaidMensalidades,
+  isMensalidadeYearGenerated,
+  paidMensalidadesInAbsence,
   refreshPendingMensalidadeSchedule,
+  statusEffectiveDate,
+  syncMensalidades,
+  todayISO,
+  trashMensalidadesInAbsence,
 } from '../mensalidades/mensalidades';
 
 function normalizeFeeOverride(db: DatabaseShape, value: number | null | undefined, clubeLtc?: boolean): number | null {
@@ -419,10 +425,93 @@ export function memberHasOpenDebt(db: DatabaseShape, memberId: string): boolean 
   );
 }
 
+export interface StatusChangeOptions {
+  /** Quando a saída/retorno aconteceu de fato (YYYY-MM-DD). Padrão: hoje. */
+  effectiveDate?: string;
+  /** Obrigatório ao inativar pela API; informal exige `confirmedBy`. */
+  kind?: DepartureKind;
+  confirmedBy?: string;
+  today?: string;
+  now?: Date;
+}
+
+export interface StatusChangeResult {
+  member: Member;
+  /** Pendentes de meses de ausência que foram para a lixeira. */
+  trashedIds: string[];
+  /** Pagas em meses de ausência: ficam como estão, para a tesouraria decidir. */
+  paidDuringAbsence: ReturnType<typeof paidMensalidadesInAbsence>;
+}
+
+function formatDay(date: string) {
+  return `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
+}
+
+function memberHistoryInOrder(db: DatabaseShape, memberId: string) {
+  return (db.memberStatusHistory ?? [])
+    .filter((entry) => entry.memberId === memberId)
+    .sort((a, b) => statusEffectiveDate(a).localeCompare(statusEffectiveDate(b)) || a.at.localeCompare(b.at));
+}
+
+/** A data efetiva cabe entre a entrada no grupo, a mudança anterior, a seguinte e hoje? */
+function assertEffectiveDateInRange(
+  member: Member,
+  date: string,
+  today: string,
+  previous: MemberStatusHistory | undefined,
+  next: MemberStatusHistory | undefined,
+) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Informe a data efetiva no formato AAAA-MM-DD');
+  if (date > today) throw new Error('A data efetiva não pode ser no futuro');
+  const joined = member.joinedAt?.slice(0, 10);
+  if (joined && date < joined) {
+    throw new Error(`A data efetiva não pode ser anterior à entrada no grupo (${formatDay(joined)})`);
+  }
+  if (previous && date < statusEffectiveDate(previous)) {
+    throw new Error(
+      `A data efetiva não pode ser anterior à mudança de situação anterior (${formatDay(statusEffectiveDate(previous))})`,
+    );
+  }
+  if (next && date > statusEffectiveDate(next)) {
+    throw new Error(
+      `A data efetiva não pode ser posterior à mudança de situação seguinte (${formatDay(statusEffectiveDate(next))})`,
+    );
+  }
+}
+
+/**
+ * Depois de mudar o histórico: pendentes em meses de ausência vão para a lixeira e, se o associado está ativo,
+ * os anos já gerados são completados com os meses que voltaram a ser devidos.
+ */
+function reconcileMemberCharges(
+  db: DatabaseShape,
+  member: Member,
+  fromDate: string,
+  userId: string,
+  today: string,
+  now: Date,
+) {
+  if (!paysMensalidade(member)) {
+    cancelUnpaidMensalidades(db, member.id);
+    return [];
+  }
+  const trashedIds = trashMensalidadesInAbsence(db, member.id, userId, now);
+  if (member.status === 'active') {
+    const lastYear = Number(today.slice(0, 4));
+    for (let year = Number(fromDate.slice(0, 4)); year <= lastYear; year += 1) {
+      if (isMensalidadeYearGenerated(db, year)) syncMensalidades(db, year, userId, today);
+    }
+    refreshPendingMensalidadeSchedule(db, today, userId);
+  }
+  return trashedIds;
+}
+
 /**
  * Troca a situação do associado (ativo↔inativo) exigindo justificativa e registrando o histórico.
- * Inativar é bloqueado se houver acordo de atraso em aberto. Inativar cancela mensalidades futuras
- * pendentes; reativar reabilita o agendamento. Nunca apaga o associado nem seu histórico.
+ * A data efetiva diz quando a saída/retorno aconteceu de fato e pode ser retroativa: ao inativar, as
+ * mensalidades pendentes a partir do mês seguinte à saída vão para a lixeira; ao reativar, voltam a ser
+ * geradas a partir do mês do retorno, sem cobrar o intervalo. Pagas nunca são tocadas.
+ * Inativar é bloqueado se houver acordo de atraso em aberto. Nunca apaga o associado nem seu histórico.
  */
 export function setMemberStatus(
   db: DatabaseShape,
@@ -430,7 +519,8 @@ export function setMemberStatus(
   nextStatus: MemberStatus,
   reason: string,
   userId: string,
-): Member | null {
+  options: StatusChangeOptions = {},
+): StatusChangeResult | null {
   const member = db.members.find((item) => item.id === memberId);
   if (!member) return null;
   const justification = reason.trim();
@@ -442,32 +532,86 @@ export function setMemberStatus(
   if (nextStatus === 'inactive' && memberHasOpenDebt(db, memberId)) {
     throw new Error('Não é possível inativar: o associado tem acordo de atraso em aberto. Quite o acordo primeiro.');
   }
+  const today = options.today ?? todayISO();
+  const now = options.now ?? new Date();
+  const effectiveDate = options.effectiveDate ?? today;
+  const history = memberHistoryInOrder(db, memberId);
+  assertEffectiveDateInRange(member, effectiveDate, today, history[history.length - 1], undefined);
+  const kind = nextStatus === 'inactive' ? (options.kind ?? null) : null;
+  const confirmedBy = kind === 'informal' ? (options.confirmedBy?.trim() ?? '') : null;
+  if (kind === 'informal' && !confirmedBy) {
+    throw new Error('Desligamento informal: informe quem confirmou a saída (chefe de seção, responsável…)');
+  }
+
   member.status = nextStatus;
   Object.assign(member, updatedAudit(userId));
-  if (!paysMensalidade(member)) {
-    cancelUnpaidMensalidades(db, member.id);
-  } else if (nextStatus === 'inactive') {
-    cancelSubsequentMensalidades(db, member.id);
-  } else {
-    refreshPendingMensalidadeSchedule(db, undefined, userId);
-  }
-  const history = db.memberStatusHistory ?? (db.memberStatusHistory = []);
-  history.unshift({
+  const entries = db.memberStatusHistory ?? (db.memberStatusHistory = []);
+  entries.unshift({
     id: id(),
     memberId: member.id,
-    at: new Date().toISOString(),
+    at: now.toISOString(),
     byId: userId,
     fromStatus,
     toStatus: nextStatus,
     reason: justification,
+    effectiveDate,
+    kind,
+    confirmedBy,
+    corrections: [],
   });
-  return member;
+  const trashedIds = reconcileMemberCharges(db, member, effectiveDate, userId, today, now);
+  return { member, trashedIds, paidDuringAbsence: paidMensalidadesInAbsence(db, member.id) };
+}
+
+/**
+ * Corrige a data efetiva de uma saída/retorno já registrada (ex.: desligamento registrado meses depois de o
+ * jovem parar de ir). Guarda a correção no próprio registro e realinha as cobranças.
+ */
+export function correctStatusEffectiveDate(
+  db: DatabaseShape,
+  memberId: string,
+  entryId: string,
+  effectiveDate: string,
+  reason: string,
+  userId: string,
+  options: { today?: string; now?: Date } = {},
+): StatusChangeResult | null {
+  const member = db.members.find((item) => item.id === memberId);
+  if (!member) return null;
+  const justification = reason.trim();
+  if (!justification) throw new Error('Informe a justificativa da correção');
+  const history = memberHistoryInOrder(db, memberId);
+  const index = history.findIndex((entry) => entry.id === entryId);
+  if (index < 0) throw new Error('Registro de situação não encontrado para este associado');
+  const entry = history[index];
+  const previousDate = statusEffectiveDate(entry);
+  if (previousDate === effectiveDate) throw new Error('A data informada é igual à data efetiva atual');
+  const today = options.today ?? todayISO();
+  const now = options.now ?? new Date();
+  assertEffectiveDateInRange(member, effectiveDate, today, history[index - 1], history[index + 1]);
+  const movesExitEarlier = entry.toStatus === 'inactive' && effectiveDate < previousDate;
+  const movesReturnLater = entry.toStatus === 'active' && effectiveDate > previousDate;
+  if ((movesExitEarlier || movesReturnLater) && memberHasOpenDebt(db, memberId)) {
+    throw new Error(
+      'Não é possível aumentar o período fora do grupo: o associado tem acordo de atraso em aberto. Quite o acordo primeiro.',
+    );
+  }
+
+  entry.effectiveDate = effectiveDate;
+  entry.corrections = [
+    ...(entry.corrections ?? []),
+    { at: now.toISOString(), byId: userId, from: previousDate, to: effectiveDate, reason: justification },
+  ];
+  Object.assign(member, updatedAudit(userId));
+  const fromDate = previousDate < effectiveDate ? previousDate : effectiveDate;
+  const trashedIds = reconcileMemberCharges(db, member, fromDate, userId, today, now);
+  return { member, trashedIds, paidDuringAbsence: paidMensalidadesInAbsence(db, member.id) };
 }
 
 export function statusHistoryOf(db: DatabaseShape, memberId: string): MemberStatusHistory[] {
   return (db.memberStatusHistory ?? [])
     .filter((entry) => entry.memberId === memberId)
-    .sort((a, b) => b.at.localeCompare(a.at));
+    .sort((a, b) => statusEffectiveDate(b).localeCompare(statusEffectiveDate(a)) || b.at.localeCompare(a.at));
 }
 
 export function addMemberAccount(

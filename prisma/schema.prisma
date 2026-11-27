@@ -479,6 +479,13 @@ model MemberStatusHistory {
   fromStatus String?  @map("from_status")
   toStatus   String   @map("to_status")
   reason     String
+  /// Data em que a saída/retorno aconteceu de fato; nula em registros antigos (vale a data de `at`).
+  effectiveDate DateTime? @map("effective_date") @db.Date
+  /// Só em saídas: formal | informal | abandono.
+  kind          String?
+  confirmedBy   String?   @map("confirmed_by")
+  /// Correções da data efetiva: [{ at, byId, from, to, reason }].
+  corrections   Json      @default("[]")
 
   @@index([memberId, at])
   @@map("member_status_history")

@@ -6,12 +6,14 @@ import {
   memberHasOpenDebt,
   officialFeesStale,
   refreshOfficialFees,
+  correctStatusEffectiveDate,
   setMemberStatus,
   siblingIdsOf,
   statusHistoryOf,
   updateMember,
 } from './members';
-import type { DatabaseShape } from '../shared/types';
+import type { DatabaseShape, Member } from '../shared/types';
+import { syncMensalidades } from '../mensalidades/mensalidades';
 
 function emptyDb(): DatabaseShape {
   return {
@@ -529,6 +531,147 @@ describe('members', () => {
     it('returns null for an unknown member', () => {
       const db = emptyDb();
       expect(setMemberStatus(db, 'nope', 'inactive', 'x', 'u1')).toBeNull();
+    });
+  });
+
+  describe('data efetiva da saída e do retorno', () => {
+    const NOW = new Date('2026-11-20T15:00:00.000Z');
+    const TODAY = '2026-11-20';
+
+    function youthDb(): DatabaseShape {
+      const db = emptyDb();
+      const youth: Member = {
+        id: 'j1',
+        name: 'ANA SOUZA',
+        email: 'ana@example.com',
+        phone: '',
+        branch: 'escoteiro',
+        role: 'jovem',
+        monthlyFee: 89.5,
+        status: 'active',
+        clubeLtc: false,
+        origin: 'manual',
+        joinedAt: '2026-03-01',
+        createdAt: '2026-03-01T00:00:00.000Z',
+      };
+      db.members.push(youth);
+      syncMensalidades(db, 2026, 'u1', '2026-03-01');
+      return db;
+    }
+    const months = (db: DatabaseShape) =>
+      db.transactions
+        .filter((tx) => tx.memberId === 'j1')
+        .map((tx) => tx.date.slice(0, 7))
+        .sort();
+    const pay = (db: DatabaseShape, ym: string) => {
+      const tx = db.transactions.find((item) => item.memberId === 'j1' && item.date.startsWith(ym))!;
+      tx.paymentStatus = 'paid';
+      tx.paidAt = `${ym}-05`;
+    };
+    const opts = { today: TODAY, now: NOW };
+
+    it('saída retroativa manda para a lixeira as pendentes a partir do mês seguinte à saída e preserva as pagas', () => {
+      const db = youthDb();
+      pay(db, '2026-03');
+      pay(db, '2026-09'); // pagou mesmo depois de ter parado de ir
+
+      const result = setMemberStatus(db, 'j1', 'inactive', 'Parou de frequentar', 'u1', {
+        ...opts,
+        effectiveDate: '2026-07-15',
+        kind: 'abandono',
+      })!;
+
+      expect(months(db)).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-09']);
+      expect(result.trashedIds).toHaveLength(3); // agosto, outubro, novembro
+      expect(db.trash!.map((item) => item.transaction.date.slice(0, 7)).sort()).toEqual([
+        '2026-08',
+        '2026-10',
+        '2026-11',
+      ]);
+      expect(result.paidDuringAbsence.map((tx) => tx.date.slice(0, 7))).toEqual(['2026-09']);
+      expect(statusHistoryOf(db, 'j1')[0]).toMatchObject({
+        effectiveDate: '2026-07-15',
+        kind: 'abandono',
+        confirmedBy: null,
+      });
+    });
+
+    it('desligamento informal exige quem confirmou', () => {
+      const db = youthDb();
+      expect(() =>
+        setMemberStatus(db, 'j1', 'inactive', 'Saiu', 'u1', { ...opts, effectiveDate: '2026-07-15', kind: 'informal' }),
+      ).toThrow(/quem confirmou/);
+      setMemberStatus(db, 'j1', 'inactive', 'Saiu', 'u1', {
+        ...opts,
+        effectiveDate: '2026-07-15',
+        kind: 'informal',
+        confirmedBy: ' Chefe Paula ',
+      });
+      expect(statusHistoryOf(db, 'j1')[0].confirmedBy).toBe('Chefe Paula');
+    });
+
+    it('rejeita data no futuro, antes da entrada e antes da mudança anterior', () => {
+      const db = youthDb();
+      const exit = (effectiveDate: string) =>
+        setMemberStatus(db, 'j1', 'inactive', 'Saiu', 'u1', { ...opts, effectiveDate, kind: 'formal' });
+      expect(() => exit('2026-12-01')).toThrow(/futuro/);
+      expect(() => exit('2026-02-10')).toThrow(/entrada no grupo/);
+      exit('2026-07-15');
+      expect(() =>
+        setMemberStatus(db, 'j1', 'active', 'Voltou', 'u1', { ...opts, effectiveDate: '2026-07-01' }),
+      ).toThrow(/mudança de situação anterior/);
+    });
+
+    it('retorno retroativo volta a cobrar a partir do mês do retorno, sem cobrar o intervalo', () => {
+      const db = youthDb();
+      setMemberStatus(db, 'j1', 'inactive', 'Saiu', 'u1', { ...opts, effectiveDate: '2026-06-20', kind: 'formal' });
+      setMemberStatus(db, 'j1', 'active', 'Voltou em setembro', 'u1', { ...opts, effectiveDate: '2026-09-03' });
+      expect(months(db)).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-09', '2026-10', '2026-11']);
+    });
+
+    it('corrigir a saída para antes manda os novos meses de ausência para a lixeira e guarda a correção', () => {
+      const db = youthDb();
+      setMemberStatus(db, 'j1', 'inactive', 'Registrado agora', 'u1', { ...opts, kind: 'abandono' });
+      expect(months(db)).toContain('2026-08');
+      const entry = statusHistoryOf(db, 'j1')[0];
+
+      const result = correctStatusEffectiveDate(db, 'j1', entry.id, '2026-07-10', 'Chefe confirmou julho', 'u2', opts)!;
+
+      expect(months(db)).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07']);
+      expect(result.trashedIds).toHaveLength(4); // agosto a novembro
+      expect(statusHistoryOf(db, 'j1')[0]).toMatchObject({
+        effectiveDate: '2026-07-10',
+        corrections: [{ from: TODAY, to: '2026-07-10', reason: 'Chefe confirmou julho', byId: 'u2' }],
+      });
+    });
+
+    it('corrigir o retorno para antes gera os meses que voltaram a ser devidos', () => {
+      const db = youthDb();
+      setMemberStatus(db, 'j1', 'inactive', 'Saiu', 'u1', { ...opts, effectiveDate: '2026-05-20', kind: 'formal' });
+      setMemberStatus(db, 'j1', 'active', 'Voltou', 'u1', { ...opts, effectiveDate: '2026-10-01' });
+      expect(months(db)).not.toContain('2026-08');
+      const back = statusHistoryOf(db, 'j1')[0];
+
+      correctStatusEffectiveDate(db, 'j1', back.id, '2026-08-02', 'Voltou antes do registrado', 'u1', opts);
+
+      expect(months(db)).toEqual(['2026-03', '2026-04', '2026-05', '2026-08', '2026-09', '2026-10', '2026-11']);
+    });
+
+    it('a correção respeita as mudanças vizinhas', () => {
+      const db = youthDb();
+      setMemberStatus(db, 'j1', 'inactive', 'Saiu', 'u1', { ...opts, effectiveDate: '2026-05-20', kind: 'formal' });
+      setMemberStatus(db, 'j1', 'active', 'Voltou', 'u1', { ...opts, effectiveDate: '2026-10-01' });
+      const [back, exit] = statusHistoryOf(db, 'j1');
+      expect(() => correctStatusEffectiveDate(db, 'j1', exit.id, '2026-10-15', 'x', 'u1', opts)).toThrow(
+        /mudança de situação seguinte/,
+      );
+      expect(() => correctStatusEffectiveDate(db, 'j1', back.id, '2026-05-01', 'x', 'u1', opts)).toThrow(
+        /mudança de situação anterior/,
+      );
+      expect(() => correctStatusEffectiveDate(db, 'j1', back.id, '2026-10-01', 'x', 'u1', opts)).toThrow(/igual/);
+      expect(() => correctStatusEffectiveDate(db, 'j1', 'nope', '2026-09-01', 'x', 'u1', opts)).toThrow(
+        /não encontrado/,
+      );
     });
   });
 });

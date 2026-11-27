@@ -12,7 +12,13 @@
  *    incluindo cliques no botão antigo de desativar, que não tinha efeito.
  */
 import { paysMensalidade } from '../src/mensalidades/fee-table';
-import { absentMonthsIndex, isMensalidadeTx, MENSALIDADE_MONTHS, todayISO } from '../src/mensalidades/mensalidades';
+import {
+  absentMonthsIndex,
+  isMensalidadeTx,
+  MENSALIDADE_MONTHS,
+  statusEffectiveDate,
+  todayISO,
+} from '../src/mensalidades/mensalidades';
 import { disconnectDb } from '../src/shared/db';
 import { loadDb } from '../src/shared/persistence/finance-store';
 import type { Transaction } from '../src/shared/types';
@@ -56,8 +62,8 @@ async function main() {
   for (const memberId of reactivated) {
     const entries = history
       .filter((h) => h.memberId === memberId)
-      .sort((a, b) => a.at.localeCompare(b.at))
-      .map((h) => `${h.toStatus === 'inactive' ? 'saiu' : 'voltou'} ${todayISO(new Date(h.at))} ("${h.reason}")`);
+      .sort((a, b) => statusEffectiveDate(a).localeCompare(statusEffectiveDate(b)))
+      .map((h) => `${h.toStatus === 'inactive' ? 'saiu' : 'voltou'} ${statusEffectiveDate(h)} ("${h.reason}")`);
     console.log(`  - ${byId.get(memberId)?.name ?? memberId}: ${entries.join(' → ')}`);
   }
 

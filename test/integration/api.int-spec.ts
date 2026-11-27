@@ -624,11 +624,18 @@ describe('API integration', () => {
     expect(launched).toHaveLength(7);
     expect(launched.every((item: { paymentStatus: string }) => item.paymentStatus === 'pending')).toBe(true);
 
-    const inactivated = await request(server)
+    const withoutKind = await request(server)
       .patch(`/api/members/${created.body.id}/status`)
       .set(auth)
       .send({ status: 'inactive', reason: 'Saiu do grupo' });
+    expect(withoutKind.status).toBe(400);
+
+    const inactivated = await request(server)
+      .patch(`/api/members/${created.body.id}/status`)
+      .set(auth)
+      .send({ status: 'inactive', reason: 'Saiu do grupo', kind: 'formal' });
     expect(inactivated.status).toBe(200);
+    expect(inactivated.body.status).toBe('inactive');
 
     const afterLeave = await request(server).get('/api/mensalidades?year=2026').set(auth);
     const left = afterLeave.body.rows.find((item: { memberId: string }) => item.memberId === created.body.id);
@@ -648,6 +655,28 @@ describe('API integration', () => {
         item.memberId === created.body.id && item.movementType?.name === 'Mensalidade',
     );
     expect(stillOpen.some((item: { date: string }) => item.date.slice(0, 7) > now.slice(0, 7))).toBe(false);
+
+    // Saída registrada com atraso: corrigir a data efetiva para julho tira as pendentes de agosto em diante.
+    const history = await request(server).get(`/api/members/${created.body.id}/status-history`).set(auth);
+    expect(history.status).toBe(200);
+    expect(history.body[0]).toMatchObject({ toStatus: 'inactive', kind: 'formal', effectiveDate: now });
+    const corrected = await request(server)
+      .patch(`/api/members/${created.body.id}/status-history/${history.body[0].id}`)
+      .set(auth)
+      .send({ effectiveDate: '2026-07-10', reason: 'Chefe de seção confirmou que parou em julho' });
+    expect(corrected.status).toBe(200);
+    const afterFix = await request(server).get('/api/transactions?from=2026-05-01&to=2026-12-31').set(auth);
+    const charged = afterFix.body
+      .filter(
+        (item: { memberId?: string; movementType?: { name: string } }) =>
+          item.memberId === created.body.id && item.movementType?.name === 'Mensalidade',
+      )
+      .map((item: { date: string }) => item.date.slice(0, 7))
+      .sort();
+    expect(charged).toEqual(['2026-05', '2026-06', '2026-07']);
+    const fixedHistory = await request(server).get(`/api/members/${created.body.id}/status-history`).set(auth);
+    expect(fixedHistory.body[0].effectiveDate).toBe('2026-07-10');
+    expect(fixedHistory.body[0].corrections).toHaveLength(1);
   });
 
   it('registers a barter, keeps it waiting for the board and settles whole months on approval', async () => {
