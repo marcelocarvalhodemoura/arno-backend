@@ -8,7 +8,10 @@ import { composeNotifyMessage } from './templates';
 import { whatsappStatus } from './whatsapp';
 import { OUTSIDE_WINDOW_ERROR, windowOpen } from './whatsapp-window';
 
-export type NotifyKind = 'charge' | 'receipt';
+/** Mensagens ligadas a um lançamento (cobrança de mensalidade ou comprovante de pagamento). */
+export type TransactionNotifyKind = 'charge' | 'receipt';
+/** departure_check: pergunta à família se o jovem continua no grupo (possível desligamento). */
+export type NotifyKind = TransactionNotifyKind | 'departure_check';
 export type NotifyChannel = 'email' | 'whatsapp';
 
 export type NotifyDelivery = {
@@ -109,7 +112,7 @@ async function recordOutbox(row: {
 export async function notifyTransaction(
   db: DatabaseShape,
   tx: Transaction,
-  kind: NotifyKind,
+  kind: TransactionNotifyKind,
   channels: NotifyChannel[],
   userId: string,
 ): Promise<NotifyDelivery[]> {
@@ -244,6 +247,82 @@ export async function lastWhatsAppChargeByMember() {
   const map = new Map<string, string>();
   for (const row of rows) {
     if (row.memberId && row._max.sentAt) map.set(row.memberId, row._max.sentAt.toISOString());
+  }
+  return map;
+}
+
+export const DEPARTURE_CHECK_SUBJECT = 'O jovem continua no grupo? (confirmação da tesouraria)';
+
+/** Registra a pergunta de permanência que a tesouraria enviou do próprio WhatsApp pelo link wa.me. */
+export async function recordManualDepartureCheck(input: {
+  memberId: string;
+  phone: string;
+  text: string;
+  userId: string;
+}) {
+  return recordOutbox({
+    kind: 'departure_check',
+    channel: 'whatsapp',
+    status: 'sent',
+    memberId: input.memberId,
+    to: input.phone,
+    subject: DEPARTURE_CHECK_SUBJECT,
+    body: input.text,
+    userId: input.userId,
+  });
+}
+
+/** Põe na fila o e-mail de confirmação de permanência para cada e-mail do jovem e dos responsáveis. */
+export async function queueDepartureCheckEmails(
+  db: DatabaseShape,
+  memberId: string,
+  compose: (who: string) => string,
+  userId: string,
+): Promise<NotifyDelivery[]> {
+  const targets = emailsOf(db, memberId);
+  const deliveries: NotifyDelivery[] = [];
+  if (!targets.length) {
+    const error = 'Associado sem e-mail cadastrado';
+    const rowId = await recordOutbox({
+      kind: 'departure_check',
+      channel: 'email',
+      status: 'skipped',
+      memberId,
+      to: '(sem e-mail)',
+      subject: '',
+      body: '',
+      error,
+      userId,
+    });
+    return [{ id: rowId, kind: 'departure_check', channel: 'email', status: 'skipped', to: '(sem e-mail)', error }];
+  }
+  for (const target of targets) {
+    const rowId = await recordOutbox({
+      kind: 'departure_check',
+      channel: 'email',
+      status: 'queued',
+      memberId,
+      to: target.email,
+      subject: DEPARTURE_CHECK_SUBJECT,
+      body: compose(target.name),
+      userId,
+    });
+    deliveries.push({ id: rowId, kind: 'departure_check', channel: 'email', status: 'queued', to: target.email });
+  }
+  kickOutbox();
+  return deliveries;
+}
+
+/** Última pergunta de permanência enviada (ou posta na fila) a cada associado. */
+export async function lastDepartureCheckByMember() {
+  const rows = await prisma.messageOutbox.groupBy({
+    by: ['memberId'],
+    where: { kind: 'departure_check', status: { in: ['sent', 'queued', 'sending'] }, memberId: { not: null } },
+    _max: { createdAt: true },
+  });
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    if (row.memberId && row._max.createdAt) map.set(row.memberId, row._max.createdAt.toISOString());
   }
   return map;
 }

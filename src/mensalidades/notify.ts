@@ -4,14 +4,14 @@ import {
   summarizeDeliveries,
   type NotifyChannel,
   type NotifyDelivery,
-  type NotifyKind,
+  type TransactionNotifyKind,
 } from '../notifications/notify';
 
 export function collectMensalidadeNotifyIds(
   report: MensalidadeReport,
   input: {
     month?: number;
-    kind: NotifyKind;
+    kind: TransactionNotifyKind;
     memberIds?: string[];
     transactionIds?: string[];
   },
@@ -36,7 +36,7 @@ export function collectMensalidadeNotifyIds(
 export async function notifyMensalidadeTransactions(
   db: DatabaseShape,
   txIds: Iterable<string>,
-  kind: NotifyKind,
+  kind: TransactionNotifyKind,
   channels: NotifyChannel[],
   userId: string,
 ) {

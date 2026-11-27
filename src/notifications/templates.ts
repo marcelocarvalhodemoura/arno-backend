@@ -4,7 +4,7 @@ import { lateMonthlyFee, onTimeMonthlyFee, paysMensalidade, scheduleOf } from '.
 import { dueDayOf, todayISO } from '../mensalidades/mensalidades';
 import type { DatabaseShape, Member, Transaction } from '../shared/types';
 import { YOUTH_BRANCHES } from '../shared/types';
-import type { NotifyKind } from './notify'; // type-only: avoids runtime cycle with notify.ts
+import type { TransactionNotifyKind } from './notify'; // type-only: avoids runtime cycle with notify.ts
 
 export type NotifyMessage = {
   subject: string;
@@ -470,7 +470,12 @@ export function composeDueReminderMessage(input?: {
   };
 }
 
-export function composeNotifyMessage(db: DatabaseShape, tx: Transaction, kind: NotifyKind, who: string): NotifyMessage {
+export function composeNotifyMessage(
+  db: DatabaseShape,
+  tx: Transaction,
+  kind: TransactionNotifyKind,
+  who: string,
+): NotifyMessage {
   const group = db.settings.groupName || 'Grupo Escoteiro Arno Friedrich';
   const member = tx.memberId ? db.members.find((item) => item.id === tx.memberId) : undefined;
   const month = Number(tx.date.slice(5, 7));

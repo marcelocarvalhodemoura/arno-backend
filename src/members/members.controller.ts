@@ -153,6 +153,37 @@ export class MembersController {
     return this.members.correctStatusDate(id, entryId, body, auth.userId);
   }
 
+  @Get('member-departures')
+  @ApiOperation({
+    summary: 'Possíveis desligamentos',
+    description:
+      'Jovens ativos com N ou mais mensalidades vencidas seguidas sem pagamento, com a mensagem de confirmação ' +
+      'de permanência pronta (link wa.me) e a última pergunta enviada. Ninguém é desligado automaticamente.',
+  })
+  @ApiQuery({ name: 'months', required: false, description: 'Mínimo de meses seguidos em aberto (padrão 3)' })
+  possibleDepartures(@Query('months') months?: string) {
+    return this.members.possibleDepartures(months);
+  }
+
+  @Post('member-departures/:memberId/whatsapp')
+  @ApiOperation({ summary: 'Registrar a pergunta de permanência enviada pelo WhatsApp da tesouraria (wa.me)' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['phone', 'text'],
+      properties: { phone: { type: 'string' }, text: { type: 'string' } },
+    },
+  })
+  departureWhatsAppSent(@Param('memberId') memberId: string, @Body() body: unknown, @CurrentUser() auth: AuthPayload) {
+    return this.members.departureWhatsAppSent(memberId, body, auth.userId);
+  }
+
+  @Post('member-departures/:memberId/email')
+  @ApiOperation({ summary: 'Enviar por e-mail a pergunta de permanência ao jovem e aos responsáveis' })
+  departureEmail(@Param('memberId') memberId: string, @CurrentUser() auth: AuthPayload) {
+    return this.members.departureEmail(memberId, auth.userId);
+  }
+
   @Get('members/:id/status-history')
   @ApiOperation({ summary: 'Histórico de mudanças de situação do associado' })
   statusHistory(@Param('id') id: string) {

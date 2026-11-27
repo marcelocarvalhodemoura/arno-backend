@@ -679,6 +679,61 @@ describe('API integration', () => {
     expect(fixedHistory.body[0].corrections).toHaveLength(1);
   });
 
+  it('lists possible departures, records the WhatsApp question and tracks the deadline', async () => {
+    const auth = await tesoureiroAuth();
+    const stamp = Date.now();
+    const created = await request(server)
+      .post('/api/members')
+      .set(auth)
+      .send({
+        name: `Jovem Sumido ${stamp}`,
+        email: `sumido.${stamp}@arnofriedrich.org.br`,
+        phone: '(51) 99999-5555',
+        branch: 'escoteiro',
+        role: 'jovem',
+        monthlyFee: 60,
+        joinedAt: '2026-03-01',
+        clubeLtc: false,
+        guardians: [
+          {
+            name: 'Responsável Sumido',
+            email: `resp.sumido.${stamp}@arnofriedrich.org.br`,
+            relationship: 'Pai',
+            phone: '(51) 99999-5556',
+          },
+        ],
+      });
+    expect(created.status).toBe(201);
+    await request(server).get('/api/mensalidades?year=2026').set(auth);
+
+    const invalid = await request(server).get('/api/member-departures?months=0').set(auth);
+    expect(invalid.status).toBe(400);
+
+    const listed = await request(server).get('/api/member-departures?months=3').set(auth);
+    expect(listed.status).toBe(200);
+    const row = listed.body.rows.find((item: { memberId: string }) => item.memberId === created.body.id);
+    expect(row).toBeDefined();
+    expect(row.since).toBe('2026-03');
+    expect(row.lastCheck).toBeNull();
+    expect(row.contacts.length).toBeGreaterThan(0);
+    expect(row.contacts[0].text).toContain('continua participando');
+
+    const sent = await request(server)
+      .post(`/api/member-departures/${created.body.id}/whatsapp`)
+      .set(auth)
+      .send({ phone: row.contacts[0].phone, text: row.contacts[0].text });
+    expect(sent.status).toBe(201);
+
+    const emailed = await request(server).post(`/api/member-departures/${created.body.id}/email`).set(auth);
+    expect(emailed.status).toBe(201);
+    expect(emailed.body.summary.queued).toBeGreaterThan(0);
+
+    const after = await request(server).get('/api/member-departures?months=3').set(auth);
+    const checked = after.body.rows.find((item: { memberId: string }) => item.memberId === created.body.id);
+    expect(checked.lastCheck).not.toBeNull();
+    expect(checked.lastCheck.expired).toBe(false);
+  });
+
   it('registers a barter, keeps it waiting for the board and settles whole months on approval', async () => {
     const auth = await tesoureiroAuth();
     const admin = { Authorization: `Bearer ${await login(TEST_ADMIN_USER, TEST_PASSWORD)}` };

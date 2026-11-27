@@ -3,15 +3,13 @@
   "rootDir": "..",
   "testEnvironment": "node",
   "watchman": false,
+  "modulePathIgnorePatterns": ["<rootDir>/dist", "<rootDir>/coverage"],
   "testRegex": "test/integration/.*\\.int-spec\\.ts$",
   "setupFiles": ["<rootDir>/test/integration/env.ts"],
   "globalSetup": "<rootDir>/test/integration/global-setup.ts",
   "maxWorkers": 1,
   "testTimeout": 60000,
   "transform": {
-    "^.+\\.(t|j)s$": [
-      "ts-jest",
-      { "tsconfig": "tsconfig.spec.json" }
-    ]
+    "^.+\\.(t|j)s$": ["ts-jest", { "tsconfig": "tsconfig.spec.json" }]
   }
 }

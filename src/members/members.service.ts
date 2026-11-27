@@ -26,6 +26,18 @@ import {
   patchMemberBody,
 } from '../shared/http/schemas';
 import { loadDb, mutate } from '../shared/persistence/finance-store';
+import { buildPossibleDepartures, departureCheckEmailText } from './departure-check';
+import {
+  lastDepartureCheckByMember,
+  queueDepartureCheckEmails,
+  recordManualDepartureCheck,
+  summarizeDeliveries,
+} from '../notifications/notify';
+
+const departureWhatsAppBody = z.object({
+  phone: z.string().min(8),
+  text: z.string().min(1).max(4000),
+});
 import { IMPORT_CHUNK_SIZE } from '../shared/types';
 
 const importMembersBody = z.object({
@@ -109,6 +121,38 @@ export class MembersService {
     });
     if (!result) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
     return presentStatusChange(result);
+  }
+
+  async possibleDepartures(months?: string) {
+    const parsed = months === undefined || months === '' ? undefined : Number(months);
+    if (parsed !== undefined && (!Number.isInteger(parsed) || parsed < 1 || parsed > 12)) {
+      fail('Informe de 1 a 12 meses em aberto', HttpStatus.BAD_REQUEST);
+    }
+    const [db, lastChecks] = await Promise.all([loadDb(), lastDepartureCheckByMember()]);
+    return buildPossibleDepartures(db, lastChecks, { months: parsed });
+  }
+
+  async departureWhatsAppSent(memberId: string, body: unknown, userId: string) {
+    const { phone, text } = parseDto(departureWhatsAppBody, body);
+    const db = await loadDb();
+    if (!db.members.some((item) => item.id === memberId)) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    const id = await recordManualDepartureCheck({ memberId, phone, text, userId });
+    return { id, sentAt: new Date().toISOString() };
+  }
+
+  async departureEmail(memberId: string, userId: string) {
+    const db = await loadDb();
+    if (!db.members.some((item) => item.id === memberId)) fail('Associado não encontrado', HttpStatus.NOT_FOUND);
+    if (!departureCheckEmailText(db, memberId, '')) {
+      fail('Este associado não tem mensalidades vencidas em aberto', HttpStatus.BAD_REQUEST);
+    }
+    const deliveries = await queueDepartureCheckEmails(
+      db,
+      memberId,
+      (who) => departureCheckEmailText(db, memberId, who) ?? '',
+      userId,
+    );
+    return { deliveries, summary: summarizeDeliveries(deliveries) };
   }
 
   async statusHistory(id: string) {
