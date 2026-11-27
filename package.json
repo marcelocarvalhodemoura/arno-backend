@@ -17,6 +17,7 @@
     "normalize:names": "ts-node --transpile-only scripts/normalize-member-names.ts",
     "duplicates:check": "ts-node --transpile-only scripts/cleanup-duplicate-transactions.ts",
     "allocations:check": "ts-node --transpile-only scripts/check-allocations.ts",
+    "absences:check": "ts-node --transpile-only scripts/check-absences.ts",
     "prisma:generate": "prisma generate",
     "insomnia": "node scripts/generate-insomnia.js",
     "whatsapp:check": "node scripts/whatsapp-setup.mjs",

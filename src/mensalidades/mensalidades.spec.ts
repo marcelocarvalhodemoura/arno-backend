@@ -16,8 +16,9 @@ import {
   settleMensalidades,
   splitTransactionWithMensalidades,
   syncMensalidades,
+  absentMonthsIndex,
 } from './mensalidades';
-import type { DatabaseShape, Member, MovementType, Transaction } from '../shared/types';
+import type { DatabaseShape, Member, MemberStatusHistory, MovementType, Transaction } from '../shared/types';
 import { createdAudit } from '../shared/audit';
 
 function member(partial: Partial<Member> & Pick<Member, 'id' | 'name' | 'joinedAt'>): Member {
@@ -642,5 +643,95 @@ describe('mensalidades', () => {
       'u1',
     );
     expect(again.map((tx) => tx.date)).toEqual(['2026-03-10', '2026-01-11']);
+  });
+
+  describe('saída e retorno ao grupo', () => {
+    function statusEntry(at: string, toStatus: 'active' | 'inactive'): MemberStatusHistory {
+      return {
+        id: `${at}-${toStatus}`,
+        memberId: 'm1',
+        at,
+        byId: 'u1',
+        fromStatus: toStatus === 'active' ? 'inactive' : 'active',
+        toStatus,
+        reason: 'teste',
+      };
+    }
+    const owedMonths = (db: DatabaseShape) =>
+      db.transactions
+        .filter((tx) => tx.memberId === 'm1')
+        .map((tx) => tx.date.slice(0, 7))
+        .sort();
+
+    it('não recria os meses em que o jovem esteve fora ao reativar', () => {
+      // Saiu em 15/07 e voltou em 10/10: agosto e setembro inteiros fora.
+      const db = emptyDb({
+        members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 89.5 })],
+        memberStatusHistory: [
+          statusEntry('2026-07-15T15:00:00.000Z', 'inactive'),
+          statusEntry('2026-10-10T15:00:00.000Z', 'active'),
+        ],
+      });
+      syncMensalidades(db, 2026, 'u1', '2026-10-12');
+      expect(owedMonths(db)).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-10', '2026-11']);
+
+      const cells = buildMensalidadeReport(db, 2026, '2026-10-12').rows[0].cells;
+      expect(cells.find((cell) => cell.month === 8)!.status).toBe('none');
+      expect(cells.find((cell) => cell.month === 9)!.status).toBe('none');
+      expect(cells.find((cell) => cell.month === 7)!.status).toBe('overdue');
+    });
+
+    it('aceita vários ciclos de saída e retorno', () => {
+      const isAbsent = absentMonthsIndex({
+        memberStatusHistory: [
+          statusEntry('2026-03-20T15:00:00.000Z', 'inactive'),
+          statusEntry('2026-05-02T15:00:00.000Z', 'active'),
+          statusEntry('2026-08-05T15:00:00.000Z', 'inactive'),
+          statusEntry('2026-11-01T15:00:00.000Z', 'active'),
+        ],
+      });
+      const absent = [
+        '2026-03',
+        '2026-04',
+        '2026-05',
+        '2026-06',
+        '2026-07',
+        '2026-08',
+        '2026-09',
+        '2026-10',
+        '2026-11',
+      ].filter((ym) => isAbsent('m1', ym));
+      expect(absent).toEqual(['2026-04', '2026-09', '2026-10']);
+      expect(isAbsent('outro', '2026-04')).toBe(false);
+    });
+
+    it('retorno em outro ano não cobra o ano em que esteve fora', () => {
+      const db = emptyDb({
+        members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2025-03-01', monthlyFee: 89.5 })],
+        memberStatusHistory: [
+          statusEntry('2025-11-20T15:00:00.000Z', 'inactive'),
+          statusEntry('2027-04-03T15:00:00.000Z', 'active'),
+        ],
+      });
+      expect(syncMensalidades(db, 2026, 'u1', '2027-04-05')).toBe(0);
+      syncMensalidades(db, 2027, 'u1', '2027-04-05');
+      expect(owedMonths(db)[0]).toBe('2027-04');
+    });
+
+    it('usa o fuso de Brasília para decidir o mês da saída', () => {
+      // 01/09 01:00 UTC ainda é 31/08 em Brasília: a saída é em agosto, setembro fica fora.
+      const isAbsent = absentMonthsIndex({
+        memberStatusHistory: [statusEntry('2026-09-01T01:00:00.000Z', 'inactive')],
+      });
+      expect(isAbsent('m1', '2026-08')).toBe(false);
+      expect(isAbsent('m1', '2026-09')).toBe(true);
+    });
+
+    it('associado sem histórico continua cobrado normalmente', () => {
+      const db = emptyDb({
+        members: [member({ id: 'm1', name: 'Ana Souza', joinedAt: '2026-03-01', monthlyFee: 89.5 })],
+      });
+      expect(syncMensalidades(db, 2026, 'u1', '2026-10-12')).toBe(9);
+    });
   });
 });
